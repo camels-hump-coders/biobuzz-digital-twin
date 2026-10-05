@@ -145,6 +145,11 @@
           "type": "string"
         }
       }
+    },
+    "ignoreBindings": {
+      "type": "boolean",
+      "default": false,
+      "description": "do not apply TeamCode/twin-bindings.json for this run (assets as committed)"
     }
   }
 }

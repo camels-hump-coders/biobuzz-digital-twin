@@ -266,8 +266,9 @@ link.onMissingDevice = (name, requested) => {
 /** Re-evaluate TeamCode/twin-bindings.json against the twin's knobs and push the merged overrides to the host. */
 let lastBindingsText: string | undefined;
 let lastBoundJson = "";
+const ignoreBindings = new URLSearchParams(location.search).get("nobind") === "1"; // twin-test "ignoreBindings": run with the asset files as committed
 function syncBindings() {
-  const text = link.bindings?.text;
+  const text = ignoreBindings ? undefined : link.bindings?.text;
   if (!text) { if (lastBindingsText !== undefined) { lastBindingsText = undefined; link.bound = { overrides: {}, sources: {}, errors: [] }; } return; }
   try { link.bound = computeBindings(parseBindings(text), twinKnobs(state)); }
   catch (e) { link.bound = { overrides: {}, sources: {}, errors: [`twin-bindings.json: ${(e as Error).message}`] }; }
