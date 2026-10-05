@@ -94,6 +94,19 @@ pnpm skill:install ~/dev/FtcRobotController     # copies to <team>/.claude/skill
 
 `npx skills add ... --list` shows what the repo offers. The CLI install does not know where your twin checkout is; the skill then looks for a sibling `biobuzz-digital-twin` directory or clones one, so optionally add `.biobuzz-twin.json` (`{ "twinPath": "/path/to/twin" }`) to the team repo root to point it somewhere else. Commit the skill files; from then on "run this through the twin" is something every teammate's agent knows how to do.
 
+## Twin bindings: one source of truth for robot measurements
+
+Your OpModes carry settings that describe the physical robot (wheel diameter, ticks per revolution, track width, camera mount, alliance, shooter direction). The twin models the same facts. `TeamCode/twin-bindings.json` in the team repo says which asset key is derived from which twin knob; the twin evaluates it whenever a knob changes and feeds the results to your code at INIT as asset overrides, marked ⇐ in the TeamCode settings panel. Measure once, in the twin, and the sim and your code can never disagree.
+
+```json
+{ "version": 1, "bindings": [
+  { "asset": "biobuzz/robot-profile.json", "key": "wheelDiameterIn", "twin": "robot.wheelDiameterIn", "round": 3 },
+  { "asset": "biobuzz/robot-profile.json", "key": "camera.pitchDeg", "twin": "hardware.webcam_1.pitchUpDeg" },
+  { "asset": "biobuzz/robot-profile.json", "key": "tagTracking.alliance", "twin": "upper(alliance)" } ] }
+```
+
+Expressions use knob names, numbers, `+ - * / ( )` and `round abs min max upper lower`; `map` translates values and `round` rounds. *Download twin knob catalogue* in the panel lists every knob with its current value: `robot.*` (dimensions, wheels, mass, drivetrain), `camera.<name>.*` and `hardware.<webcam name>.*` (mount in inches, pitch both signs, yaw, roll, FOV), `launcher.*`, `hardware.<device>.*` (port, ticks, free RPM, direction sign), `start.*`, `alliance`, `hive.*`. The committed asset files are still what runs on the robot, so copy new measurements from the twin into them when they change.
+
 ## Match flow
 
 The field loads in **setup**: every robot parked on its starting mark (Field & target → *Starting positions*, mirrored when you play blue; by default you start on the half of the field our hive's raised cell faces and the partner on the other), pieces at match start, the other robots idle. **Start match** releases the 2:30 clock and the scripted robots; **Stop** freezes them; **Reset to start** parks everything again. With TeamCode connected the Driver-Station buttons do the same for the whole field: INIT resets the board, START starts your OpMode and the match together, STOP ends both.

@@ -16,6 +16,7 @@ tasks.named<JavaExec>("run") {
     val panelsAssets = project(":panels").layout.buildDirectory.dir("panels/assets").get().asFile.path
     systemProperty("sim.assets", listOfNotNull((findProperty("simAssets") as String?)?.takeIf { it.isNotBlank() }, panelsAssets).joinToString(","))
     systemProperty("sim.panels", (findProperty("simPanels") as String?) ?: "true")
+    systemProperty("sim.bindings", (findProperty("simBindings") as String?) ?: "")
     // SIM_DEBUG=true prints OpMode lifecycle notifications and turns on Panels' own logs
     systemProperty("sim.debugLifecycle", System.getenv("SIM_DEBUG") ?: "false")
     systemProperty("sim.prefs", (findProperty("simPrefs") as String?) ?: layout.projectDirectory.dir("../.sim-prefs").asFile.path)

@@ -189,7 +189,14 @@ public class SimLink extends WebSocketServer {
                 });
             } catch (Exception ignored) {}
         }
-        m.add("files", files); return m;
+        m.add("files", files);
+        // the team's twin-bindings.json (asset keys derived from twin knobs), re-read every time so edits show up on reconnect
+        String bindings = System.getProperty("sim.bindings", "");
+        if (!bindings.isBlank()) {
+            java.io.File f = new java.io.File(bindings);
+            if (f.isFile()) { try { JsonObject b = new JsonObject(); b.addProperty("path", f.getName()); b.addProperty("text", java.nio.file.Files.readString(f.toPath())); m.add("bindings", b); } catch (Exception ignored) {} }
+        }
+        return m;
     }
     private JsonObject statusMessage() {
         JsonObject m = new JsonObject(); m.addProperty("type", "status"); m.addProperty("status", runner.status().name()); m.addProperty("opMode", runner.currentName()); m.addProperty("error", runner.error()); return m;

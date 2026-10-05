@@ -8,6 +8,7 @@ import type { CameraMount } from "./robot/robotSpec";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
 import { startPose } from "./sim/starts";
+import { computeBindings, mergeOverrides, parseBindings, twinKnobs } from "./runtime/bindings";
 import type { ScriptedRobot } from "./sim/opponents";
 import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
@@ -201,7 +202,8 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
-  if (what === "assets" && link.connected) link.sendAssetOverrides(state.assetOverrides);
+  if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides));
+  if (what === "robot" || what === "cameras" || what === "launcher" || what === "hardware" || what === "sim" || what === "reset") syncBindings();
   if (what === "sim") {
     for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
     playerAgent.alliance = state.alliance;
@@ -256,9 +258,22 @@ link.onMissingDevice = (name, requested) => {
   saveState(state);
   panel.render();
 };
+/** Re-evaluate TeamCode/twin-bindings.json against the twin's knobs and push the merged overrides to the host. */
+let lastBindingsText: string | undefined;
+let lastBoundJson = "";
+function syncBindings() {
+  const text = link.bindings?.text;
+  if (!text) { if (lastBindingsText !== undefined) { lastBindingsText = undefined; link.bound = { overrides: {}, sources: {}, errors: [] }; } return; }
+  try { link.bound = computeBindings(parseBindings(text), twinKnobs(state)); }
+  catch (e) { link.bound = { overrides: {}, sources: {}, errors: [`twin-bindings.json: ${(e as Error).message}`] }; }
+  lastBindingsText = text;
+  const json = JSON.stringify(link.bound.overrides);
+  if (json !== lastBoundJson) { lastBoundJson = json; if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); panel.render(); }
+}
 let lastLinkStatus = link.status;
 link.onChange = () => {
-  if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(state.assetOverrides); hardwareSent = true; }
+  if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); hardwareSent = true; }
+  if (link.bindings?.text !== lastBindingsText) syncBindings();
   if (!link.connected) hardwareSent = false;
   // Driver-Station flow: INIT parks everything at the start positions, START releases the match clock and the other
   // robots together with the OpMode, STOP freezes them
@@ -761,7 +776,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };

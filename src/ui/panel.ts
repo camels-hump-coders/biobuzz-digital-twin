@@ -237,6 +237,13 @@ export class Panel {
             }
             if (q && !key.toLowerCase().includes(q)) return;
             shown++;
+            const boundSrc = link.bound.sources[file.path]?.[key];
+            if (boundSrc !== undefined) {
+              const bv = link.bound.overrides[file.path][key];
+              body.append(el("div", { class: "arow over bound", style: `padding-left:${depth * 10}px` }, el("label", { title: `${key} ⇐ ${boundSrc}` }, name), el("span", { class: "bval" }, typeof bv === "string" ? bv : JSON.stringify(bv))),
+                el("div", { class: "ahint", style: `padding-left:${depth * 10}px` }, `⇐ twin: ${boundSrc} · file: ${fmt(v)}`));
+              return;
+            }
             const has = key in ov;
             const value = has ? ov[key] : v;
             const label = el("label", { title: key }, name);

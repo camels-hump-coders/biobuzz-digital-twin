@@ -51,6 +51,10 @@ export class RuntimeLink {
   notes: string[] = [];
   /** JSON assets found in the TeamCode assets folder (hardwareMap.appContext.getAssets()) */
   assets: { path: string; text: string }[] = [];
+  /** TeamCode/twin-bindings.json from the team repo, when present */
+  bindings?: { path: string; text: string };
+  /** latest evaluation of the bindings (filled by the app) */
+  bound: { overrides: Record<string, Record<string, unknown>>; sources: Record<string, Record<string, string>>; errors: string[] } = { overrides: {}, sources: {}, errors: [] };
   /** the real FTC Panels dashboard the host serves (undefined when the host runs without it) */
   panelsUrl?: string;
   private retryTimer?: number;
@@ -89,7 +93,7 @@ export class RuntimeLink {
       case "status": { const prev = this.status; this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; if (prev !== this.status) this.statusSince = performance.now(); this.onChange(); break; }
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
-      case "assets": this.assets = msg.files ?? []; this.onChange(); break;
+      case "assets": this.assets = msg.files ?? []; this.bindings = msg.bindings && msg.bindings.text ? msg.bindings : undefined; this.onChange(); break;
     }
   }
   private send(o: unknown) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }

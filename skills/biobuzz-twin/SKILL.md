@@ -83,7 +83,28 @@ and hit, carried game pieces, hive loads/tips, fouls, and `pageErrors`/`hostLogT
   until calibrated) and supply `assetOverrides`.
 - `⚠ fps` / sim slower than real time: harmless headless rendering speed; inputs are scheduled in simulated time.
 
-## 4. Workflow for a code change
+## 4. Keep robot measurements bound to the twin
+
+The twin is the single source of truth for the robot's physical facts. Any setting the code reads that describes
+the robot or the match situation, rather than a strategy or a driver preference, must be bound in
+`TeamCode/twin-bindings.json` so the sim feeds it automatically and the two can never disagree. That covers:
+dimensions, wheel diameter, ticks per revolution, track width, encoder signs, camera mount position and angles,
+shooter direction, alliance, start pose. Rules:
+
+1. When you add such a setting to a JSON asset, add a binding in the same change: `{ "asset", "key", "twin" }` with a
+   `note` on units and sign conventions. Get knob names from the twin's knob catalogue (TeamCode settings panel →
+   *Download twin knob catalogue*, or `window.__twin.knobs()` in the twin page). Prefer the camera knobs under
+   `hardware.<webcam device name>.*` so the binding follows the hardware-map assignment.
+2. If a twin knob for the fact does not exist, say so in the summary (and in `_not_bound` of the bindings file) so the
+   twin can grow a knob; do not invent a value in two places.
+3. Keep strategy tuning (powers, timeouts, distances to drive) and feature switches (enabled flags) unbound; those are
+   set per run in the TeamCode settings panel or stay in the asset.
+4. After changing bindings, run a scenario: binding errors appear in the twin-test report's telemetry/pageErrors and in
+   the panel; unknown knob names are the usual mistake.
+5. The committed asset values still drive the real robot. When the twin's measurement changes, copy the new value into
+   the asset file too (the panel shows "file: …" next to each bound key).
+
+## 5. Workflow for a code change
 
 1. Make the change in the team repo.
 2. Run the relevant scenario(s); for a new feature write a scenario that exercises it (inputs + expectations).

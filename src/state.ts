@@ -120,6 +120,8 @@ export function loadState(): AppState {
       // migration: intake side (older saves collected from every side)
       if (s.robot && !s.robot.intake) s.robot.intake = { side: "front", widthM: 13 * 0.0254 };
       if (s.robot && !s.robot.massKg) s.robot.massKg = 12;
+      // migration: the StarterBot shooter camera default pitch was a guess (8 deg up); the team measured 35 deg up
+      for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
       return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, matchPhase: undefined, matchClock: undefined, matchRequest: undefined };

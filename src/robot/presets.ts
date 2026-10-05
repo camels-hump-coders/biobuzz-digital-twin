@@ -25,7 +25,7 @@ export function starterBotCamera(id = "cam1"): CameraMount {
   c.forwardM = -6 * IN;
   c.heightM = 13 * IN;
   c.yawDeg = 180;
-  c.pitchDeg = -8;
+  c.pitchDeg = -35; // tilted up 35 deg: from 12.5 in the raised cell's tags sit ~37 in higher at ~55 in range
   return c;
 }
 

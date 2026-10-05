@@ -118,6 +118,8 @@ if (team) gradleArgs.push(`-PteamCode=${team}`);
 if (allExcludes.length) gradleArgs.push(`-PteamExclude=${allExcludes.join(",")}`);
 if (simDir && existsSync(simDir)) gradleArgs.push(`-PteamSim=${simDir}`);
 if (assetsDir && existsSync(assetsDir)) gradleArgs.push(`-PsimAssets=${assetsDir}`);
+const bindingsFile = team ? join(resolve(team, "../../.."), "twin-bindings.json") : undefined;
+if (bindingsFile && existsSync(bindingsFile)) gradleArgs.push(`-PsimBindings=${bindingsFile}`);
 if (watch) gradleArgs.push("--continuous");
 
 console.log(`sim: TeamCode  ${team ?? "(none — sample OpModes only; pass --team <path>)"}`);
@@ -125,6 +127,7 @@ if (exclude) console.log(`sim: excluding ${exclude}`);
 if (autoExcluded.length) { console.log(`sim: skipping ${autoExcluded.length} file(s) that use Android/robot-only APIs (add a copy under TeamCode/src/sim/java to provide a sim version):`); for (const f of autoExcluded) console.log(`sim:   ${f}`); }
 if (simDir && existsSync(simDir)) console.log(`sim: overrides ${simDir}`);
 if (assetsDir && existsSync(assetsDir)) console.log(`sim: assets    ${assetsDir}`);
+if (bindingsFile && existsSync(bindingsFile)) console.log(`sim: bindings  ${bindingsFile}`);
 console.log(`sim: JDK       ${javaHome ?? "from PATH"}`);
 console.log(`sim: host      ws://127.0.0.1:${hostPort}${watch ? "  (auto-rebuilds and restarts when your code changes)" : ""}`);
 console.log(`sim: twin      http://localhost:${port}/?runtime=1`);
