@@ -24,6 +24,12 @@ export interface HudData {
   bestRpm?: number;
   flightTime?: number;
   apexIn?: number;
+  pHit?: number;
+  pLo?: number;
+  pHi?: number;
+  mcN?: number;
+  meanMissIn?: number;
+  actualHit?: boolean;
   shotsFired: number;
   shotsHit: number;
   tags: TagVisibility[];
@@ -54,6 +60,8 @@ export class Hud {
         <tr><td>Predicted${d.aimed ? "" : " (once aimed)"}</td><td class="${cls(d.hit)}">${d.hit === undefined ? "–" : d.hit ? "HIT" : "MISS"} · Δh ${f(d.heightErrorIn, 1)} in · entry ${f(d.entryAngleDeg, 0)}°</td></tr>
         <tr><td>Flight</td><td>${f(d.flightTime, 2)} s · apex ${f(d.apexIn, 0)} in</td></tr>
         <tr><td>Lowest-energy</td><td>${d.bestAngleDeg === undefined ? "no feasible angle in hood range" : `${f(d.bestAngleDeg, 1)}° @ ${f(d.bestSpeed, 2)} m/s (${f(d.bestRpm, 0)} RPM)`}</td></tr>
+        <tr><td>As pointed now</td><td class="${cls(d.actualHit)}">${d.actualHit === undefined ? "–" : d.actualHit ? "HIT" : "MISS"}</td></tr>
+        <tr><td>Hit probability</td><td class="${d.pHit === undefined ? "" : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad"}">${d.pHit === undefined ? "–" : `${(d.pHit * 100).toFixed(0)}% (95% CI ${(d.pLo! * 100).toFixed(0)}–${(d.pHi! * 100).toFixed(0)}, n=${d.mcN})`}${d.meanMissIn ? ` · misses by ${f(d.meanMissIn, 1)} in` : ""}</td></tr>
         <tr><td>Fired / hit</td><td>${d.shotsFired} / ${d.shotsHit}</td></tr>
       </table>
       <h2 style="margin-top:8px">AprilTags — ${d.cameraName}</h2>

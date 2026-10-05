@@ -27,9 +27,14 @@ describe("drive", () => {
     for (let i = 0; i < 200; i++) pose = stepPose(pose, { vx: 0, vz: 1, yawRate: 0 }, 0.05, { lengthM: m(18), widthM: m(18) });
     expect(pose.z).toBeCloseTo(m(72) - m(9), 6);
   });
-  it("is pushed out of the hive frame footprint", () => {
+  it("can drive under the cells between the frame legs", () => {
     const pose = stepPose({ x: 0, z: 1.0, heading: 0 }, { vx: 0, vz: -30, yawRate: 0 }, 0.05, { lengthM: m(18), widthM: m(18) });
-    expect(Math.abs(pose.z)).toBeGreaterThanOrEqual(m(38.95 / 2 + 9) - 1e-9);
+    expect(pose.z).toBeLessThan(-0.4);
+  });
+  it("is blocked by a frame leg from the side", () => {
+    let pose = { x: -1.2, z: 0, heading: 0 };
+    for (let i = 0; i < 60; i++) pose = stepPose(pose, { vx: 1.5, vz: 0, yawRate: 0 }, 0.02, { lengthM: m(18), widthM: m(18) });
+    expect(pose.x).toBeLessThanOrEqual(-m(49.46 / 2) - 0.03 - m(9) + 1e-9);
   });
   it("headingToward points forward at the target", () => {
     const h = headingToward({ x: 0, z: 0 }, { x: -1, z: 0 });

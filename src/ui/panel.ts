@@ -118,7 +118,14 @@ export class Panel {
         el("button", { onclick: () => { r.cameras.splice(i, 1); if (st.selectedCameraId === c.id) st.selectedCameraId = r.cameras[0]?.id ?? ""; change("cameras"); } }, "Remove"),
       ));
     });
-    camRows.push(el("div", { class: "row full" }, el("button", { class: "primary", onclick: () => { const id = `cam${Date.now() % 100000}`; const c = defaultCamera(id); c.name = `Camera ${r.cameras.length + 1}`; r.cameras.push(c); st.selectedCameraId = id; change("cameras"); } }, "+ Add camera")));
+    const addCam = (name: string, yaw: number, fwdIn: number) => { const id = `cam${Date.now() % 100000}`; const c = defaultCamera(id); c.name = name; c.yawDeg = yaw; c.forwardM = fwdIn * IN; r.cameras.push(c); st.selectedCameraId = id; change("cameras"); };
+    camRows.push(el("div", { class: "row full" },
+      el("button", { class: "primary", onclick: () => addCam(`Camera ${r.cameras.length + 1}`, 0, 7) }, "+ Front camera"),
+      el("button", { class: "primary", onclick: () => addCam("Rear camera", 180, -7) }, "+ Rear camera"),
+      el("button", { onclick: () => addCam("Left camera", 90, 0) }, "+ Left"),
+      el("button", { onclick: () => addCam("Right camera", -90, 0) }, "+ Right"),
+    ));
+    camRows.push(el("div", { class: "note" }, "Drag a camera's green body on the robot to move it (orbit view). Hold Alt while dragging to change height. Then fine-tune the numbers above."));
     this.root.append(section("Cameras", open("Cameras", true), ...camRows));
 
     // --- Launcher
@@ -142,6 +149,13 @@ export class Panel {
       chk("Auto-RPM to target", () => st.autoRpm, (v) => { st.autoRpm = v; change("launcher"); }),
       chk("Auto-hood to best angle", () => st.autoHood, (v) => { st.autoHood = v; change("launcher"); }),
       chk("Air drag (Cd 0.45)", () => st.drag, (v) => { st.drag = v; change("launcher"); }),
+      el("div", { class: "sub" }, "Shot variability (1-sigma)"),
+      num("Speed error", () => st.noise.speedFrac * 100, (v) => { st.noise.speedFrac = v / 100; change("launcher"); }, { unit: "%", min: 0, max: 30, step: 0.5 }),
+      num("Elevation error", () => st.noise.elevationDeg, (v) => { st.noise.elevationDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 15, step: 0.1 }),
+      num("Yaw error", () => st.noise.yawDeg, (v) => { st.noise.yawDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 15, step: 0.1 }),
+      num("Spin variation", () => st.noise.spinFrac * 100, (v) => { st.noise.spinFrac = v / 100; change("launcher"); }, { unit: "%", min: 0, max: 100, step: 5 }),
+      num("Monte Carlo shots", () => st.monteCarloN, (v) => { st.monteCarloN = Math.round(v); change("launcher"); }, { min: 20, max: 1000, step: 10 }),
+      el("div", { class: "note" }, "Each fired ball gets a random draw from these. The HUD hit probability and the dot cloud on the opening plane come from re-simulating this many perturbed shots along the direction the launcher points right now."),
       el("div", { class: "note" }, "Exit speed = efficiency x flywheel surface speed. Measure a few shots on your robot and tune efficiency until the sim matches."),
     ));
 
@@ -159,7 +173,9 @@ export class Panel {
     this.root.append(section("View & overlays", open("View & overlays", false),
       sel("Main view", [{ value: "orbit", label: "Orbit (1)" }, { value: "top", label: "Top-down (2)" }, { value: "chase", label: "Chase (3)" }, { value: "robot", label: "Robot camera (4)" }], () => st.view, (v) => { st.view = v as any; change("view"); }),
       chk("Robot camera inset", () => st.pip, (v) => { st.pip = v; change("view"); }),
-      chk("Trajectory", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
+      chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
+      chk("Arc as launcher points now (orange)", () => o.actualArc, (v) => { o.actualArc = v; change("overlays"); }),
+      chk("Dispersion cloud", () => o.dispersion, (v) => { o.dispersion = v; change("overlays"); }),
       chk("Feasible-angle fan", () => o.fan, (v) => { o.fan = v; change("overlays"); }),
       chk("FOV footprint on mat", () => o.footprint, (v) => { o.footprint = v; change("overlays"); }),
       chk("Camera frustum", () => o.frustum, (v) => { o.frustum = v; change("overlays"); }),

@@ -24,10 +24,50 @@ export class Overlays {
   private target = new THREE.Group();
   private aim = new THREE.Group();
   private reach = new THREE.Group();
-  show = { trajectory: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false };
+  private actual = new THREE.Group();
+  private cloud = new THREE.Group();
+  show = { trajectory: true, actualArc: true, dispersion: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false };
 
   constructor() {
-    this.group.add(this.trajectory, this.fan, this.fov, this.target, this.aim, this.reach);
+    this.group.add(this.trajectory, this.fan, this.fov, this.target, this.aim, this.reach, this.actual, this.cloud);
+  }
+
+  /** Arc the launcher would produce right now, along the direction it actually points. Orange. */
+  setActualTrajectory(shot?: ShotResult, ballRadius = 0.035) {
+    this.actual.clear();
+    this.actual.visible = this.show.actualArc;
+    if (!shot) return;
+    const pts = shot.samples.filter((_, i) => i % 5 === 0).map((s) => s.pos);
+    if (pts.length < 2) return;
+    const color = shot.hit ? 0xffcc33 : 0xff8800;
+    const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(200, pts.length), ballRadius * 0.3, 6, false), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 }));
+    this.actual.add(tube);
+    const end = pts[pts.length - 1];
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(ballRadius, 14, 10), new THREE.MeshBasicMaterial({ color, wireframe: true }));
+    marker.position.set(shot.crossing?.x ?? end.x, shot.crossing?.y ?? end.y, shot.crossing?.z ?? end.z);
+    this.actual.add(marker);
+  }
+
+  /** Monte Carlo crossing points: green hits, red misses. */
+  setDispersion(points?: { p: Vec3; hit: boolean }[]) {
+    this.cloud.clear();
+    this.cloud.visible = this.show.dispersion;
+    if (!points || !points.length) return;
+    const geo = new THREE.SphereGeometry(0.012, 8, 6);
+    const hitM = new THREE.MeshBasicMaterial({ color: 0x33ff88 });
+    const missM = new THREE.MeshBasicMaterial({ color: 0xff5533 });
+    const hits = new THREE.InstancedMesh(geo, hitM, points.length);
+    const misses = new THREE.InstancedMesh(geo, missM, points.length);
+    const mtx = new THREE.Matrix4();
+    let hi = 0, mi = 0;
+    for (const pt of points) {
+      mtx.makeTranslation(pt.p.x, Math.max(0.012, pt.p.y), pt.p.z);
+      if (pt.hit) hits.setMatrixAt(hi++, mtx); else misses.setMatrixAt(mi++, mtx);
+    }
+    hits.count = hi; misses.count = mi;
+    hits.instanceMatrix.needsUpdate = true; misses.instanceMatrix.needsUpdate = true;
+    this.cloud.add(hits, misses);
   }
 
   /** Colour tiles by required RPM: green (low) -> yellow -> red (near max); unreachable = dark red hatch. */

@@ -178,8 +178,6 @@ function buildFrame(): THREE.Group {
     // foot bar across the base to the other side
   }
   g.add(bar(new THREE.Vector3(-w / 2, h, 0), new THREE.Vector3(w / 2, h, 0), 0.02)); // crossbar
-  g.add(bar(new THREE.Vector3(-w / 2, 0.02, d / 2), new THREE.Vector3(w / 2, 0.02, d / 2), 0.012));
-  g.add(bar(new THREE.Vector3(-w / 2, 0.02, -d / 2), new THREE.Vector3(w / 2, 0.02, -d / 2), 0.012));
   // logo panels
   const panel = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.5, 0.18), new THREE.MeshStandardMaterial({ color: 0xf2c200, side: THREE.DoubleSide }));
   panel.position.set(0, h - 0.2, 0.06);

@@ -2,6 +2,7 @@ import type { RobotSpec } from "./robot/robotSpec";
 import type { Pose } from "./sim/drive";
 import type { Alliance, CellSide } from "./field/hive";
 import { clonePreset } from "./robot/presets";
+import { DEFAULT_NOISE, type NoiseConfig } from "./ballistics/dispersion";
 
 export type ViewMode = "orbit" | "top" | "chase" | "robot";
 
@@ -23,7 +24,9 @@ export interface AppState {
   pip: boolean;
   /** transient: rotate to face the target on the next frame */
   aimRequest?: boolean;
-  overlays: { trajectory: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean };
+  overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean };
+  noise: NoiseConfig;
+  monteCarloN: number;
 }
 
 export function defaultState(): AppState {
@@ -44,7 +47,9 @@ export function defaultState(): AppState {
     pauseOpponents: false,
     view: "orbit",
     pip: true,
-    overlays: { trajectory: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false },
+    overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false },
+    noise: { ...DEFAULT_NOISE },
+    monteCarloN: 150,
   };
 }
 
@@ -54,7 +59,7 @@ export function loadState(): AppState {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) } };
+      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) } };
     }
   } catch { /* ignore */ }
   return defaultState();

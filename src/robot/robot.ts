@@ -211,11 +211,18 @@ export class RobotObject {
       holder.add(inner);
       inner.add(c);
       // gizmo body
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.04), new THREE.MeshStandardMaterial({ color: cam.enabled ? 0x22cc66 : 0x666666 }));
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.035, 0.05), new THREE.MeshStandardMaterial({ color: cam.enabled ? 0x22cc66 : 0x666666, emissive: 0x0a3a1a }));
+      body.userData.camId = cam.id;
+      body.name = "camGizmo";
       inner.add(body);
+      // drop line to the chassis so the mount height is readable
+      const drop = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, cam.heightM, 6), new THREE.MeshBasicMaterial({ color: 0x22cc66, transparent: true, opacity: 0.5 }));
+      drop.position.set(cam.forwardM, cam.heightM / 2, -cam.leftM);
+      this.cameraGizmos.add(drop);
       const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.01, 0.02, 12), new THREE.MeshStandardMaterial({ color: 0x111111 }));
       lens.rotation.x = Math.PI / 2;
-      lens.position.z = -0.03;
+      lens.position.z = -0.035;
+      lens.userData.camId = cam.id;
       inner.add(lens);
       this.cameraGizmos.add(holder);
     }

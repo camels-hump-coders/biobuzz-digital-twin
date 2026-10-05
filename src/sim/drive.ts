@@ -101,13 +101,23 @@ export interface Obstacle {
   xMin: number; xMax: number; zMin: number; zMax: number;
 }
 
-export function hiveFrameObstacle(): Obstacle {
+/** The frame is two triangular legs at x = +-frameWidth/2 running along Z; the space under
+ * the cells between them is open, so robots may drive through the middle. */
+export function hiveFrameObstacles(): Obstacle[] {
   const hx = m(HIVE.frameWidthIn) / 2, hz = m(HIVE.frameDepthIn) / 2;
-  return { xMin: -hx, xMax: hx, zMin: -hz, zMax: hz };
+  const legHalfThick = 0.03;
+  return [
+    { xMin: -hx - legHalfThick, xMax: -hx + legHalfThick, zMin: -hz, zMax: hz },
+    { xMin: hx - legHalfThick, xMax: hx + legHalfThick, zMin: -hz, zMax: hz },
+  ];
+}
+/** @deprecated use hiveFrameObstacles */
+export function hiveFrameObstacle(): Obstacle {
+  return hiveFrameObstacles()[0];
 }
 
 /** Integrate one step and keep the robot inside the field and out of obstacles. */
-export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obstacles: Obstacle[] = [hiveFrameObstacle()]): Pose {
+export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obstacles: Obstacle[] = hiveFrameObstacles()): Pose {
   const heading = wrapAngle(pose.heading + v.yawRate * dt);
   let x = pose.x + v.vx * dt;
   let z = pose.z + v.vz * dt;

@@ -23,12 +23,12 @@ export function computeReachability(frame: CellFrame, launcher: LauncherConfig, 
   const half = m(FIELD.sizeIn) / 2;
   const target = aimPoint(frame, 0.05);
   const cells: ReachCell[] = [];
-  const hx = m(HIVE.frameWidthIn) / 2 + 0.2, hz = m(HIVE.frameDepthIn) / 2 + 0.2;
+  const hz = m(HIVE.frameDepthIn) / 2 + 0.2;
   const fixed = launcher.elevationMinDeg === launcher.elevationMaxDeg;
   const vmax = exitSpeed(launcher, launcher.maxRpm);
   for (let x = -half + step / 2; x < half; x += step) {
     for (let z = -half + step / 2; z < half; z += step) {
-      if (Math.abs(x) < hx && Math.abs(z) < hz) continue; // inside the hive frame
+      if (Math.abs(Math.abs(x) - m(HIVE.frameWidthIn) / 2) < 0.25 && Math.abs(z) < hz) continue; // on a frame leg
       const launchPos = { x, y: launcher.exitHeightM, z };
       const req = { ball, launchPos, target, frame, spin: spinRate(launcher) };
       let rpm: number | undefined, elevationDeg: number | undefined;

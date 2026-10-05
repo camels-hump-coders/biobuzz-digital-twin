@@ -5,7 +5,7 @@ import { aimPoint, upCellFrame, type CellFrame, type Vec3 } from "./field/hive";
 import { BALL, FIELD, m } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
-import { commandToVelocity, stepPose, robotToWorld, headingToward, type DriveParams, type Obstacle } from "./sim/drive";
+import { commandToVelocity, stepPose, robotToWorld, headingToward, hiveFrameObstacles, type DriveParams, type Obstacle } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
@@ -14,6 +14,7 @@ import { loadState, saveState, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, solveSpeedForElevation, type ShotResult } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { computeReachability, type ReachMap } from "./ballistics/reachability";
+import { monteCarlo, perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
 import { simulate, velocityFrom } from "./ballistics/projectile";
 import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
 import { clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
@@ -166,7 +167,70 @@ function teleportAt(ev: MouseEvent) {
   state.pose = { ...state.pose, x: hit.x, z: hit.z };
   robot.setPose(state.pose);
 }
-canvas.addEventListener("pointerdown", (ev) => { if (ev.shiftKey && ev.button === 0) teleportAt(ev); });
+// ---- camera mount dragging (orbit view): drag the green body to move it on the robot; Alt-drag changes height.
+let dragCam: { id: string; alt: boolean; plane: THREE.Plane } | undefined;
+function pickGizmo(ev: PointerEvent): string | undefined {
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+  pickRay.setFromCamera(ndc, activeCamera());
+  const hits = pickRay.intersectObjects(robot.cameraGizmos.children, true);
+  const h = hits.find((x) => x.object.userData.camId);
+  return h?.object.userData.camId;
+}
+canvas.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  if (ev.shiftKey) { teleportAt(ev); return; }
+  if (state.view !== "robot") {
+    const id = pickGizmo(ev);
+    if (id) {
+      const mount = state.robot.cameras.find((c) => c.id === id)!;
+      const world = robotToWorld(state.pose, mount.forwardM, mount.leftM);
+      const camPose = activeCamera().getWorldDirection(new THREE.Vector3());
+      // horizontal plane at the mount height, or a vertical plane facing the viewer for Alt (height) drags
+      const plane = ev.altKey
+        ? new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(camPose.x, 0, camPose.z).normalize().negate(), new THREE.Vector3(world.x, mount.heightM, world.z))
+        : new THREE.Plane(new THREE.Vector3(0, 1, 0), -mount.heightM);
+      dragCam = { id, alt: ev.altKey, plane };
+      controls.enabled = false;
+      state.selectedCameraId = id;
+      canvas.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    }
+  }
+});
+canvas.addEventListener("pointermove", (ev) => {
+  if (!dragCam) { canvas.style.cursor = state.view !== "robot" && pickGizmo(ev) ? "grab" : ""; return; }
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+  pickRay.setFromCamera(ndc, activeCamera());
+  const hit = new THREE.Vector3();
+  if (!pickRay.ray.intersectPlane(dragCam.plane, hit)) return;
+  const mount = state.robot.cameras.find((c) => c.id === dragCam!.id);
+  if (!mount) { dragCam = undefined; return; }
+  if (dragCam.alt) {
+    mount.heightM = clamp(hit.y, 0.02, m(29));
+  } else {
+    // world -> robot local (forward, left)
+    const dx = hit.x - state.pose.x, dz = hit.z - state.pose.z;
+    const f = { x: -Math.sin(state.pose.heading), z: -Math.cos(state.pose.heading) };
+    const lv = { x: -Math.cos(state.pose.heading), z: Math.sin(state.pose.heading) };
+    const lim = Math.max(state.robot.lengthM, state.robot.widthM) / 2 + 0.05;
+    mount.forwardM = clamp(dx * f.x + dz * f.z, -lim, lim);
+    mount.leftM = clamp(dx * lv.x + dz * lv.z, -lim, lim);
+  }
+  robot.rebuildCameras();
+  canvas.style.cursor = "grabbing";
+});
+function endDrag() {
+  if (!dragCam) return;
+  dragCam = undefined;
+  controls.enabled = state.view === "orbit";
+  canvas.style.cursor = "";
+  panel.render();
+  saveState(state);
+}
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("dblclick", (ev) => teleportAt(ev));
 let currentCamera: THREE.Camera = orbitCam;
 function activeCamera(): THREE.Camera { return currentCamera; }
@@ -194,11 +258,13 @@ function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: 
 
 function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const l = state.robot.launcher;
-  const vel = velocityFrom(exitSpeed(l), (l.elevationDeg * Math.PI) / 180, dirXZ);
+  const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ, spin: spinRate(l) };
+  const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
+  const vel = draw.vel;
   const bp = ballProps();
-  const samples = simulate(bp, { pos: exit, vel, spin: spinRate(l) }, { maxTime: 4 });
+  const samples = simulate(bp, { pos: exit, vel, spin: draw.spin }, { maxTime: 4 });
   const frame = targetFrame();
-  const r = evaluateVelocity({ ball: bp, launchPos: exit, target: aimPoint(frame), frame, spin: spinRate(l) }, vel);
+  const r = evaluateVelocity({ ball: bp, launchPos: exit, target: aimPoint(frame), frame, spin: draw.spin }, vel);
   const color = state.ballKind === "pollen" ? BALL.pollen.color : state.alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color;
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(bp.diameterM / 2, 20, 14), new THREE.MeshStandardMaterial({ color, roughness: 0.45 }));
   mesh.castShadow = true;
@@ -255,7 +321,7 @@ function frame(now: number) {
   const dp = driveParams();
   const vel = commandToVelocity(cmd, state.pose, dp);
   const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
-  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [ { xMin: -m(49.46) / 2, xMax: m(49.46) / 2, zMin: -m(38.95) / 2, zMax: m(38.95) / 2 }, ...others ]);
+  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
   robot.setPose(state.pose);
 
   // scripted robots
@@ -278,6 +344,9 @@ function frame(now: number) {
   const turretYaw = clamp(bearingErr, (l.turretMinDeg * Math.PI) / 180, (l.turretMaxDeg * Math.PI) / 180);
   const fireHeading = state.pose.heading + turretYaw;
   const fireDir = { x: -Math.sin(fireHeading), z: -Math.cos(fireHeading) };
+  // arc along the direction the launcher points right now, plus Monte Carlo dispersion
+  const actualShot = computeActual(exit, tf, fireDir);
+  const mc = computeMonteCarlo(exit, tf, fireDir);
   // the analysed arc is always toward the target (what the robot would do if aimed); the fired ball goes where the launcher points
   const { shot, scan, required } = computeShot(exit, tf);
   robot.launcherMarker.rotation.y = -turretYaw * 0 + turretYaw; // local +Y rotation = yaw left
@@ -287,6 +356,8 @@ function frame(now: number) {
   // overlays
   updateReachMap(tf);
   overlays.setTrajectory(shot, ballProps().diameterM / 2, turretOk);
+  overlays.setActualTrajectory(actualShot, ballProps().diameterM / 2);
+  overlays.setDispersion(mc?.points);
   overlays.setFan(scan?.solutions ?? []);
   overlays.setTarget(tf, target);
   overlays.setAim(exit, target, turretOk);
@@ -334,6 +405,8 @@ function frame(now: number) {
     bestRpm: scan?.best ? rpmForExitSpeed(l, scan.best.speed) : undefined,
     flightTime: flight,
     apexIn: apex !== undefined ? mToIn(apex) : undefined,
+    pHit: mc?.pHit, pLo: mc?.lo, pHi: mc?.hi, mcN: mc?.n, meanMissIn: mc ? mToIn(mc.meanMissM) : undefined,
+    actualHit: actualShot?.hit,
     shotsFired, shotsHit,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
@@ -342,7 +415,7 @@ function frame(now: number) {
 
   // render main view
   let cam: THREE.Camera = orbitCam;
-  controls.enabled = state.view === "orbit";
+  controls.enabled = state.view === "orbit" && !dragCam;
   if (state.view === "orbit") { controls.update(); }
   else if (state.view === "top") cam = topCam;
   else if (state.view === "chase") {
@@ -374,6 +447,29 @@ function frame(now: number) {
 // debugging hook for scripts / console
 (window as any).__twin = { state, orbitCam, controls, robot, scene };
 let lastTags: HudData["tags"] = [];
+let actualCache: { key: string; shot?: ShotResult } = { key: "" };
+function computeActual(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): ShotResult | undefined {
+  const l = state.robot.launcher;
+  const key = JSON.stringify([exit.x.toFixed(3), exit.y.toFixed(3), exit.z.toFixed(3), dir.x.toFixed(4), dir.z.toFixed(4), l.rpm, l.elevationDeg, l.wheelDiameterM, l.efficiency, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive]);
+  if (key === actualCache.key) return actualCache.shot;
+  const vel = velocityFrom(exitSpeed(l), (l.elevationDeg * Math.PI) / 180, dir);
+  const shot = evaluateVelocity({ ball: ballProps(), launchPos: exit, target: aimPoint(frame, 0.05), frame, spin: spinRate(l) }, vel);
+  actualCache = { key, shot };
+  return shot;
+}
+let mcCache: { key: string; mc?: MonteCarlo; at: number } = { key: "", at: 0 };
+function computeMonteCarlo(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): MonteCarlo | undefined {
+  const l = state.robot.launcher;
+  const q = (v: number) => Math.round(v * 50) / 50; // 2 cm
+  const key = JSON.stringify([q(exit.x), q(exit.y), q(exit.z), Math.round(Math.atan2(dir.x, dir.z) * 57.3), l.rpm | 0, l.elevationDeg, l.wheelDiameterM, l.efficiency, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive, state.noise, state.monteCarloN]);
+  if (key === mcCache.key) return mcCache.mc;
+  const now = performance.now();
+  if (now - mcCache.at < 120) return mcCache.mc; // throttle while driving
+  const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ: dir, spin: spinRate(l) };
+  const mc = monteCarlo({ ball: ballProps(), launchPos: exit, target: aimPoint(frame, 0.05), frame, spin: spinRate(l) }, nominal, state.noise, state.monteCarloN, 7);
+  mcCache = { key, mc, at: now };
+  return mc;
+}
 let reachKey = "";
 let reachMap: ReachMap | undefined;
 function updateReachMap(frame: CellFrame) {

@@ -1,5 +1,5 @@
 /** Scripted alliance partner and opponent robots that patrol waypoint loops. */
-import { type Pose, type Footprint, headingToward, stepPose, type Obstacle, hiveFrameObstacle } from "./drive";
+import { type Pose, type Footprint, headingToward, stepPose, type Obstacle, hiveFrameObstacles } from "./drive";
 import { wrapAngle } from "../util/units";
 import { m } from "../field/fieldSpec";
 
@@ -51,5 +51,5 @@ export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = [
   const yawRate = Math.max(-2.5, Math.min(2.5, err * 4));
   const fwd = Math.abs(err) < 0.6 ? Math.min(r.speed, dist * 2) : 0.2;
   const vx = -Math.sin(r.pose.heading) * fwd, vz = -Math.cos(r.pose.heading) * fwd;
-  r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, [hiveFrameObstacle(), ...extra]);
+  r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, [...hiveFrameObstacles(), ...extra]);
 }

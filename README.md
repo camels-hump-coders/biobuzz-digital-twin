@@ -42,12 +42,16 @@ Gamepad: left stick drive, right stick rotate, A launch, B aim at target, Y flip
 
 - **Range** and **bearing error** from the launcher exit point to the aim point (centre of the up-cell opening, 2 in inside).
 - **Required exit speed / RPM** for the current hood angle. With *Auto-RPM* on, the commanded RPM tracks this as you drive.
+- **Two arcs**: green/red is the arc *if the robot were aimed* at the target with the current hood angle and RPM; orange is the arc along the direction the launcher *actually points right now*. They coincide once you press R or turn to face the target. Either can be switched off in View & overlays.
+- **Shot variability**: every fired ball draws random exit speed, elevation, yaw and spin errors (1-sigma values in the Launcher panel, defaults 3 %, 1°, 1°, 20 %). The HUD **hit probability** re-simulates 150 perturbed shots from the current pose and shows the hit fraction with a 95 % confidence interval and the mean miss distance; the dot cloud on the opening plane shows where each lands (green hit, red miss).
 - **Predicted HIT / MISS** for the current hood angle and RPM, with the height error at the target and the entry angle into the opening plane. The arc is drawn green (hit) or red (miss). If the launcher is not pointed at the target the arc shows what would happen once aimed.
 - **Lowest-energy** solution across the hood's adjustable range, plus a fan of all feasible arcs. *Auto-hood* sets the hood to it.
 - **Reachability map** (View & overlays): colours every 6 in square of the mat by the RPM needed to hit the target from there with the current launcher. Green is comfortable, red is near the motor limit, dark red cannot reach. Use it to pick launch spots and to see what a fixed hood angle costs you.
 - **AprilTags**: green = in frame, facing the camera and unoccluded; orange = in frame but blocked; hover for distance and apparent size in pixels.
 
 ## Cameras
+
+**Placing cameras**: in orbit view drag a camera's green body across the robot to move it; hold Alt while dragging to raise or lower it. Use the *+ Rear camera*, *+ Left*, *+ Right* buttons for quick extra mounts (rear is yaw 180°, 7 in behind centre), then fine-tune the numbers. The inset always shows the selected camera, so a rear camera's view is one click away.
 
 Pre-seeded FTC-legal UVC webcams with their published fields of view (Logitech C270/C920/C930e/Brio, Microsoft LifeCam HD-3000, Arducam OV9281/OV9782 global shutter lenses, Limelight 3A). Add as many mounts as you like; each has height, forward/left offset, pitch, yaw, roll and a FOV/resolution override. The inset in the bottom-left renders the selected camera; press 4 to go full screen.
 
@@ -82,6 +86,7 @@ If a GLB is missing the app falls back to a procedural box with the same footpri
 - The shot test is geometric: the arc must cross the opening plane inside the pentagon (shrunk by the ball radius) while moving into the cell. There is no collision check against the hive frame, the other hive, or the lip, and no tipping physics.
 - AprilTags are labelled placeholders at the correct size and pose, not real 36h11 codes.
 - Other robots follow fixed waypoint loops and do not score or avoid each other.
+- Driving: only the two triangular frame legs block the robot; the space under the cells between the legs is open, as on the real field.
 - Camera images are ideal pinhole renders: no lens distortion, exposure or motion blur.
 
 ## Coordinate system
