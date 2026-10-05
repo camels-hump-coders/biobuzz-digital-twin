@@ -45,9 +45,29 @@ function chk(label: string, get: () => boolean, set: (v: boolean) => void): HTML
   return [el("label", {}, label), c];
 }
 
-function section(title: string, open: boolean, ...rows: (HTMLElement | HTMLElement[])[]): HTMLElement {
+type Row = HTMLElement | HTMLElement[];
+/** A group of rows hidden in Essential mode until the section's "more" button or the global toggle reveals them. */
+interface AdvGroup { adv: Row[] }
+function adv(...rows: Row[]): AdvGroup {
+  for (const r of rows) for (const e of Array.isArray(r) ? r : [r]) e.classList.add("adv");
+  return { adv: rows };
+}
+const isAdv = (r: unknown): r is AdvGroup => !!r && typeof r === "object" && !Array.isArray(r) && !(r instanceof HTMLElement) && "adv" in (r as object);
+/** Set by render() so section() knows which advanced rows to show. */
+let sectionCtx: { advanced: boolean; more: Set<string>; toggle: (title: string) => void } = { advanced: true, more: new Set(), toggle: () => {} };
+function section(title: string, open: boolean, ...rows: (Row | AdvGroup)[]): HTMLElement {
   const body = el("div", { class: "body" });
-  for (const r of rows) Array.isArray(r) ? body.append(...r) : body.append(r);
+  for (const r of rows) {
+    const list: Row[] = isAdv(r) ? r.adv : [r];
+    for (const x of list) Array.isArray(x) ? body.append(...x) : body.append(x);
+  }
+  // count rows, not elements: a label+input pair is one setting
+  const nAdv = [...body.querySelectorAll(":scope > .adv")].filter((e) => !["INPUT", "SELECT", "TEXTAREA"].includes(e.tagName)).length;
+  const expanded = sectionCtx.advanced || sectionCtx.more.has(title);
+  if (nAdv && !expanded) body.classList.add("adv-hidden");
+  if (nAdv && !sectionCtx.advanced) {
+    body.append(el("button", { class: "more full", onclick: () => sectionCtx.toggle(title) }, expanded ? "Fewer settings" : `Show ${nAdv} more setting${nAdv > 1 ? "s" : ""}…`));
+  }
   const d = el("details", open ? { open: "" } : {}, el("summary", {}, title), body);
   return d;
 }
@@ -72,6 +92,8 @@ export class Panel {
   /** TeamCode settings panel: search text and which files are expanded */
   private assetFilter = "";
   private assetOpen = new Map<string, boolean>();
+  /** sections whose advanced rows were revealed with their "more" button (Essential mode) */
+  private moreOpen = new Set<string>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
   updateTelemetry(lines: string[], status: string) {
     if (this.telemetryEl) { const t = lines.join("\n") || "(telemetry)"; if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t; }
@@ -91,21 +113,28 @@ export class Panel {
     const st = this.state;
     const open = (t: string, def: boolean) => this.openState.get(t) ?? def;
     const change = (w: Parameters<Change>[0]) => { this.onChange(w); this.render(); };
+    sectionCtx = { advanced: st.panelAdvanced, more: this.moreOpen, toggle: (t) => { if (this.moreOpen.has(t)) this.moreOpen.delete(t); else this.moreOpen.add(t); this.render(); } };
     this.root.append(el("h1", {}, "BIOBUZZ Digital Twin"));
+    // Essential / All settings switch: everyday controls up front, the rest behind per-section "more" buttons
+    this.root.append(el("div", { class: "mode" },
+      el("button", { class: st.panelAdvanced ? "" : "on", onclick: () => { st.panelAdvanced = false; this.moreOpen.clear(); change("view"); } }, "Essential"),
+      el("button", { class: st.panelAdvanced ? "on" : "", onclick: () => { st.panelAdvanced = true; change("view"); } }, "All settings"),
+      el("span", { class: "note" }, st.panelAdvanced ? "Every setting is shown." : "Common settings only; each section has a “more” button."),
+    ));
 
     // --- Session: saved state lives in this browser's localStorage
     const download = (name: string, data: unknown) => { const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
     const upload = (onJson: (j: any) => void) => { const i = document.createElement("input"); i.type = "file"; i.accept = "application/json,.json"; i.onchange = async () => { const f = i.files?.[0]; if (!f) return; try { onJson(JSON.parse(await f.text())); } catch (e) { alert("Not a valid config file: " + e); } }; i.click(); };
     this.root.append(section("Session", open("Session", false),
-      el("div", { class: "note" }, "Everything in this panel is saved in this browser's localStorage and restored on reload. Robot config = robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings."),
+      adv(el("div", { class: "note" }, "Everything in this panel is saved in this browser's localStorage) and restored on reload. Robot config = robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings.")),
       el("div", { class: "row full" },
         el("button", { class: "primary", onclick: () => download(`biobuzz-robot-${(st.robot.name || "robot").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.json`, { biobuzzRobotConfig: 1, robotPresetId: st.robotPresetId, robot: st.robot, hardware: st.hardware, noise: st.noise, capacity: st.capacity, canPollen: st.canPollen, canNectar: st.canNectar, alliance: st.alliance }) }, "Export robot config"),
         el("button", { onclick: () => upload((j) => { const src = j.biobuzzRobotConfig ? j : j.robot ? j : null; if (!src) { alert("No robot config in that file"); return; } if (src.robot) st.robot = src.robot; if (src.robotPresetId) st.robotPresetId = src.robotPresetId; if (src.hardware?.devices) st.hardware = src.hardware; if (src.noise) st.noise = { ...st.noise, ...src.noise }; if (src.capacity) st.capacity = src.capacity; if (typeof src.canPollen === "boolean") st.canPollen = src.canPollen; if (typeof src.canNectar === "boolean") st.canNectar = src.canNectar; st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; change("reset"); }) }, "Import robot config"),
       ),
-      el("div", { class: "row full" },
+      adv(el("div", { class: "row full" },
         el("button", { onclick: () => download("biobuzz-session.json", st) }, "Export whole session"),
         el("button", { onclick: () => upload((j) => { Object.assign(st, j); change("reset"); }) }, "Import whole session"),
-      ),
+      )),
       el("div", { class: "row full" },
         el("button", { style: "border-color:#a33;color:#faa", onclick: () => { if (confirm("Clear everything saved in this browser (robot config, cameras, hardware map, overlays) and reload with defaults?")) { localStorage.removeItem("biobuzz-twin"); location.reload(); } } }, "Reset session to defaults"),
         el("button", { onclick: () => { st.robot = clonePreset(st.robotPresetId); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; change("robot"); } }, "Reset robot to preset"),
@@ -114,11 +143,11 @@ export class Panel {
 
     // --- Runtime (TeamCode)
     const link = this.link;
-    const rtRows: (HTMLElement | HTMLElement[])[] = [];
+    const rtRows: (Row | AdvGroup)[] = [];
     rtRows.push(chk("Connect to runtime host", () => st.runtimeEnabled, (v) => { st.runtimeEnabled = v; change("runtime"); }));
     const urlInput = el("input", { type: "text", value: st.runtimeUrl }) as HTMLInputElement;
     urlInput.onchange = () => { st.runtimeUrl = urlInput.value; change("runtime"); };
-    rtRows.push([el("label", {}, "Host URL"), urlInput]);
+    rtRows.push(adv([el("label", {}, "Host URL"), urlInput]));
     const statusTxt = link ? (link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}` : "not connected — run ./gradlew :host:run in runtime/") : "off";
     // Driver-Station style status pill, refreshed live by updateTelemetry()
     const pillState = !st.runtimeEnabled ? "off" : !link?.connected ? "disconnected" : link.status.toLowerCase();
@@ -148,11 +177,11 @@ export class Panel {
       }
       if (link.statusError) rtRows.push(el("pre", { class: "note full", style: "white-space:pre-wrap;color:#ff8888" }, link.statusError));
       for (const n of link.notes) rtRows.push(el("div", { class: "note full", style: "color:#f2c200" }, n));
-      rtRows.push(el("div", { class: "note full" }, `Hardware map: ${st.hardware.devices.length} devices (${st.hardware.devices.map((d) => d.name).join(", ")}). Names must match your hardwareMap.get() calls; see the Hardware map panel for presets.`));
+      rtRows.push(adv(el("div", { class: "note full" }, `Hardware map: ${st.hardware.devices.length} devices (${st.hardware.devices.map((d) => d.name).join(", ")}). Names must match your hardwareMap.get() calls; see the Hardware map panel for presets.`)));
       this.telemetryEl = el("pre", { class: "full", style: "margin:0;white-space:pre-wrap;font-size:11px;background:#0b0e13;border:1px solid #2a313a;border-radius:4px;padding:6px;min-height:60px;max-height:220px;overflow:auto" }, link.telemetry.join("\n") || "(telemetry)");
       rtRows.push(this.telemetryEl);
     }
-    rtRows.push(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead."));
+    rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead.")));
     this.root.append(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
 
     // --- TeamCode settings: JSON assets the OpModes read (robot-profile.json, ...), editable here as sim-only overrides
@@ -238,10 +267,12 @@ export class Panel {
 
     // --- Hardware map
     const hw = st.hardware;
-    const hwRows: (HTMLElement | HTMLElement[])[] = [];
-    hwRows.push(el("div", { class: "note" }, "Names must match what your OpMode passes to hardwareMap.get(). Roles tell the sim what each device moves."));
+    const hwRows: (Row | AdvGroup)[] = [];
+    hwRows.push(adv(el("div", { class: "note" }, "Names must match what your OpMode passes to hardwareMap.get(). Roles tell the sim what each device moves.")));
     hwRows.push(sel("Mirrored drive side", [{ value: "left", label: "Left motors mirrored (code reverses left)" }, { value: "right", label: "Right motors mirrored (code reverses right)" }, { value: "none", label: "None (positive power = forward on all)" }], () => hw.mirroredSide ?? "left", (v) => { hw.mirroredSide = v as any; change("hardware"); }));
+    const devRows: Row[] = [];
     hw.devices.forEach((d, i) => {
+      const hwRows = devRows; // collected, then marked advanced below
       const nameIn = el("input", { type: "text", value: d.name }) as HTMLInputElement;
       nameIn.onchange = () => { d.name = nameIn.value; change("hardware"); };
       hwRows.push([el("label", {}, d.kind), nameIn]);
@@ -258,13 +289,14 @@ export class Panel {
       }
       hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { hw.devices.splice(i, 1); change("hardware"); } }, "Remove")));
     });
+    hwRows.push(adv(...devRows));
     const addDev = (kind: DeviceKind) => { hw.devices.push({ name: `${kind}${hw.devices.length + 1}`, kind, ...(kind === "motor" ? { role: "other" as const, ticksPerRev: 537.7, freeRpm: 312 } : {}), ...(kind === "servo" ? { role: "other" as const } : {}) }); change("hardware"); };
-    hwRows.push(el("div", { class: "row full" },
+    hwRows.push(adv(el("div", { class: "row full" },
       el("button", { onclick: () => addDev("motor") }, "+ motor"), el("button", { onclick: () => addDev("servo") }, "+ servo"), el("button", { onclick: () => addDev("crservo") }, "+ CR servo"),
       el("button", { onclick: () => addDev("distance") }, "+ distance"), el("button", { onclick: () => addDev("webcam") }, "+ webcam"),
-    ));
+    )));
     hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "StarterBot names"), el("button", { onclick: () => { st.hardware = camelsHumpHardwareConfig(); st.robot.drivetrain = "tank"; change("hardware"); change("robot"); } }, "Camels Hump tank bot names")));
-    hwRows.push(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 }));
+    hwRows.push(adv(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 })));
     this.root.append(section("Hardware map", open("Hardware map", false), ...hwRows));
 
     // --- Robot
@@ -272,17 +304,17 @@ export class Panel {
     this.root.append(section("Robot", open("Robot", true),
       sel("Preset", Object.entries(ROBOT_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => st.robotPresetId, (v) => { st.robotPresetId = v; st.robot = clonePreset(v); change("robot"); }),
       sel("Drivetrain", [{ value: "mecanum", label: "Mecanum (holonomic)" }, { value: "tank", label: "Tank / 6WD (no strafe)" }], () => r.drivetrain, (v) => { r.drivetrain = v as any; change("robot"); }),
-      sel("Chassis model", [{ value: "starterbot-mecanum", label: "goBILDA StarterBot mecanum CAD" }, { value: "starterbot-6wd", label: "goBILDA StarterBot 6WD CAD" }, { value: "box", label: "Simple box" }], () => r.model, (v) => { r.model = v as any; change("robot"); }),
+      adv(sel("Chassis model", [{ value: "starterbot-mecanum", label: "goBILDA StarterBot mecanum CAD" }, { value: "starterbot-6wd", label: "goBILDA StarterBot 6WD CAD" }, { value: "box", label: "Simple box" }], () => r.model, (v) => { r.model = v as any; change("robot"); }),
       num("CAD yaw", () => r.modelYawDeg ?? 0, (v) => { r.modelYawDeg = v; change("robot"); }, { unit: "°", min: -180, max: 180, step: 90 }),
       num("Length", () => r.lengthM / IN, (v) => { r.lengthM = v * IN; change("robot"); }, { unit: "in", min: 6, max: 24, step: 0.5 }),
       num("Width", () => r.widthM / IN, (v) => { r.widthM = v * IN; change("robot"); }, { unit: "in", min: 6, max: 24, step: 0.5 }),
       num("Height", () => r.heightM / IN, (v) => { r.heightM = v * IN; change("robot"); }, { unit: "in", min: 4, max: 29, step: 0.5 }),
       num("Wheel RPM", () => r.wheelRpm, (v) => { r.wheelRpm = v; change("robot"); }, { min: 30, max: 1200, step: 1 }),
-      num("Wheel dia", () => r.wheelDiameterM * 1000, (v) => { r.wheelDiameterM = v / 1000; change("robot"); }, { unit: "mm", min: 48, max: 160, step: 1 }),
+      num("Wheel dia", () => r.wheelDiameterM * 1000, (v) => { r.wheelDiameterM = v / 1000; change("robot"); }, { unit: "mm", min: 48, max: 160, step: 1 })),
       sel("Intake side", [{ value: "front", label: "Front (forward arrow)" }, { value: "rear", label: "Rear" }, { value: "left", label: "Left" }, { value: "right", label: "Right" }], () => r.intake.side, (v) => { r.intake.side = v as any; change("robot"); }),
-      num("Intake width", () => r.intake.widthM / IN, (v) => { r.intake.widthM = v * IN; change("robot"); }, { unit: "in", min: 2, max: 24, step: 0.5 }),
+      adv(num("Intake width", () => r.intake.widthM / IN, (v) => { r.intake.widthM = v * IN; change("robot"); }, { unit: "in", min: 2, max: 24, step: 0.5 }),
       el("div", { class: "note full" }, "Balls are only collected through the intake side (green edge on the floor outline). Every other side pushes them, and so does the intake once the robot is full."),
-      chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); }),
+      chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); })),
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),
         el("button", { onclick: () => { st.pose = { x: 0.9 * (st.alliance === "red" ? -1 : 1), z: st.alliance === "red" ? 1.6 : -1.6, heading: st.alliance === "red" ? 0 : Math.PI }; change("sim"); } }, "To start wall"),
@@ -305,15 +337,18 @@ export class Panel {
     ));
 
     // --- Cameras
-    const camRows: (HTMLElement | HTMLElement[])[] = [];
-    camRows.push(sel("Selected camera", r.cameras.map((c) => ({ value: c.id, label: c.name })), () => st.selectedCameraId, (v) => { st.selectedCameraId = v; change("view"); }));
+    const outerCamRows: (Row | AdvGroup)[] = [];
+    outerCamRows.push(sel("Selected camera", r.cameras.map((c) => ({ value: c.id, label: c.name })), () => st.selectedCameraId, (v) => { st.selectedCameraId = v; change("view"); }));
     r.cameras.forEach((c, i) => {
       const intr = intrinsicsFor(c);
-      camRows.push(el("div", { class: "sub" }, `${c.name}`));
+      // only the selected camera's mount details are everyday settings; other cameras show their heading line
+      const other = c.id !== st.selectedCameraId && r.cameras.length > 1;
+      const camRows: Row[] = [];
+      camRows.push(el("div", { class: "sub" }, `${c.name}${other ? " (select it above to edit)" : ""}`));
       camRows.push(el("div", { class: "note" }, `${intr.width}x${intr.height} · HFOV ${(intr.hfov * 180 / Math.PI).toFixed(1)}° · VFOV ${(intr.vfov * 180 / Math.PI).toFixed(1)}° · diag ${diagonalDeg(intr).toFixed(1)}°${presetById(c.presetId).notes ? " · " + presetById(c.presetId).notes : ""}`));
       const nameInput = el("input", { type: "text", value: c.name }) as HTMLInputElement;
       nameInput.onchange = () => { c.name = nameInput.value; change("cameras"); };
-      camRows.push([el("label", {}, "Name"), nameInput]);
+      camRows.push(adv([el("label", {}, "Name"), nameInput]).adv[0]);
       camRows.push(sel("Camera", CAMERA_PRESETS.map((p) => ({ value: p.id, label: p.name })), () => c.presetId, (v) => { c.presetId = v; c.diagFovDeg = undefined; c.hfovDeg = undefined; c.width = undefined; c.height = undefined; change("cameras"); }));
       camRows.push(chk("Enabled", () => c.enabled, (v) => { c.enabled = v; change("cameras"); }));
       camRows.push(num("Height", () => c.heightM / IN, (v) => { c.heightM = v * IN; change("cameras"); }, { unit: "in", min: 0, max: 29, step: 0.25 }));
@@ -321,51 +356,54 @@ export class Panel {
       camRows.push(num("Left offset", () => c.leftM / IN, (v) => { c.leftM = v * IN; change("cameras"); }, { unit: "in", min: -12, max: 12, step: 0.25 }));
       camRows.push(num("Pitch (+down)", () => c.pitchDeg, (v) => { c.pitchDeg = v; change("cameras"); }, { unit: "°", min: -90, max: 90, step: 1 }));
       camRows.push(num("Yaw (+left)", () => c.yawDeg, (v) => { c.yawDeg = v; change("cameras"); }, { unit: "°", min: -180, max: 180, step: 1 }));
-      camRows.push(num("Roll", () => c.rollDeg, (v) => { c.rollDeg = v; change("cameras"); }, { unit: "°", min: -180, max: 180, step: 1 }));
-      camRows.push(num("Diag FOV override", () => c.diagFovDeg ?? diagonalDeg(intr), (v) => { c.diagFovDeg = v; c.hfovDeg = undefined; change("cameras"); }, { unit: "°", min: 20, max: 160, step: 0.5 }));
-      camRows.push(num("Width", () => intr.width, (v) => { c.width = v; change("cameras"); }, { unit: "px", min: 160, max: 4096, step: 1 }));
-      camRows.push(num("Height", () => intr.height, (v) => { c.height = v; change("cameras"); }, { unit: "px", min: 120, max: 3072, step: 1 }));
+      camRows.push(...adv(
+        num("Roll", () => c.rollDeg, (v) => { c.rollDeg = v; change("cameras"); }, { unit: "°", min: -180, max: 180, step: 1 }),
+        num("Diag FOV override", () => c.diagFovDeg ?? diagonalDeg(intr), (v) => { c.diagFovDeg = v; c.hfovDeg = undefined; change("cameras"); }, { unit: "°", min: 20, max: 160, step: 0.5 }),
+        num("Width", () => intr.width, (v) => { c.width = v; change("cameras"); }, { unit: "px", min: 160, max: 4096, step: 1 }),
+        num("Height", () => intr.height, (v) => { c.height = v; change("cameras"); }, { unit: "px", min: 120, max: 3072, step: 1 }),
+      ).adv);
       camRows.push(el("div", { class: "row full" },
         el("button", { onclick: () => { r.cameras.splice(i, 1); if (st.selectedCameraId === c.id) st.selectedCameraId = r.cameras[0]?.id ?? ""; change("cameras"); } }, "Remove"),
       ));
+      outerCamRows.push(camRows[0], ...(other ? [adv(...camRows.slice(1))] : camRows.slice(1)));
     });
     const addCam = (name: string, yaw: number, fwdIn: number) => { const id = `cam${Date.now() % 100000}`; const c = defaultCamera(id); c.name = name; c.yawDeg = yaw; c.forwardM = fwdIn * IN; r.cameras.push(c); st.selectedCameraId = id; change("cameras"); };
     const MAX_CAMERAS = 2; // FTC allows at most two cameras on the robot
     const full = r.cameras.length >= MAX_CAMERAS;
     const dis = full ? { disabled: "" } : {};
-    camRows.push(el("div", { class: "row full" },
+    outerCamRows.push(el("div", { class: "row full" },
       el("button", { class: "primary", ...dis, onclick: () => addCam(`Camera ${r.cameras.length + 1}`, 0, 7) }, "+ Front camera"),
       el("button", { class: "primary", ...dis, onclick: () => addCam("Rear camera", 180, -7) }, "+ Rear camera"),
       el("button", { ...dis, onclick: () => addCam("Left camera", 90, 0) }, "+ Left"),
       el("button", { ...dis, onclick: () => addCam("Right camera", -90, 0) }, "+ Right"),
     ));
-    if (full) camRows.push(el("div", { class: "note" }, "FTC rules allow a maximum of two cameras; remove one to add another."));
-    camRows.push(el("div", { class: "note" }, "Drag a camera's green body on the robot to move it (orbit view). Hold Alt while dragging to change height. Then fine-tune the numbers above."));
-    this.root.append(section("Cameras", open("Cameras", true), ...camRows));
+    if (full) outerCamRows.push(el("div", { class: "note" }, "FTC rules allow a maximum of two cameras; remove one to add another."));
+    outerCamRows.push(el("div", { class: "note" }, "Drag a camera's green body on the robot to move it (orbit view). Hold Alt while dragging to change height. Then fine-tune the numbers above."));
+    this.root.append(section("Cameras", open("Cameras", true), ...outerCamRows));
 
     // --- Launcher
     const l = r.launcher;
     this.root.append(section("Launcher", open("Launcher", true),
       sel("Preset", Object.entries(LAUNCHER_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => Object.entries(LAUNCHER_PRESETS).find(([, v]) => v.name === l.name)?.[0] ?? "custom", (v) => { r.launcher = { ...LAUNCHER_PRESETS[v] }; change("launcher"); }),
       sel("Ball", [{ value: "pollen", label: "POLLEN (2.8 in, 25 g)" }, { value: "nectar", label: "NECTAR (3.6 in, 41 g)" }], () => st.ballKind, (v) => { st.ballKind = v as any; change("launcher"); }),
-      num("Flywheel dia", () => l.wheelDiameterM * 1000, (v) => { l.wheelDiameterM = v / 1000; change("launcher"); }, { unit: "mm", min: 40, max: 200, step: 1 }),
+      adv(num("Flywheel dia", () => l.wheelDiameterM * 1000, (v) => { l.wheelDiameterM = v / 1000; change("launcher"); }, { unit: "mm", min: 40, max: 200, step: 1 }),
       num("Max RPM", () => l.maxRpm, (v) => { l.maxRpm = v; change("launcher"); }, { min: 100, max: 12000, step: 10 }),
-      num("Efficiency", () => l.efficiency, (v) => { l.efficiency = v; change("launcher"); }, { min: 0.1, max: 1, step: 0.01 }),
+      num("Efficiency", () => l.efficiency, (v) => { l.efficiency = v; change("launcher"); }, { min: 0.1, max: 1, step: 0.01 })),
       num("Commanded RPM", () => l.rpm, (v) => { l.rpm = v; change("launcher"); }, { min: 0, max: 12000, step: 10 }),
       num("Hood angle", () => l.elevationDeg, (v) => { l.elevationDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 89, step: 0.5 }),
-      num("Hood min", () => l.elevationMinDeg, (v) => { l.elevationMinDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 89, step: 0.5 }),
+      adv(num("Hood min", () => l.elevationMinDeg, (v) => { l.elevationMinDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 89, step: 0.5 }),
       num("Hood max", () => l.elevationMaxDeg, (v) => { l.elevationMaxDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 89, step: 0.5 }),
       num("Exit height", () => l.exitHeightM / IN, (v) => { l.exitHeightM = v * IN; change("launcher"); }, { unit: "in", min: 1, max: 29, step: 0.25 }),
       num("Exit forward", () => l.exitForwardM / IN, (v) => { l.exitForwardM = v * IN; change("launcher"); }, { unit: "in", min: -12, max: 12, step: 0.25 }),
-      num("Exit left", () => l.exitLeftM / IN, (v) => { l.exitLeftM = v * IN; change("launcher"); }, { unit: "in", min: -12, max: 12, step: 0.25 }),
+      num("Exit left", () => l.exitLeftM / IN, (v) => { l.exitLeftM = v * IN; change("launcher"); }, { unit: "in", min: -12, max: 12, step: 0.25 })),
       num("Launcher yaw", () => l.yawOffsetDeg, (v) => { l.yawOffsetDeg = v; change("launcher"); }, { unit: "°", min: -180, max: 180, step: 5 }),
-      el("div", { class: "note" }, "Launcher yaw is the fixed direction the shooter points relative to the robot's forward arrow (180 = fires out the back, like the StarterBot ramp). Drag the orange exit marker on the robot to move it; Alt-drag for height. It is hidden from the camera views."),
+      adv(el("div", { class: "note" }, "Launcher yaw is the fixed direction the shooter points relative to the robot's forward arrow (180 = fires out the back, like the StarterBot ramp). Drag the orange exit marker on the robot to move it; Alt-drag for height. It is hidden from the camera views."),
       num("Turret min", () => l.turretMinDeg, (v) => { l.turretMinDeg = v; change("launcher"); }, { unit: "°", min: -180, max: 0, step: 1 }),
       num("Turret max", () => l.turretMaxDeg, (v) => { l.turretMaxDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 180, step: 1 }),
-      num("Backspin fraction", () => l.spinFraction, (v) => { l.spinFraction = v; change("launcher"); }, { min: 0, max: 1, step: 0.05 }),
+      num("Backspin fraction", () => l.spinFraction, (v) => { l.spinFraction = v; change("launcher"); }, { min: 0, max: 1, step: 0.05 })),
       chk("Auto-RPM to target (keyboard shots)", () => st.autoRpm, (v) => { st.autoRpm = v; (st as any).autoRpmUserSet = true; change("launcher"); }),
       chk("Auto-hood to best angle", () => st.autoHood, (v) => { st.autoHood = v; change("launcher"); }),
-      chk("Air drag (Cd 0.45)", () => st.drag, (v) => { st.drag = v; change("launcher"); }),
+      adv(chk("Air drag (Cd 0.45)", () => st.drag, (v) => { st.drag = v; change("launcher"); }),
       el("div", { class: "sub" }, "Shot variability (1-sigma)"),
       num("Speed error", () => st.noise.speedFrac * 100, (v) => { st.noise.speedFrac = v / 100; change("launcher"); }, { unit: "%", min: 0, max: 30, step: 0.5 }),
       num("Elevation error", () => st.noise.elevationDeg, (v) => { st.noise.elevationDeg = v; change("launcher"); }, { unit: "°", min: 0, max: 15, step: 0.1 }),
@@ -373,7 +411,7 @@ export class Panel {
       num("Spin variation", () => st.noise.spinFrac * 100, (v) => { st.noise.spinFrac = v / 100; change("launcher"); }, { unit: "%", min: 0, max: 100, step: 5 }),
       num("Monte Carlo shots", () => st.monteCarloN, (v) => { st.monteCarloN = Math.round(v); change("launcher"); }, { min: 20, max: 1000, step: 10 }),
       el("div", { class: "note" }, "Each fired ball gets a random draw from these. The HUD hit probability and the dot cloud on the opening plane come from re-simulating this many perturbed shots along the direction the launcher points right now."),
-      el("div", { class: "note" }, "Exit speed = efficiency x flywheel surface speed. Measure a few shots on your robot and tune efficiency until the sim matches. While TeamCode is running, the flywheel RPM comes from your code's motor command and Auto-RPM is ignored; a ball fed with the flywheel stopped just drops out, as on the real robot."),
+      el("div", { class: "note" }, "Exit speed = efficiency x flywheel surface speed. Measure a few shots on your robot and tune efficiency until the sim matches. While TeamCode is running, the flywheel RPM comes from your code's motor command and Auto-RPM is ignored; a ball fed with the flywheel stopped just drops out, as on the real robot.")),
     ));
 
     // --- Match / target
@@ -381,17 +419,17 @@ export class Panel {
       sel("Our alliance", [{ value: "red", label: "Red (left of audience)" }, { value: "blue", label: "Blue" }], () => st.alliance, (v) => { st.alliance = v as any; change("sim"); }),
       sel("Red hive up cell", [{ value: "audience", label: "Audience side (match start)" }, { value: "scoring", label: "Scoring side" }], () => st.hive.red, (v) => { st.hive.red = v as any; change("sim"); }),
       sel("Blue hive up cell", [{ value: "scoring", label: "Scoring side (match start)" }, { value: "audience", label: "Audience side" }], () => st.hive.blue, (v) => { st.hive.blue = v as any; change("sim"); }),
-      chk("Hives tip when loaded", () => st.autoTip, (v) => { st.autoTip = v; change("sim"); }),
+      adv(chk("Hives tip when loaded", () => st.autoTip, (v) => { st.autoTip = v; change("sim"); }),
       num("Tip load", () => st.tipMassG, (v) => { st.tipMassG = v; change("sim"); }, { unit: "g", min: 50, max: 600, step: 1 }),
-      el("div", { class: "note" }, "Field staff calibrate each cell to tip at 8 POLLEN or 3 NECTAR + 3 POLLEN (198.6 g, so the default threshold is 195 g). The up cell starts with 3 NECTAR, so three POLLEN in tips it. A heavier load tips faster. When it tips the contents fall out and the other cell comes up, facing the other way, so you must move to keep scoring. T or the selectors above reset the hive to match start."),
+      el("div", { class: "note" }, "Field staff calibrate each cell to tip at 8 POLLEN or 3 NECTAR + 3 POLLEN (198.6 g, so the default threshold is 195 g). The up cell starts with 3 NECTAR, so three POLLEN in tips it. A heavier load tips faster. When it tips the contents fall out and the other cell comes up, facing the other way, so you must move to keep scoring. T or the selectors above reset the hive to match start.")),
       chk("Simulated other robots", () => st.opponents, (v) => { st.opponents = v; change("sim"); }),
       chk("They collect and score", () => st.opponentsScore, (v) => { st.opponentsScore = v; change("sim"); }),
-      chk("Pause other robots", () => st.pauseOpponents, (v) => { st.pauseOpponents = v; change("sim"); }),
+      adv(chk("Pause other robots", () => st.pauseOpponents, (v) => { st.pauseOpponents = v; change("sim"); }),
       el("div", { class: "sub" }, "Game pieces"),
       num("Robot capacity", () => st.capacity, (v) => { st.capacity = Math.round(v); change("sim"); }, { min: 1, max: 8, step: 1 }),
       chk("Can intake POLLEN", () => st.canPollen, (v) => { st.canPollen = v; change("sim"); }),
       chk("Can intake NECTAR", () => st.canNectar, (v) => { st.canNectar = v; change("sim"); }),
-      el("div", { class: "note" }, "Match start: 4 POLLEN preloaded, 4 in each FLOWER, 4 in each GARDEN, 3 NECTAR in each raised cell, 5 NECTAR per alliance in reserve (one enters the LOADING ZONE after each tip). Drive the intake end onto a ball or up to a FLOWER's retrieval opening to pick up; you can only launch what you carry. Keyboard driving always runs the intake; under TeamCode the intake motor must be powered."),
+      el("div", { class: "note" }, "Match start: 4 POLLEN preloaded, 4 in each FLOWER, 4 in each GARDEN, 3 NECTAR in each raised cell, 5 NECTAR per alliance in reserve (one enters the LOADING ZONE after each tip). Drive the intake end onto a ball or up to a FLOWER's retrieval opening to pick up; you can only launch what you carry. Keyboard driving always runs the intake; under TeamCode the intake motor must be powered.")),
       el("div", { class: "row full" }, el("button", { class: "primary", onclick: () => { st.resetMatchRequest = true; change("sim"); } }, "Reset match to start")),
     ));
 
@@ -400,20 +438,20 @@ export class Panel {
     this.root.append(section("View & overlays", open("View & overlays", false),
       sel("Main view", [{ value: "orbit", label: "Orbit (1)" }, { value: "top", label: "Top-down (2)" }, { value: "chase", label: "Chase (3)" }, { value: "robot", label: "Robot camera (4)" }], () => st.view, (v) => { st.view = v as any; change("view"); }),
       chk("Camera insets (all cameras)", () => st.pip, (v) => { st.pip = v; change("view"); }),
-      chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
+      adv(chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
       chk("Arc as launcher points now (orange)", () => o.actualArc, (v) => { o.actualArc = v; change("overlays"); }),
       chk("Dispersion cloud", () => o.dispersion, (v) => { o.dispersion = v; change("overlays"); }),
       chk("Feasible-angle fan", () => o.fan, (v) => { o.fan = v; change("overlays"); }),
       chk("FOV footprint on mat", () => o.footprint, (v) => { o.footprint = v; change("overlays"); }),
       chk("Camera frustum", () => o.frustum, (v) => { o.frustum = v; change("overlays"); }),
       chk("Target opening", () => o.target, (v) => { o.target = v; change("overlays"); }),
-      chk("Aim line", () => o.aim, (v) => { o.aim = v; change("overlays"); }),
+      chk("Aim line", () => o.aim, (v) => { o.aim = v; change("overlays"); })),
       chk("Reachability map (RPM by position)", () => o.reach, (v) => { o.reach = v; change("overlays"); }),
       el("div", { class: "note" }, "Reachability colours the mat by the flywheel RPM needed to hit the target cell from each 6 in square with the current launcher (green = low, red = near max, dark = cannot reach). Recomputed when launcher or target change."),
       chk("Hit-probability map (aimed from each square)", () => o.hitmap, (v) => { o.hitmap = v; change("overlays"); }),
       el("div", { class: "note" }, "For every 6 in square: aim at the target cell, use the hood/RPM the launcher would need from there, and fire 40 simulated shots with the configured shot variability. Green = always in, red = never. Squares are dimmed where the selected camera would not see any of the target cell's AprilTags, so auto-aim could not lock on. Fills in over a few seconds and recomputes as you change the launcher, variability, hood, cameras or target."),
-      chk("Performance stats", () => st.showPerf, (v) => { st.showPerf = v; change("view"); }),
-      el("div", { class: "note" }, "Export, import and reset live in the Session section at the top."),
+      adv(chk("Performance stats", () => st.showPerf, (v) => { st.showPerf = v; change("view"); }),
+      el("div", { class: "note" }, "Export, import and reset live in the Session section at the top.")),
     ));
   }
 }

@@ -30,6 +30,8 @@ export interface AppState {
   overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean; hitmap: boolean };
   /** show per-frame timing of the main loop sections */
   showPerf: boolean;
+  /** panel shows every setting (true) or only the everyday ones with per-section "more" expanders (false) */
+  panelAdvanced: boolean;
   noise: NoiseConfig;
   monteCarloN: number;
   /** virtual runtime (TeamCode) */
@@ -70,6 +72,7 @@ export function defaultState(): AppState {
     pip: true,
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false },
     showPerf: false,
+    panelAdvanced: false,
     noise: { ...DEFAULT_NOISE },
     monteCarloN: 150,
     autoTip: true,

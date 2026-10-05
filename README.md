@@ -36,7 +36,7 @@ pnpm test         # unit tests for geometry, ballistics, kinematics, camera math
 pnpm build        # static site in dist/ (also deployed to GitHub Pages, see Hosting)
 ```
 
-The side panel on the right holds every setting; the HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; export them from the **Session** section to share.
+The side panel on the right holds the settings. It opens in **Essential** mode, showing the everyday controls (preset, drivetrain, intake side, launcher RPM and hood, alliance and target, other robots, main view and mat maps); each section has a *Show N more settings* button for the rest, and **All settings** at the top shows everything. The HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; export them from the **Session** section to share.
 
 ## Gallery
 
