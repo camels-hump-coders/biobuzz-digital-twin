@@ -39,15 +39,15 @@ public class AutoAimAndShoot extends LinearOpMode {
         ElapsedTime t = new ElapsedTime();
         AprilTagDetection target = null;
         // 1) search: rotate slowly until a target tag is in view, then servo its bearing to zero
-        while (opModeIsActive() && t.seconds() < 12) {
+        while (opModeIsActive() && t.seconds() < 20) {
             target = null;
             for (AprilTagDetection d : tags.getDetections()) if (d.id >= 30 && d.id <= 37 && (target == null || Math.abs(d.ftcPose.bearing) < Math.abs(target.ftcPose.bearing))) target = d;
             double turn;
-            if (target == null) turn = -0.25; else turn = Math.max(-0.35, Math.min(0.35, target.ftcPose.bearing * 0.02));
+            if (target == null) turn = -0.4; else turn = Math.max(-0.35, Math.min(0.35, target.ftcPose.bearing * 0.02));
             if (target != null && Math.abs(target.ftcPose.bearing) < 1.0) break;
-            // Positive bearing = tag to the camera's left. The StarterBot's shooter camera faces BACKWARD (over the
-            // ramp), so the camera's left is the robot's right: rotate clockwise (left wheels forward) to centre it.
-            fl.setPower(turn); bl.setPower(turn); fr.setPower(-turn); br.setPower(-turn);
+            // Positive bearing = tag to the camera's left. Rotating the robot CCW moves everything in any rigidly
+            // mounted camera's image to the right, so positive bearing always means: turn CCW (left wheels back).
+            fl.setPower(-turn); bl.setPower(-turn); fr.setPower(turn); br.setPower(turn);
             telemetry.addData("state", target == null ? "searching" : "aligning");
             if (target != null) telemetry.addData("bearing", "%.1f deg  range %.1f in", target.ftcPose.bearing, target.ftcPose.range);
             telemetry.update();

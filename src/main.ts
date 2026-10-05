@@ -448,18 +448,9 @@ function frame(now: number) {
       const vis = ci === selected && lastTags.length ? lastTags : analyseTagsFor(ci.cam, ci.intr, field.tagMeshes, [...field.occluders, ...scriptedObjs.filter((o) => o.group.visible).map((o) => o.chassis)]);
       tagsByCam[dev.name] = buildDetections(ci.cam, ci.intr, vis, field.tagMeshes, state.pose, state.tagNoiseIn);
     }
-    const g = input.gamepads();
+    lastTagsByCam = tagsByCam;
+    lastYawRate = vel.yawRate;
     if (!link.running) imuYawRef = 0;
-    link.sendSensors({
-      type: "sensors",
-      motors: motorSensors(actuatorModel, state.hardware),
-      imu: { yaw: rad2deg(wrapAngle(state.pose.heading - imuYawRef)), pitch: 0, roll: 0, yawRate: rad2deg(vel.yawRate) },
-      distances: {},
-      tags: tagsByCam,
-      gamepad1: g.g1,
-      gamepad2: g.g2,
-      battery: 12.6,
-    });
     panel.updateTelemetry(link.telemetry, `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}`);
   }
 
@@ -543,6 +534,24 @@ function frame(now: number) {
 (window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, stats: () => ({ shotsFired, shotsHit }) };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
+let lastTagsByCam: SensorPacket["tags"] = {};
+let lastYawRate = 0;
+// Sensors go out on a fixed timer, not per render frame, so gamepad presses and encoder updates reach the
+// OpMode at 50 Hz even when the page renders slowly (background tab, software GL).
+window.setInterval(() => {
+  if (!link.connected) return;
+  const g = input.gamepads();
+  link.sendSensors({
+    type: "sensors",
+    motors: motorSensors(actuatorModel, state.hardware),
+    imu: { yaw: rad2deg(wrapAngle(state.pose.heading - imuYawRef)), pitch: 0, roll: 0, yawRate: rad2deg(lastYawRate) },
+    distances: {},
+    tags: lastTagsByCam,
+    gamepad1: g.g1,
+    gamepad2: g.g2,
+    battery: 12.6,
+  });
+}, 20);
 let actualCache: { key: string; shot?: ShotResult } = { key: "" };
 function computeActual(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): ShotResult | undefined {
   const l = state.robot.launcher;
