@@ -320,7 +320,7 @@ export class Panel {
       chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); })),
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),
-        el("button", { onclick: () => { st.pose = startPose(st.starts, "you", st.alliance); change("sim"); } }, "To start position"),
+        el("button", { onclick: () => { st.pose = startPose(st.starts, "you", st.alliance, st.hive); change("sim"); } }, "To start position"),
         el("button", { onclick: () => { st.aimRequest = true; change("sim"); } }, "Aim at target (R)"),
       ),
       el("div", { class: "row full" },
@@ -441,6 +441,8 @@ export class Panel {
       ),
       el("div", { class: "note" }, "Reset parks every robot on its starting mark with the field at match start; Start releases the 2:30 clock and the other robots. With TeamCode connected, INIT resets and START/STOP do the same for the whole field."),
       adv(el("div", { class: "sub" }, "Starting positions (red frame, inches; mirrored when you play blue)"),
+        chk("Start on our raised cell's side", () => st.starts.followUpCell ?? true, (v) => { st.starts.followUpCell = v; change("sim"); }),
+        el("div", { class: "note" }, "On: you start on the half of the field our hive's raised cell faces (the z values below are used as distances from the centre line), the partner takes the other half, and the opponents do the same for theirs. Off: the z values are used as given."),
         ...(["you", "partner", "opp1", "opp2"] as StartKey[]).flatMap((k) => [
           num(`${START_LABELS[k]} x`, () => st.starts[k].xIn, (v) => { st.starts[k].xIn = v; change("sim"); }, { unit: "in", min: -70, max: 70, step: 1 }),
           num(`${START_LABELS[k]} z`, () => st.starts[k].zIn, (v) => { st.starts[k].zIn = v; change("sim"); }, { unit: "in", min: -70, max: 70, step: 1 }),

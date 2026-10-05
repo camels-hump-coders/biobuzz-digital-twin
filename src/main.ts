@@ -152,7 +152,7 @@ const MATCH_SECONDS = 150; // 0:30 auto + 2:00 teleop
 state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
 function startKeyOf(s: ScriptedRobot): "partner" | "opp1" | "opp2" { return s.name === "Partner" ? "partner" : s.name === "Opponent 1" ? "opp1" : "opp2"; }
 function parkScripted() {
-  for (const s of scripted) { s.pose = startPose(state.starts, startKeyOf(s), state.alliance); s.prevPose = { ...s.pose }; s.target = undefined; (s as any).brain = undefined; s.backoff = undefined; s.index = 0; s.dwellLeft = 0; }
+  for (const s of scripted) { s.pose = startPose(state.starts, startKeyOf(s), state.alliance, state.hive); s.prevPose = { ...s.pose }; s.target = undefined; (s as any).brain = undefined; s.backoff = undefined; s.index = 0; s.dwellLeft = 0; }
   scriptedObjs.forEach((o, i) => o.setPose(scripted[i].pose));
 }
 /** Everything back to match start: pieces, inventories, hives, fouls, and every robot on its starting mark. */
@@ -160,7 +160,7 @@ function resetBoard() {
   match.reset(allAgents);
   shotsFired = 0; shotsHit = 0;
   pins.reset();
-  state.pose = startPose(state.starts, "you", state.alliance);
+  state.pose = startPose(state.starts, "you", state.alliance, state.hive);
   robot.setPose(state.pose);
   parkScripted();
   state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
