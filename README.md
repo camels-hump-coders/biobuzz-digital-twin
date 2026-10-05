@@ -102,7 +102,7 @@ Everything in the side panel is kept in the browser's localStorage. The **Sessio
 
 - *Export robot config* / *Import robot config*: a JSON file with the robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings. Share it across browsers or commit it next to your TeamCode.
 - *Export whole session* / *Import whole session*: everything, including pose, view and overlay toggles.
-- *Reset session to defaults*: clears the saved state and reloads. *Reset robot to preset* only puts the robot back to its preset.
+- *Reset session to defaults*: clears the saved state and reloads, keeping your TeamCode asset overrides unless you tick the box beneath it. *Reset robot to preset* only puts the robot back to its preset.
 
 ## Controls
 

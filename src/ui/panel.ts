@@ -126,6 +126,7 @@ export class Panel {
     // --- Session: saved state lives in this browser's localStorage
     const download = (name: string, data: unknown) => { const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
     const upload = (onJson: (j: any) => void) => { const i = document.createElement("input"); i.type = "file"; i.accept = "application/json,.json"; i.onchange = async () => { const f = i.files?.[0]; if (!f) return; try { onJson(JSON.parse(await f.text())); } catch (e) { alert("Not a valid config file: " + e); } }; i.click(); };
+    const resetAssetsToo = el("input", { type: "checkbox", title: "Also forget the TeamCode asset overrides (TeamCode settings panel). Off: they survive the reset." }) as HTMLInputElement;
     this.root.append(section("Session", open("Session", false),
       adv(el("div", { class: "note" }, "Everything in this panel is saved in this browser's localStorage) and restored on reload. Robot config = robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings.")),
       el("div", { class: "row full" },
@@ -137,9 +138,15 @@ export class Panel {
         el("button", { onclick: () => upload((j) => { Object.assign(st, j); change("reset"); }) }, "Import whole session"),
       )),
       el("div", { class: "row full" },
-        el("button", { style: "border-color:#a33;color:#faa", onclick: () => { if (confirm("Clear everything saved in this browser (robot config, cameras, hardware map, overlays) and reload with defaults?")) { localStorage.removeItem("biobuzz-twin"); location.reload(); } } }, "Reset session to defaults"),
+        el("button", { style: "border-color:#a33;color:#faa", onclick: () => {
+          const keepAssets = !resetAssetsToo.checked && Object.keys(st.assetOverrides ?? {}).length > 0;
+          if (!confirm(`Clear everything saved in this browser (robot config, cameras, hardware map, overlays)${keepAssets ? ", keeping your TeamCode asset overrides," : " including TeamCode asset overrides,"} and reload with defaults?`)) return;
+          if (keepAssets) localStorage.setItem("biobuzz-twin", JSON.stringify({ assetOverrides: st.assetOverrides })); else localStorage.removeItem("biobuzz-twin");
+          location.reload();
+        } }, "Reset session to defaults"),
         el("button", { onclick: () => { st.robot = clonePreset(st.robotPresetId); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; change("robot"); } }, "Reset robot to preset"),
       ),
+      el("div", { class: "row full", style: "align-items:center;gap:6px" }, resetAssetsToo, el("label", { style: "color:var(--muted)" }, "Reset also clears TeamCode asset overrides (otherwise they are kept)")),
     ));
 
     // --- Runtime (TeamCode)
