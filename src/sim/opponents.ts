@@ -18,6 +18,12 @@ export interface ScriptedRobot {
   target?: { x: number; z: number };
   /** true while the match brain controls this robot */
   brainDriven?: boolean;
+  /** world velocity the wheels are commanding this frame (for pushing contests) */
+  cmdVel?: { vx: number; vz: number };
+  /** G421: back away from a robot we are pinning until this sim time */
+  backoff?: { until: number; target: { x: number; z: number } };
+  /** pose before this frame's step (for the pushing contest) */
+  prevPose?: Pose;
 }
 
 const IN = 0.0254;
@@ -103,20 +109,29 @@ export function nextWaypoint(pose: Pose, target: { x: number; z: number }, fp: F
   return nodes[v];
 }
 
-export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = []): void {
-  if (r.brainDriven) {
-    if (!r.target) return;
+/**
+ * @param extra obstacles that both block and are routed around (field elements, other scripted robots)
+ * @param avoid obstacles only routed around; contact with them is resolved separately by the pushing model (the player)
+ */
+export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = [], avoid: Obstacle[] = [], now = Infinity): void {
+  r.cmdVel = { vx: 0, vz: 0 };
+  r.prevPose = { ...r.pose };
+  const backingOff = r.backoff && now < r.backoff.until;
+  if (r.brainDriven || backingOff) {
+    const goal = backingOff ? r.backoff!.target : r.target;
+    if (!goal) return;
     const obstacles = [...fieldObstacles(), ...extra];
-    const wp = nextWaypoint(r.pose, r.target, r.footprint, obstacles);
+    const wp = nextWaypoint(r.pose, goal, r.footprint, [...obstacles, ...avoid]);
     const dx = wp.x - r.pose.x, dz = wp.z - r.pose.z;
     const dist = Math.hypot(dx, dz);
     if (dist < 0.06) return;
     const want = headingToward(r.pose, wp);
     const err = wrapAngle(want - r.pose.heading);
     const yawRate = Math.max(-2.5, Math.min(2.5, err * 4));
-    const fwd = Math.abs(err) < 0.6 ? Math.min(r.speed, Math.max(dist * 2, wp === r.target ? 0 : 0.4)) : 0.15;
+    const fwd = Math.abs(err) < 0.6 ? Math.min(r.speed, Math.max(dist * 2, wp === goal ? 0 : 0.4)) : 0.15;
     const vx = -Math.sin(r.pose.heading) * fwd, vz = -Math.cos(r.pose.heading) * fwd;
     (r as any).debug = { wp, err: +err.toFixed(2), fwd: +fwd.toFixed(2), dt: +dt.toFixed(3) };
+    r.cmdVel = { vx, vz };
     r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, obstacles);
     return;
   }
@@ -124,6 +139,8 @@ export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = [
     r.dwellLeft -= dt;
     return;
   }
+  if (!r.waypoints.length) return;
+  if (r.index >= r.waypoints.length) r.index = 0;
   const wp = r.waypoints[r.index];
   const dx = wp.x - r.pose.x, dz = wp.z - r.pose.z;
   const dist = Math.hypot(dx, dz);
@@ -137,5 +154,6 @@ export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = [
   const yawRate = Math.max(-2.5, Math.min(2.5, err * 4));
   const fwd = Math.abs(err) < 0.6 ? Math.min(r.speed, dist * 2) : 0.2;
   const vx = -Math.sin(r.pose.heading) * fwd, vz = -Math.cos(r.pose.heading) * fwd;
+  r.cmdVel = { vx, vz };
   r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, [...fieldObstacles(), ...extra]);
 }

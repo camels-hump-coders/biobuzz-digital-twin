@@ -43,5 +43,7 @@ export interface RobotSpec {
   cameras: CameraMount[];
   launcher: LauncherConfig;
   intake: IntakeConfig;
+  /** mass with battery, kg; sets how hard the robot pushes and resists pushing (traction = 0.8 x weight) */
+  massKg: number;
   color: number;
 }

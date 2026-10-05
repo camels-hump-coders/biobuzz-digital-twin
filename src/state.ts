@@ -109,6 +109,7 @@ export function loadState(): AppState {
       if (s.tipMassG === 199) s.tipMassG = 195;
       // migration: intake side (older saves collected from every side)
       if (s.robot && !s.robot.intake) s.robot.intake = { side: "front", widthM: 13 * 0.0254 };
+      if (s.robot && !s.robot.massKg) s.robot.massKg = 12;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
       return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig() };

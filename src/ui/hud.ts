@@ -39,6 +39,9 @@ export interface HudData {
   supply: string;
   theirHive: string;
   launchBlocked?: string;
+  /** robot-vs-robot contact / pin count / fouls */
+  contact?: string;
+  contactBad?: boolean;
   tags: TagVisibility[];
   cameraName: string;
   modelStatus: string;
@@ -74,6 +77,7 @@ export class Hud {
         <tr><td>Our up cell</td><td class="${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad}</td></tr>
         <tr><td>Our hive tips</td><td>${d.tips} (${d.tips * 20} pts)</td></tr>
         <tr><td>Their hive</td><td>${d.theirHive}</td></tr>
+        ${d.contact ? `<tr><td>Robot contact</td><td class="${d.contactBad ? "bad" : "warn"}">${d.contact}</td></tr>` : ""}
         <tr><td>Field supply</td><td>${d.supply}</td></tr>
       </table>
       <h2 style="margin-top:8px">AprilTags — ${d.cameraName}</h2>

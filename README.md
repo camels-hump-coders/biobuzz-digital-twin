@@ -161,6 +161,7 @@ What works on the hosted page: everything except running Java TeamCode. The virt
 - AprilTags are real tag36h11 codes (IDs 30–45) at the manual's cluster geometry (centres at ±2.75 and ±6.5 in, 7.19 in behind the opening), so a vision pipeline looking at the camera inset sees genuine tags. The runtime still hands detections to TeamCode synthetically rather than decoding pixels.
 - Partner and opponent robots are scripted: they collect from FLOWERS and loose balls, drive to a launch spot in front of their alliance's raised cell routing around the hive legs, flowers and other robots, and score with a 55° shot. They push loose balls and bump chassis-to-chassis like the real thing, but have no defence strategy and only re-route when they get stuck for a few seconds.
 - Driving: the two triangular frame legs and the four FLOWER cages block the robot; the space under the cells between the legs is open, as on the real field.
+- Robot-vs-robot contact is a traction contest (0.8 x weight; set *Mass* in the Robot panel). A robot driving against a push resists with all its traction, an idle tank robot skids sideways but can be rolled lengthwise at about half, mecanum rollers give a little in every direction, and the perimeter always holds. Holding an opponent (directly or against the wall) counts a G421 PIN in the HUD: 3 s is a MAJOR FOUL and another every 3 s; scripted robots back off before the count runs out.
 - Camera images are ideal pinhole renders: no lens distortion, exposure or motion blur.
 
 ## Coordinate system

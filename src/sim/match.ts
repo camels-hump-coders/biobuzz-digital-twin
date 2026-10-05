@@ -171,6 +171,9 @@ export class Match {
     }
   }
 
+  /** simulated seconds since start */
+  now(): number { return this.time; }
+
   /** Call every frame. */
   update(dt: number, agents: Agent[]) {
     this.time += dt;
@@ -245,7 +248,28 @@ export class Match {
       ag.prevPose = { ...ag.pose };
       this.pushBalls(ag, vx, vz);
     }
+    this.separateBalls();
     for (const ag of agents) this.pickup(ag);
+  }
+
+  /** Loose balls on the floor do not overlap: push pairs apart and trade the velocity along the contact normal. */
+  private separateBalls() {
+    const floor = this.flying.filter((b) => !b.inCell && !b.carried && b.pos.y < 0.12);
+    const lim = m(FIELD.sizeIn) / 2;
+    for (let i = 0; i < floor.length; i++) for (let j = i + 1; j < floor.length; j++) {
+      const a = floor[i], b = floor[j];
+      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
+      const d = Math.hypot(dx, dz), min = a.radius + b.radius;
+      if (d >= min || d < 1e-6) continue;
+      const nx = dx / d, nz = dz / d, pen = min - d;
+      a.pos.x -= nx * pen / 2; a.pos.z -= nz * pen / 2; b.pos.x += nx * pen / 2; b.pos.z += nz * pen / 2;
+      for (const k of [a, b]) { k.pos.x = clamp(k.pos.x, -lim + k.radius, lim - k.radius); k.pos.z = clamp(k.pos.z, -lim + k.radius, lim - k.radius); k.mesh.position.copy(k.pos); }
+      // relative speed along the normal: exchange it (equal masses, restitution 0.5)
+      const rel = (a.vel.x - b.vel.x) * nx + (a.vel.z - b.vel.z) * nz;
+      if (rel > 0) { const imp = rel * 0.75; a.vel.x -= imp * nx; a.vel.z -= imp * nz; b.vel.x += imp * nx; b.vel.z += imp * nz; }
+      if (a.settled && (Math.hypot(a.vel.x, a.vel.z) > 0.05 || pen > 0.005)) { a.settled = false; a.restFor = 0; }
+      if (b.settled && (Math.hypot(b.vel.x, b.vel.z) > 0.05 || pen > 0.005)) { b.settled = false; b.restFor = 0; }
+    }
   }
 
   /** Balls riding in a swinging cell: rotate them with the hive about the pivot so they slide out as the floor steepens. */
@@ -287,6 +311,11 @@ export class Match {
       if (!push) continue;
       if (this.canCollect(ag, b) && inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M)) continue;
       b.pos.x += push.dx; b.pos.z += push.dz;
+      const lim = m(FIELD.sizeIn) / 2 - b.radius; // the wall is solid: a ball squeezed between chassis and wall stays inside
+      b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim);
+      // the ball is inside the chassis volume right now: the sweep must not collide with the chassis's own interior faces
+      const group = ag.carryGroup.parent as THREE.Object3D | null;
+      if (group) { b.launcher = group; b.launcherIgnoreUntil = b.age + 0.15; }
       // leave with at least the chassis speed along the push normal, plus the chassis's sideways motion
       const vn = Math.max(vx * push.nx + vz * push.nz, 0);
       const speed = Math.max(vn + 0.1, PUSH_SPEED_MIN);
@@ -339,6 +368,8 @@ export class Match {
     const brain = ((r as any).brain ??= { mode: "seek", timer: 0, shots: 0, launchSpot: undefined as { x: number; z: number } | undefined, spotAlt: 0, progress: undefined as { d: number; t: number } | undefined, avoid: [] as { x: number; z: number; until: number }[] });
     const held = ag.inventory.pollen + ag.inventory.nectar;
     brain.timer += dt;
+    // G421: we are about to be called for pinning; back away before continuing
+    if (r.backoff) { if (this.time < r.backoff.until) { r.target = r.backoff.target; return false; } r.backoff = undefined; brain.progress = undefined; }
     // watchdog: no progress toward the current target for 3 s means we are wedged against something or someone
     if (r.target && (brain.mode === "seek" || brain.mode === "travel")) {
       const d = Math.hypot(r.target.x - r.pose.x, r.target.z - r.pose.z);

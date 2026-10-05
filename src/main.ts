@@ -3,6 +3,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
 import { aimPoint, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
 import { HitMapJob } from "./ballistics/hitmap";
+import { resolveContact, type ContactBody } from "./sim/contact";
+import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
 import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
 import { BALL, FIELD, m } from "./field/fieldSpec";
@@ -344,6 +346,7 @@ function activeCamera(): THREE.Camera { return currentCamera; }
 // ---------- main loop
 let last = performance.now();
 const perf = new Perf();
+const pins = new PinTracker();
 setupUpdates();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
 let analysisTick = 0;
@@ -431,8 +434,10 @@ function frame(now: number) {
     // keep encoders moving sensibly when the keyboard drives, so init_loop telemetry is not frozen
     stepActuators(actuatorModel, state.hardware, {}, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
   }
-  const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
-  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...fieldObstacles(), ...others]);
+  // other robots are not static obstacles: contact with them is a pushing contest, resolved below
+  const others: Obstacle[] = [];
+  const prevPose = state.pose;
+  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, fieldObstacles());
   robot.setPose(state.pose);
   perf.mark("drive");
 
@@ -466,8 +471,31 @@ function frame(now: number) {
       if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) { /* fired */ } } else ag.intakeActive = false;
       // other scripted robots are obstacles too, so they route around and push off each other instead of overlapping
       const peers: Obstacle[] = scripted.filter((o) => o !== s).map((o) => ({ xMin: o.pose.x - o.footprint.widthM / 2, xMax: o.pose.x + o.footprint.widthM / 2, zMin: o.pose.z - o.footprint.lengthM / 2, zMax: o.pose.z + o.footprint.lengthM / 2 }));
-      stepScripted(s, dt, [me, ...peers]);
+      stepScripted(s, dt, peers, [me], match.now());
     });
+  }
+  // robot-vs-robot pushing (player vs each scripted robot) and the G421 pin count
+  let contactText: string | undefined, contactBad = false;
+  if (state.opponents) {
+    const meBody: ContactBody = { pose: state.pose, fp: { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, drivetrain: state.robot.drivetrain, massKg: state.robot.massKg ?? 12, vx: vel.vx, vz: vel.vz };
+    for (const s of scripted) {
+      const sBody: ContactBody = { pose: s.pose, fp: s.footprint, drivetrain: "tank", massKg: 12, vx: s.cmdVel?.vx ?? 0, vz: s.cmdVel?.vz ?? 0 };
+      const res = resolveContact(meBody, sBody, prevPose, s.prevPose ?? s.pose, dt);
+      if (res.contact) { state.pose = res.a; meBody.pose = res.a; s.pose = res.b; robot.setPose(state.pose); }
+      pins.update(dt, { a: "You", b: s.name, poseA: state.pose, poseB: s.pose, pushing: res.contact && res.pusher ? { pinner: res.pusher, held: res.held } : undefined });
+      if (res.contact && res.pusher) contactText = res.pusher === "b" ? `${s.name} is pushing you${res.held ? " — you are holding" : ""}` : `you are pushing ${s.name}${res.held ? " — they are holding" : ""}`;
+      // a scripted pinner backs off before the 3-count (a human driver would too)
+      const pin = pins.current(s.name);
+      if (pin && pin.pinner === s.name && pin.count > PIN_LIMIT_S * 0.7 && !s.backoff) {
+        const dx = s.pose.x - state.pose.x, dz = s.pose.z - state.pose.z, d = Math.hypot(dx, dz) || 1;
+        s.backoff = { until: match.now() + 3, target: { x: clamp(s.pose.x + (dx / d) * 0.9, -1.6, 1.6), z: clamp(s.pose.z + (dz / d) * 0.9, -1.6, 1.6) } };
+      }
+    }
+    const myPin = pins.current("You");
+    if (myPin) { contactText = `${myPin.pinner === "You" ? `you are pinning ${myPin.pinned}` : `${myPin.pinner} is pinning you`} · ${myPin.count.toFixed(1)} s of ${PIN_LIMIT_S}`; contactBad = myPin.count >= PIN_LIMIT_S; }
+    const fouls = [...pins.fouls.entries()].map(([n, k]) => `${n} ${k}`).join(", ");
+    if (fouls) contactText = `${contactText ?? "no contact"} · fouls: ${fouls}`;
+    if (pins.lastCall && match.now() - pins.lastCall.at < 4) { contactText = `${pins.lastCall.text}${contactText ? " · " + contactText : ""}`; contactBad = true; }
   }
   scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
   // our agent
@@ -584,10 +612,11 @@ function frame(now: number) {
     cellLoad: (() => { const c = match.cellLoad(state.alliance); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
     tips: match.hives[state.alliance].tips,
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
-    carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
+    carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})${runtimeActive && !playerAgent.intakeActive ? " · intake OFF (your code must power the intake motor to collect; balls get pushed instead)" : ""}`,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
+    contact: contactText, contactBad,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""} · keyboard = gamepad${input.keyboardPad}` : "") + (fps < 20 ? ` · ⚠ ${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""} — turn off camera insets or the hit map` : ""),
@@ -644,7 +673,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };

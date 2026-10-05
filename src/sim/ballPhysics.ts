@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { acceleration, type BallProps } from "../ballistics/projectile";
 import { type CellFrame, dot, sub, openingProfile } from "../field/hive";
-import { HIVE, m } from "../field/fieldSpec";
+import { FIELD, HIVE, m } from "../field/fieldSpec";
 
 export interface LiveBall {
   mesh: THREE.Mesh;
@@ -106,6 +106,10 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
       }
     }
   }
+  // the perimeter is solid whatever the sweep did (a ball squeezed by a chassis can start a frame inside the wall)
+  const lim = m(FIELD.sizeIn) / 2 - b.radius;
+  if (Math.abs(b.pos.x) > lim) { b.pos.x = Math.sign(b.pos.x) * lim; if (Math.sign(b.vel.x) === Math.sign(b.pos.x)) b.vel.x *= -RESTITUTION; }
+  if (Math.abs(b.pos.z) > lim) { b.pos.z = Math.sign(b.pos.z) * lim; if (Math.sign(b.vel.z) === Math.sign(b.pos.z)) b.vel.z *= -RESTITUTION; }
   // floor
   if (b.pos.y < b.radius) {
     b.pos.y = b.radius;
