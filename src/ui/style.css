@@ -111,3 +111,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .timeline .tl-ev.button .tl-k { background: #3b3200; color: var(--accent); }
 #panel .timeline .tl-ev.shot .tl-k { background: #1c2f4a; color: #8cc4ff; }
 #panel pre.rewind { border-color: var(--accent) !important; }
+#panel .timeline .tl-buttons { flex-wrap: wrap; }
+#panel .timeline .tl-buttons button { padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+#panel .timeline .tl-ev { white-space: pre-wrap; word-break: break-word; }
