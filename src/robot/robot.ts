@@ -171,9 +171,14 @@ export class RobotObject {
 
   private buildLauncherMarker(): THREE.Group {
     const g = new THREE.Group();
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.12, 16), new THREE.MeshStandardMaterial({ color: 0xff8800 }));
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.12, 16), new THREE.MeshStandardMaterial({ color: 0xff8800, emissive: 0x3a1a00 }));
     barrel.name = "barrel";
+    barrel.userData.gizmo = "launcher";
     g.add(barrel);
+    // drop line to the chassis so the exit height is readable
+    const drop = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 1, 6), new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.5 }));
+    drop.name = "drop";
+    g.add(drop);
     return g;
   }
 
@@ -181,8 +186,10 @@ export class RobotObject {
     const l = this.spec.launcher;
     this.launcherMarker.position.set(l.exitForwardM, l.exitHeightM, -l.exitLeftM);
     const barrel = this.launcherMarker.getObjectByName("barrel") as THREE.Mesh;
-    // cylinder axis +Y -> rotate so it points forward (+X) elevated by elevation
+    // cylinder axis +Y -> rotate so it points along the launcher direction (+X local, then yawed) elevated by elevation
     barrel.rotation.set(0, 0, -(Math.PI / 2 - (l.elevationDeg * Math.PI) / 180));
+    const drop = this.launcherMarker.getObjectByName("drop") as THREE.Mesh;
+    drop.scale.y = l.exitHeightM; drop.position.y = -l.exitHeightM / 2;
     this.launcherMarker.visible = this.isPlayer;
   }
 

@@ -71,6 +71,15 @@ export function loadState(): AppState {
       const s = JSON.parse(raw);
       // migration: StarterBot CAD exports face +Z; older saves predate the yaw fix
       if (s.robot && s.robot.model !== "box" && s.robot.modelYawDeg === undefined) s.robot.modelYawDeg = 90;
+      // migration: launcher direction offset; the StarterBot fires out the back over its ramp
+      if (s.robot?.launcher && s.robot.launcher.yawOffsetDeg === undefined) {
+        const sb = String(s.robot.launcher.name ?? "").includes("StarterBot");
+        s.robot.launcher.yawOffsetDeg = sb ? 180 : 0;
+        if (sb) { s.robot.launcher.exitForwardM = -0.10; s.robot.launcher.exitHeightM = 0.31; }
+        // move the stock front camera onto the ramp side if it is still at the old default
+        const c = s.robot.cameras?.[0];
+        if (sb && c && Math.abs(c.forwardM - 0.0381) < 1e-3 && c.yawDeg === 0 && s.robot.cameras.length === 1) { c.name = "Shooter camera"; c.forwardM = -6 * 0.0254; c.heightM = 13 * 0.0254; c.yawDeg = 180; }
+      }
       return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig() };
     }
   } catch { /* ignore */ }

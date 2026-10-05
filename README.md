@@ -70,7 +70,7 @@ Pre-seeded FTC-legal UVC webcams with their published fields of view (Logitech C
 
 Exit speed = *efficiency* x flywheel surface speed. Hooded single-wheel shooters measure roughly 0.30-0.45; dual opposing wheels around 0.85-0.9. Flight uses quadratic drag (Cd 0.45) and optional Magnus lift from backspin. Measure a few real shots and tune efficiency until the sim matches, then trust the RPM table.
 
-Presets: goBILDA StarterBot (single 96 mm Hogback flywheel on a 6000 RPM 5203 motor, fixed hood), dual flywheel with adjustable hood, custom.
+Presets: goBILDA StarterBot (single 96 mm Hogback flywheel on a 6000 RPM 5203 motor, fixed 55° hood, fires out the **back** over the ramp so *Launcher yaw* is 180°), dual flywheel with adjustable hood, custom. The orange exit marker on the robot can be dragged like a camera (Alt-drag for height) and is hidden from the camera views.
 
 ## goBILDA CAD
 

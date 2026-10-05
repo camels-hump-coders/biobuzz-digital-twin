@@ -21,7 +21,9 @@ export interface LauncherConfig {
   exitForwardM: number;
   exitLeftM: number;
   exitHeightM: number;
-  /** turret yaw range relative to robot heading, degrees; 0/0 = fixed forward */
+  /** fixed direction the launcher points relative to the robot's forward, degrees CCW (180 = fires out the back) */
+  yawOffsetDeg: number;
+  /** turret yaw range relative to that direction, degrees; 0/0 = fixed */
   turretMinDeg: number;
   turretMaxDeg: number;
   /** backspin imparted as fraction of wheel angular speed (0..1) */
@@ -60,9 +62,10 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     elevationDeg: 55,
     elevationMinDeg: 55,
     elevationMaxDeg: 55,
-    exitForwardM: -0.05, // ball leaves the top of the hood, just behind centre
+    exitForwardM: -0.10, // ball leaves the top of the ramp at the back of the robot
     exitLeftM: 0,
     exitHeightM: 0.31,
+    yawOffsetDeg: 180, // the StarterBot shoots out the back, over the ramp, away from the intake
     turretMinDeg: 0,
     turretMaxDeg: 0,
     spinFraction: 0.5,
@@ -80,6 +83,7 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     exitForwardM: 0.1,
     exitLeftM: 0,
     exitHeightM: 0.45,
+    yawOffsetDeg: 0,
     turretMinDeg: -180,
     turretMaxDeg: 180,
     spinFraction: 0,
@@ -97,6 +101,7 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     exitForwardM: 0.1,
     exitLeftM: 0,
     exitHeightM: 0.4,
+    yawOffsetDeg: 0,
     turretMinDeg: -45,
     turretMaxDeg: 45,
     spinFraction: 0.3,

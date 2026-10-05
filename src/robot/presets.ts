@@ -18,11 +18,13 @@ export function defaultCamera(id = "cam1"): CameraMount {
   };
 }
 
-/** Camera on the front edge of the StarterBot hood plate, looking forward over the intake. */
+/** Camera on top of the StarterBot ramp, looking out the back where the ball leaves, i.e. at the target. */
 export function starterBotCamera(id = "cam1"): CameraMount {
   const c = defaultCamera(id);
-  c.forwardM = 1.5 * IN;
-  c.heightM = 12.5 * IN;
+  c.name = "Shooter camera";
+  c.forwardM = -6 * IN;
+  c.heightM = 13 * IN;
+  c.yawDeg = 180;
   c.pitchDeg = -8;
   return c;
 }

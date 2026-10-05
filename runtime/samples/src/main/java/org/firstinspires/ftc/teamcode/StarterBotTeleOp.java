@@ -15,7 +15,8 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 
 /**
  * Sample mecanum TeleOp for the goBILDA StarterBot in the simulator.
- * Left stick drives, right stick turns, right trigger spins the flywheel, A fires the feeder, bumpers nudge the hood.
+ * Left stick drives (intake forward), right stick turns, right trigger spins the flywheel, A fires the feeder,
+ * bumpers nudge the hood. The shooter and its camera face backward over the ramp, so back up toward the hive to score.
  * Hardware names match the sim's default hardware map.
  */
 @TeleOp(name = "Sim: StarterBot TeleOp", group = "Sim")

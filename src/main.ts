@@ -202,14 +202,15 @@ function teleportAt(ev: MouseEvent) {
   state.aimRequest = true; // face the target from the new spot
 }
 // ---- camera mount dragging (orbit view): drag the green body to move it on the robot; Alt-drag changes height.
-let dragCam: { id: string; alt: boolean; plane: THREE.Plane } | undefined;
+let dragCam: { id: string; alt: boolean; plane: THREE.Plane } | undefined; // id "__launcher" drags the orange exit marker
 function pickGizmo(ev: PointerEvent): string | undefined {
   const rect = canvas.getBoundingClientRect();
   const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
   pickRay.setFromCamera(ndc, activeCamera());
-  const hits = pickRay.intersectObjects(robot.cameraGizmos.children, true);
-  const h = hits.find((x) => x.object.userData.camId);
-  return h?.object.userData.camId;
+  const hits = pickRay.intersectObjects([robot.cameraGizmos, robot.launcherMarker], true);
+  const h = hits.find((x) => x.object.userData.camId || x.object.userData.gizmo === "launcher");
+  if (!h) return undefined;
+  return h.object.userData.camId ?? "__launcher";
 }
 canvas.addEventListener("pointerdown", (ev) => {
   if (ev.button !== 0) return;
@@ -217,7 +218,8 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (state.view !== "robot") {
     const id = pickGizmo(ev);
     if (id) {
-      const mount = state.robot.cameras.find((c) => c.id === id)!;
+      const lch = state.robot.launcher;
+      const mount = id === "__launcher" ? { forwardM: lch.exitForwardM, leftM: lch.exitLeftM, heightM: lch.exitHeightM } : state.robot.cameras.find((c) => c.id === id)!;
       const world = robotToWorld(state.pose, mount.forwardM, mount.leftM);
       const camPose = activeCamera().getWorldDirection(new THREE.Vector3());
       // horizontal plane at the mount height, or a vertical plane facing the viewer for Alt (height) drags
@@ -226,7 +228,7 @@ canvas.addEventListener("pointerdown", (ev) => {
         : new THREE.Plane(new THREE.Vector3(0, 1, 0), -mount.heightM);
       dragCam = { id, alt: ev.altKey, plane };
       controls.enabled = false;
-      state.selectedCameraId = id;
+      if (id !== "__launcher") state.selectedCameraId = id;
       canvas.setPointerCapture(ev.pointerId);
       ev.preventDefault();
     }
@@ -239,7 +241,9 @@ canvas.addEventListener("pointermove", (ev) => {
   pickRay.setFromCamera(ndc, activeCamera());
   const hit = new THREE.Vector3();
   if (!pickRay.ray.intersectPlane(dragCam.plane, hit)) return;
-  const mount = state.robot.cameras.find((c) => c.id === dragCam!.id);
+  const isLauncher = dragCam.id === "__launcher";
+  const lch = state.robot.launcher;
+  const mount = isLauncher ? { forwardM: lch.exitForwardM, leftM: lch.exitLeftM, heightM: lch.exitHeightM } : state.robot.cameras.find((c) => c.id === dragCam!.id);
   if (!mount) { dragCam = undefined; return; }
   if (dragCam.alt) {
     mount.heightM = clamp(hit.y, 0.02, m(29));
@@ -252,7 +256,8 @@ canvas.addEventListener("pointermove", (ev) => {
     mount.forwardM = clamp(dx * f.x + dz * f.z, -lim, lim);
     mount.leftM = clamp(dx * lv.x + dz * lv.z, -lim, lim);
   }
-  robot.rebuildCameras();
+  if (isLauncher) { lch.exitForwardM = mount.forwardM; lch.exitLeftM = mount.leftM; lch.exitHeightM = mount.heightM; robot.updateLauncherMarker(); }
+  else robot.rebuildCameras();
   canvas.style.cursor = "grabbing";
 });
 function endDrag() {
@@ -371,7 +376,7 @@ function frame(now: number) {
     // the exit point moves when the robot turns, so iterate a few times
     for (let i = 0; i < 6; i++) {
       const e = robot.exitPoint();
-      state.pose = { ...state.pose, heading: headingToward({ x: e.x, z: e.z }, ap) - (mid * Math.PI) / 180 };
+      state.pose = { ...state.pose, heading: headingToward({ x: e.x, z: e.z }, ap) - ((mid + state.robot.launcher.yawOffsetDeg) * Math.PI) / 180 };
       // the rotated footprint may now overlap a frame leg; push out and aim again
       state.pose = stepPose(state.pose, { vx: 0, vz: 0, yawRate: 0 }, 0.001, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
       robot.setPose(state.pose);
@@ -393,18 +398,19 @@ function frame(now: number) {
   const target = aimPoint(tf, 0.05);
   const l = state.robot.launcher;
   const wantHeading = headingToward(exit, target);
-  const bearingErr = wrapAngle(wantHeading - state.pose.heading); // + means target is to the left
+  const launcherHeading = state.pose.heading + (l.yawOffsetDeg * Math.PI) / 180; // where the launcher points with the turret centred
+  const bearingErr = wrapAngle(wantHeading - launcherHeading); // + means target is to the left of the launcher
   const turretOk = rad2deg(bearingErr) >= l.turretMinDeg - 0.5 && rad2deg(bearingErr) <= l.turretMaxDeg + 0.5;
   // launcher yaw: if turret can cover, aim exactly; otherwise fire along robot heading (+ turret limit)
   const turretYaw = clamp(bearingErr, (l.turretMinDeg * Math.PI) / 180, (l.turretMaxDeg * Math.PI) / 180);
-  const fireHeading = state.pose.heading + turretYaw;
+  const fireHeading = launcherHeading + turretYaw;
   const fireDir = { x: -Math.sin(fireHeading), z: -Math.cos(fireHeading) };
   // arc along the direction the launcher points right now, plus Monte Carlo dispersion
   const actualShot = computeActual(exit, tf, fireDir);
   const mc = computeMonteCarlo(exit, tf, fireDir);
   // the analysed arc is always toward the target (what the robot would do if aimed); the fired ball goes where the launcher points
   const { shot, scan, required } = computeShot(exit, tf);
-  robot.launcherMarker.rotation.y = -turretYaw * 0 + turretYaw; // local +Y rotation = yaw left
+  robot.launcherMarker.rotation.y = (l.yawOffsetDeg * Math.PI) / 180 + turretYaw; // local +Y rotation = yaw left
   if (actions.launch && !runtimeActive) launch(exit, fireDir);
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
   updateFlying(dt);
@@ -508,6 +514,7 @@ function frame(now: number) {
   currentCamera = cam;
   const showGizmos = cam !== selected?.cam;
   robot.cameraGizmos.visible = showGizmos;
+  robot.launcherMarker.visible = showGizmos;
   renderer.render(scene, cam);
 
   // PiP: every enabled camera gets an inset (except the one filling the main view)
@@ -521,9 +528,11 @@ function frame(now: number) {
     p.el.classList.toggle("selected", c.selected);
     if (p.el.clientWidth && (p.canvas.width !== p.el.clientWidth || p.canvas.height !== p.el.clientHeight)) p.renderer.setSize(p.el.clientWidth, p.el.clientHeight, false);
     robot.cameraGizmos.visible = false;
+    robot.launcherMarker.visible = false;
     overlays.group.visible = false;
     p.renderer.render(scene, c.cam);
     overlays.group.visible = true;
+    robot.launcherMarker.visible = true;
     p.label.textContent = `${c.mount.name} · ${c.intr.width}x${c.intr.height} · ${(c.intr.hfov * 180 / Math.PI).toFixed(0)}°x${(c.intr.vfov * 180 / Math.PI).toFixed(0)}°`;
   });
 
