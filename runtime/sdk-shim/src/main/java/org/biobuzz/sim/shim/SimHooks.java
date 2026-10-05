@@ -24,6 +24,11 @@ public final class SimHooks {
     public static void setMissingDeviceListener(MissingDeviceListener l) { missingListener = l; }
     public static com.qualcomm.robotcore.hardware.HardwareDevice reportMissing(String name, String type) { MissingDeviceListener l = missingListener; return l == null ? null : l.missing(name, type); }
 
+    /** TeamCode asset overrides edited in the browser: asset path -> JSONObject of dotted key -> value. Applied by AssetManager. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, org.json.JSONObject> assetOverrides = new java.util.concurrent.ConcurrentHashMap<>();
+    public static void setAssetOverrides(java.util.Map<String, org.json.JSONObject> all) { assetOverrides.clear(); assetOverrides.putAll(all); }
+    public static org.json.JSONObject assetOverrides(String path) { return assetOverrides.get(path); }
+
     private static volatile TagSource tagSource;
     public static void setTagSource(TagSource s) { tagSource = s; }
     public static List<TagObservation> tags(String cameraName) { TagSource s = tagSource; return s == null ? Collections.emptyList() : s.tags(cameraName); }

@@ -53,7 +53,7 @@ public class SimLink extends WebSocketServer {
 
     @Override public void onOpen(WebSocket conn, ClientHandshake hs) {
         clients.add(conn);
-        send(conn, opModesMessage()); send(conn, statusMessage()); send(conn, telemetryMessage(lastTelemetry));
+        send(conn, opModesMessage()); send(conn, statusMessage()); send(conn, telemetryMessage(lastTelemetry)); send(conn, assetsMessage());
         System.out.println("browser connected from " + conn.getRemoteSocketAddress());
     }
     @Override public void onClose(WebSocket conn, int code, String reason, boolean remote) { clients.remove(conn); if (clients.isEmpty()) runner.stop(); }
@@ -87,7 +87,15 @@ public class SimLink extends WebSocketServer {
             }
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
-            case "list": send(conn, opModesMessage()); break;
+            case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
+            case "assetOverrides": { // {overrides: {path: {dotted.key: value}}} from the browser's TeamCode settings panel
+                Map<String, org.json.JSONObject> all = new HashMap<>();
+                if (msg.has("overrides") && msg.get("overrides").isJsonObject())
+                    for (Map.Entry<String, JsonElement> e : msg.getAsJsonObject("overrides").entrySet())
+                        if (e.getValue().isJsonObject() && !e.getValue().getAsJsonObject().isEmpty()) all.put(e.getKey(), new org.json.JSONObject(gson.toJson(e.getValue())));
+                SimHooks.setAssetOverrides(all);
+                break;
+            }
             default: break;
         }
     }
@@ -151,6 +159,28 @@ public class SimLink extends WebSocketServer {
         JsonArray arr = new JsonArray();
         for (OpModeScanner.Entry e : opModes) { JsonObject o = new JsonObject(); o.addProperty("name", e.name); o.addProperty("group", e.group); o.addProperty("flavor", e.flavor); o.addProperty("className", e.cls.getName()); arr.add(o); }
         m.add("opModes", arr); return m;
+    }
+    /** Every JSON asset under the sim.assets roots (not the .sim.json variants), with its text, for the browser's settings panel. */
+    private JsonObject assetsMessage() {
+        JsonObject m = new JsonObject(); m.addProperty("type", "assets");
+        JsonArray files = new JsonArray();
+        for (String root : System.getProperty("sim.assets", "").split(",")) {
+            if (root.isBlank()) continue;
+            java.io.File dir = new java.io.File(root.trim());
+            if (!dir.isDirectory()) continue;
+            try (java.util.stream.Stream<java.nio.file.Path> walk = java.nio.file.Files.walk(dir.toPath())) {
+                walk.filter(p -> p.toString().endsWith(".json") && !p.toString().endsWith(".sim.json") && java.nio.file.Files.isRegularFile(p)).sorted().forEach(p -> {
+                    try {
+                        if (java.nio.file.Files.size(p) > 200_000) return;
+                        JsonObject f = new JsonObject();
+                        f.addProperty("path", dir.toPath().relativize(p).toString().replace('\\', '/'));
+                        f.addProperty("text", java.nio.file.Files.readString(p));
+                        files.add(f);
+                    } catch (Exception ignored) {}
+                });
+            } catch (Exception ignored) {}
+        }
+        m.add("files", files); return m;
     }
     private JsonObject statusMessage() {
         JsonObject m = new JsonObject(); m.addProperty("type", "status"); m.addProperty("status", runner.status().name()); m.addProperty("opMode", runner.currentName()); m.addProperty("error", runner.error()); return m;

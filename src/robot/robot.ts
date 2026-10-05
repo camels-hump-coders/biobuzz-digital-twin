@@ -64,7 +64,19 @@ export class RobotObject {
   }
 
   /** Robot local frame: +X forward, +Y up, +Z right. World heading 0 => forward = -Z world. */
+  /** Green bar on the floor along the intake edge, so you can see which side collects. */
+  private syncIntakeMarker(spec: RobotSpec) {
+    this.group.getObjectByName("intakeMarker")?.removeFromParent();
+    const g = spec.intake ?? { side: "front", widthM: 0.3 };
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(g.side === "front" || g.side === "rear" ? 0.012 : g.widthM, 0.004, g.side === "front" || g.side === "rear" ? g.widthM : 0.012), new THREE.MeshBasicMaterial({ color: 0x00ff88 }));
+    bar.name = "intakeMarker";
+    const hl = spec.lengthM / 2 + 0.01, hw = spec.widthM / 2 + 0.01;
+    bar.position.set(g.side === "front" ? hl : g.side === "rear" ? -hl : 0, 0.003, g.side === "left" ? -hw : g.side === "right" ? hw : 0);
+    this.group.add(bar);
+  }
+
   applySpec(spec: RobotSpec) {
+    this.syncIntakeMarker(spec);
     this.spec = spec;
     this.rebuildChassis();
     this.rebuildCameras();

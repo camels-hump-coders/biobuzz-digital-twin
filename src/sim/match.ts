@@ -5,7 +5,8 @@ import type { FieldObjects } from "../field/buildField";
 import { BALL, FIELD, HIVE, ZONES, m } from "../field/fieldSpec";
 import { type Alliance, type CellSide, type CellFrame, aimPoint, cellFrames, hivePivot, upCellFrame } from "../field/hive";
 import { insideCell, type LiveBall } from "./ballPhysics";
-import type { Pose } from "./drive";
+import type { Footprint, Pose } from "./drive";
+import { chassisPush, inIntakeMouth, intakePoint, type IntakeGeom } from "./intake";
 import { headingToward } from "./drive";
 import type { ScriptedRobot } from "./opponents";
 import { solveSpeedForElevation } from "../ballistics/solver";
@@ -26,7 +27,8 @@ export interface HiveSim {
 }
 
 export const TIP_DEG = 30;
-const INTAKE_RANGE_M = m(7); // ball centre within this of the intake point gets pulled in
+const INTAKE_RANGE_M = m(7); // ball centre within this of the intake edge gets pulled in
+const PUSH_SPEED_MIN = 0.25; // m/s a nudged ball leaves the chassis with, even when the robot is barely moving
 const FLOWER_REACH_M = m(9); // intake point within this of a FLOWER axis can pull POLLEN from its retrieval opening
 const PICK_INTERVAL = 0.45; // s per ball through an intake
 
@@ -37,8 +39,14 @@ export interface Agent {
   inventory: Inventory;
   caps: Capabilities;
   intakeActive: boolean;
-  /** intake point on the field (floor level) */
+  /** chassis rectangle; balls meeting a non-intake side are pushed */
+  footprint: Footprint;
+  /** which side collects, and how wide the mouth is */
+  intakeGeom: IntakeGeom;
+  /** intake point on the field (floor level), recomputed each update */
   intake: { x: number; z: number };
+  /** previous pose for the chassis velocity used when pushing balls */
+  prevPose?: Pose;
   lastPick: number;
   carryGroup: THREE.Group;
 }
@@ -210,7 +218,13 @@ export class Match {
         f.vel.addScaledVector(new THREE.Vector3(down.normal.x, down.normal.y, down.normal.z), 0.4);
       }
     }
-    // --- pickup
+    // --- chassis vs loose balls: intake side collects, every other side (or a full robot) pushes
+    for (const ag of agents) {
+      ag.intake = intakePoint(ag.pose, ag.footprint, ag.intakeGeom.side);
+      const vx = ag.prevPose && dt > 0 ? (ag.pose.x - ag.prevPose.x) / dt : 0, vz = ag.prevPose && dt > 0 ? (ag.pose.z - ag.prevPose.z) / dt : 0;
+      ag.prevPose = { ...ag.pose };
+      this.pushBalls(ag, vx, vz);
+    }
     for (const ag of agents) this.pickup(ag);
   }
 
@@ -236,6 +250,33 @@ export class Match {
     }
   }
 
+  /** Could this agent swallow this ball right now (ignoring position)? */
+  private canCollect(ag: Agent, b: LiveBall): boolean {
+    if (!ag.intakeActive) return false;
+    if (ag.inventory.pollen + ag.inventory.nectar >= ag.caps.capacity) return false;
+    if (b.kind === "pollen" && !ag.caps.pollen) return false;
+    if (b.kind === "nectar" && (!ag.caps.nectar || b.alliance !== ag.alliance)) return false;
+    return true;
+  }
+
+  /** Move floor balls out of the chassis rectangle and give them the chassis velocity, except balls the intake is about to take. */
+  private pushBalls(ag: Agent, vx: number, vz: number) {
+    for (const b of this.flying) {
+      if (b.inCell || b.carried || b.pos.y > 0.25) continue;
+      if ((b as any).launchedBy === ag.id && this.time - ((b as any).launchedAt ?? -Infinity) < 2) continue; // our own shot leaving
+      const push = chassisPush(ag.pose, ag.footprint, { x: b.pos.x, z: b.pos.z }, b.radius);
+      if (!push) continue;
+      if (this.canCollect(ag, b) && inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M)) continue;
+      b.pos.x += push.dx; b.pos.z += push.dz;
+      // leave with at least the chassis speed along the push normal, plus the chassis's sideways motion
+      const vn = Math.max(vx * push.nx + vz * push.nz, 0);
+      const speed = Math.max(vn + 0.1, PUSH_SPEED_MIN);
+      b.vel.x = push.nx * speed + vx * 0.3; b.vel.z = push.nz * speed + vz * 0.3;
+      b.settled = false; b.restFor = 0; b.contactAge = 1;
+      b.mesh.position.copy(b.pos);
+    }
+  }
+
   private pickup(ag: Agent) {
     if (!ag.intakeActive) return;
     const held = ag.inventory.pollen + ag.inventory.nectar;
@@ -250,7 +291,7 @@ export class Match {
       if ((b as any).launchedBy === ag.id && this.time - ((b as any).launchedAt ?? -Infinity) < 2) continue; // our own shot leaving
       if (b.kind === "pollen" && !ag.caps.pollen) continue;
       if (b.kind === "nectar" && (!ag.caps.nectar || b.alliance !== ag.alliance)) continue;
-      if (Math.hypot(b.pos.x - ix, b.pos.z - iz) > INTAKE_RANGE_M) continue;
+      if (!inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M)) continue;
       b.mesh.removeFromParent();
       this.flying.splice(i, 1);
       ag.inventory[b.kind]++;

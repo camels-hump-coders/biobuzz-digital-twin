@@ -49,6 +49,8 @@ export class RuntimeLink {
   onMissingDevice: (name: string, requested: string) => void = () => {};
   /** human-readable notes for the panel */
   notes: string[] = [];
+  /** JSON assets found in the TeamCode assets folder (hardwareMap.appContext.getAssets()) */
+  assets: { path: string; text: string }[] = [];
   private retryTimer?: number;
   private lastSend = 0;
 
@@ -85,10 +87,13 @@ export class RuntimeLink {
       case "status": { const prev = this.status; this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; if (prev !== this.status) this.statusSince = performance.now(); this.onChange(); break; }
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
+      case "assets": this.assets = msg.files ?? []; this.onChange(); break;
     }
   }
   private send(o: unknown) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }
   sendHardware(devices: unknown[], hints?: unknown) { this.send({ type: "hardware", devices, hints }); }
+  /** asset path -> dotted key -> value; the host merges these into the JSON the OpMode reads at INIT */
+  sendAssetOverrides(overrides: Record<string, Record<string, unknown>>) { this.send({ type: "assetOverrides", overrides }); }
   sendSensors(p: SensorPacket) { const now = performance.now(); if (now - this.lastSend < 15) return; this.lastSend = now; this.send(p); }
   init(opMode: string) { this.send({ type: "init", opMode }); }
   start() { this.send({ type: "start" }); }

@@ -10,7 +10,7 @@ import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConf
 
 const IN = 0.0254;
 
-type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset" | "runtime" | "hardware") => void;
+type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset" | "runtime" | "hardware" | "assets") => void;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -152,6 +152,50 @@ export class Panel {
     rtRows.push(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead."));
     this.root.append(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
 
+    // --- TeamCode settings: JSON assets the OpModes read (robot-profile.json, ...), editable here as sim-only overrides
+    if (link?.connected && link.assets.length) {
+      const rows: (HTMLElement | HTMLElement[])[] = [];
+      rows.push(el("div", { class: "note full" }, "Your TeamCode's JSON assets. Edits here are simulator-only overrides (kept in this browser, exported with the session) merged into the file when the OpMode INITs. The files in your repo are not touched. Re-INIT after changing."));
+      const flatten = (v: unknown, prefix: string, out: [string, unknown][]) => {
+        if (v && typeof v === "object" && !Array.isArray(v)) for (const [k, x] of Object.entries(v as Record<string, unknown>)) flatten(x, prefix ? `${prefix}.${k}` : k, out);
+        else out.push([prefix, v]);
+      };
+      for (const file of link.assets) {
+        let json: unknown;
+        try { json = JSON.parse(file.text); } catch { rows.push(el("div", { class: "note full" }, `${file.path}: not valid JSON`)); continue; }
+        const ov = st.assetOverrides[file.path] ?? {};
+        const n = Object.keys(ov).length;
+        rows.push(el("div", { class: "row full", style: "align-items:center;gap:8px" },
+          el("span", { class: "sub", style: "flex:1" }, `${file.path}${n ? ` · ${n} override${n > 1 ? "s" : ""}` : ""}`),
+          el("button", { ...(n ? {} : { disabled: "" }), onclick: () => { delete st.assetOverrides[file.path]; change("assets"); } }, "Clear overrides"),
+        ));
+        const leaves: [string, unknown][] = [];
+        flatten(json, "", leaves);
+        const setOv = (key: string, value: unknown, original: unknown) => {
+          const cur = st.assetOverrides[file.path] ?? (st.assetOverrides[file.path] = {});
+          if (JSON.stringify(value) === JSON.stringify(original)) delete cur[key]; else cur[key] = value;
+          if (!Object.keys(cur).length) delete st.assetOverrides[file.path];
+          change("assets");
+        };
+        for (const [key, original] of leaves) {
+          const has = key in ov;
+          const value = has ? ov[key] : original;
+          const label = (has ? "● " : "") + key;
+          const title = has ? `overridden (file has ${JSON.stringify(original)})` : "";
+          if (typeof value === "boolean") { const row = chk(label, () => value, (v) => setOv(key, v, original)); row[0].title = title; rows.push(row); }
+          else if (typeof value === "number" || (value === null && typeof original === "number")) { const row = num(label, () => value as number, (v) => setOv(key, v, original), { step: 0.01 }); row[0].title = title; rows.push(row); }
+          else {
+            // strings, nulls, arrays: edit as JSON text (plain text is accepted for strings)
+            const input = el("input", { type: "text", value: typeof value === "string" ? value : JSON.stringify(value), title: title || "JSON value: numbers, true/false, null, [arrays] or text" }) as HTMLInputElement;
+            input.onchange = () => { let v: unknown = input.value; try { v = JSON.parse(input.value); } catch { /* keep text */ } setOv(key, v, original); };
+            const lab = el("label", { title }, label);
+            rows.push([lab, input]);
+          }
+        }
+      }
+      this.root.append(section("TeamCode settings (assets)", open("TeamCode settings (assets)", false), ...rows));
+    }
+
     // --- Hardware map
     const hw = st.hardware;
     const hwRows: (HTMLElement | HTMLElement[])[] = [];
@@ -195,6 +239,9 @@ export class Panel {
       num("Height", () => r.heightM / IN, (v) => { r.heightM = v * IN; change("robot"); }, { unit: "in", min: 4, max: 29, step: 0.5 }),
       num("Wheel RPM", () => r.wheelRpm, (v) => { r.wheelRpm = v; change("robot"); }, { min: 30, max: 1200, step: 1 }),
       num("Wheel dia", () => r.wheelDiameterM * 1000, (v) => { r.wheelDiameterM = v / 1000; change("robot"); }, { unit: "mm", min: 48, max: 160, step: 1 }),
+      sel("Intake side", [{ value: "front", label: "Front (forward arrow)" }, { value: "rear", label: "Rear" }, { value: "left", label: "Left" }, { value: "right", label: "Right" }], () => r.intake.side, (v) => { r.intake.side = v as any; change("robot"); }),
+      num("Intake width", () => r.intake.widthM / IN, (v) => { r.intake.widthM = v * IN; change("robot"); }, { unit: "in", min: 2, max: 24, step: 0.5 }),
+      el("div", { class: "note full" }, "Balls are only collected through the intake side (green edge on the floor outline). Every other side pushes them, and so does the intake once the robot is full."),
       chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); }),
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),

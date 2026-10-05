@@ -42,6 +42,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     modelYawDeg: 90,
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
+    intake: { side: "front", widthM: 13 * IN }, // roller intake between the front wheels; the launcher fires out the back over the ramp
     color: 0xe8e8e8,
   },
   starterbotMecanum: {
@@ -56,6 +57,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     modelYawDeg: 90,
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
+    intake: { side: "front", widthM: 13 * IN }, // roller intake between the front wheels; the launcher fires out the back over the ramp
     color: 0xe8e8e8,
   },
   custom18: {
@@ -69,6 +71,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     model: "box",
     cameras: [defaultCamera()],
     launcher: { ...LAUNCHER_PRESETS.dualFlywheel },
+    intake: { side: "front", widthM: 14 * IN },
     color: 0x3aa0c8,
   },
 };

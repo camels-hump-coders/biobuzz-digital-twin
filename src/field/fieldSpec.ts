@@ -18,6 +18,8 @@ export const HIVE = {
   frameWidthIn: 49.46, // along X
   frameDepthIn: 38.95, // along Z
   pivotHeightIn: 43.95,
+  /** BIOBUZZ logo panel hanging under the crossbar on each side (Figure 9-8; height estimated from the figure) */
+  logoPanelHeightIn: 8.5,
   hiveSpacingIn: 25.5, // centre to centre along X
   armLengthIn: 42.91,
   cellDepthIn: 12.04,

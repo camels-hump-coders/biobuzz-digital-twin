@@ -22,6 +22,10 @@ export interface CameraMount {
   enabled: boolean;
 }
 
+export type IntakeSide = "front" | "rear" | "left" | "right";
+/** Where game pieces enter the robot. Balls meeting any other side get pushed, not collected. */
+export interface IntakeConfig { side: IntakeSide; widthM: number }
+
 export type ChassisModel = "box" | "starterbot-6wd" | "starterbot-mecanum";
 
 export interface RobotSpec {
@@ -38,5 +42,6 @@ export interface RobotSpec {
   modelYawDeg?: number;
   cameras: CameraMount[];
   launcher: LauncherConfig;
+  intake: IntakeConfig;
   color: number;
 }

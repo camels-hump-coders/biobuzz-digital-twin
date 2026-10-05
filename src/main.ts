@@ -107,14 +107,15 @@ const scriptedObjs = scripted.map((s) => {
 // ---------- match dynamics (inventories, pickup, flowers, both hives)
 const flying: LiveBall[] = [];
 const match = new Match(scene, field, flying, state.hive, () => state.tipMassG / 1000, () => state.autoTip);
-function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Agent["caps"]): Agent {
+function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Agent["caps"], footprint: Agent["footprint"], intakeGeom: Agent["intakeGeom"]): Agent {
   const carryGroup = new THREE.Group();
   carryGroup.name = "carry";
   group.add(carryGroup);
-  return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, intake: { x: 0, z: 0 }, lastPick: 0, carryGroup };
+  return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, footprint: { ...footprint }, intakeGeom: { ...intakeGeom }, intake: { x: 0, z: 0 }, lastPick: 0, carryGroup };
 }
-const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar });
-const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }));
+const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }, state.robot, state.robot.intake);
+// scripted robots collect through a front mouth about two thirds of their width
+const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }, s.footprint, { side: "front", widthM: s.footprint.widthM * 0.65 }));
 const allAgents = [playerAgent, ...scriptedAgents];
 /** Partner is on our alliance, the two opponents on the other; colours and starting corners follow. */
 function assignAlliances() {
@@ -169,6 +170,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
+  if (what === "assets" && link.connected) link.sendAssetOverrides(state.assetOverrides);
   if (what === "sim") {
     for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
     playerAgent.alliance = state.alliance;
@@ -207,7 +209,7 @@ link.onMissingDevice = (name, requested) => {
   saveState(state);
   panel.render();
 };
-link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
+link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(state.assetOverrides); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
 panel = new Panel(state, onChange);
 panel.link = link;
 syncRuntime();
@@ -446,7 +448,7 @@ function frame(now: number) {
       s.brainDriven = state.opponentsScore;
       const ag = scriptedAgents[i];
       ag.pose = s.pose;
-      ag.intake = robotToWorld(s.pose, s.footprint.lengthM / 2, 0);
+      ag.footprint = s.footprint;
       if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) { /* fired */ } } else ag.intakeActive = false;
       stepScripted(s, dt, [me]);
     });
@@ -454,7 +456,8 @@ function frame(now: number) {
   scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
   // our agent
   playerAgent.pose = state.pose;
-  playerAgent.intake = robotToWorld(state.pose, state.robot.lengthM / 2, 0);
+  playerAgent.footprint = { lengthM: state.robot.lengthM, widthM: state.robot.widthM };
+  playerAgent.intakeGeom = state.robot.intake;
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
 

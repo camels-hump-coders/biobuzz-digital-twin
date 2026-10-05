@@ -201,12 +201,15 @@ function buildFrame(): THREE.Group {
     // foot bar across the base to the other side
   }
   g.add(bar(new THREE.Vector3(-w / 2, h, 0), new THREE.Vector3(w / 2, h, 0), 0.02)); // crossbar
-  // logo panels
-  const panel = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.5, 0.18), new THREE.MeshStandardMaterial({ color: 0xf2c200, side: THREE.DoubleSide }));
-  panel.position.set(0, h - 0.2, 0.06);
+  // BIOBUZZ logo panels (Manual Figure 9-8): one on each side of the crossbar, spanning the full frame width and
+  // hanging from the bar. Height is not dimensioned in the manual; the figure shows roughly 8.5 in.
+  const panelH = m(HIVE.logoPanelHeightIn);
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, panelH), new THREE.MeshStandardMaterial({ color: 0xf2c200, side: THREE.DoubleSide }));
+  panel.name = "logoPanel";
+  panel.position.set(0, h - 0.025 - panelH / 2, 0.035);
   g.add(panel);
   const panel2 = panel.clone();
-  panel2.position.z = -0.06;
+  panel2.position.z = -0.035;
   g.add(panel2);
   return g;
 }
