@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BIOBUZZ twin test scenario",
+  "type": "object",
+  "required": [
+    "opMode"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "opMode": {
+      "type": "string",
+      "description": "OpMode name as shown in the Runtime panel (the @TeleOp/@Autonomous name)"
+    },
+    "alliance": {
+      "enum": [
+        "red",
+        "blue"
+      ],
+      "default": "red"
+    },
+    "robotPreset": {
+      "enum": [
+        "starterbot6wd",
+        "starterbotMecanum",
+        "custom18"
+      ],
+      "description": "chassis preset; omit to keep the browser's saved robot"
+    },
+    "hardwarePreset": {
+      "enum": [
+        "starterbot",
+        "camelsHump"
+      ],
+      "description": "hardware-map names preset; omit to keep the saved map"
+    },
+    "assetOverrides": {
+      "type": "object",
+      "description": "asset path -> dotted key -> value, merged into the JSON assets at INIT"
+    },
+    "start": {
+      "type": "object",
+      "properties": {
+        "xIn": {
+          "type": "number"
+        },
+        "zIn": {
+          "type": "number"
+        },
+        "headingDeg": {
+          "type": "number"
+        }
+      },
+      "description": "our start pose; omit for the configured start position"
+    },
+    "opponents": {
+      "type": "boolean",
+      "default": true
+    },
+    "opponentsScore": {
+      "type": "boolean",
+      "default": true
+    },
+    "durationS": {
+      "type": "number",
+      "default": 20,
+      "description": "simulated seconds after START"
+    },
+    "sampleEveryS": {
+      "type": "number",
+      "default": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "t",
+          "set"
+        ],
+        "properties": {
+          "t": {
+            "type": "number",
+            "description": "simulated seconds after START"
+          },
+          "pad": {
+            "enum": [
+              1,
+              2
+            ],
+            "default": 1
+          },
+          "set": {
+            "type": "object",
+            "description": "gamepad fields: lx ly rx ry lt rt (numbers), a b x y lb rb back start guide du dd dl dr ls rs (booleans)"
+          }
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "properties": {
+        "noErrors": {
+          "type": "boolean"
+        },
+        "shotsFired": {
+          "type": "string",
+          "description": "comparison like \">=1\", \"==0\", \"<3\""
+        },
+        "shotsHit": {
+          "type": "string"
+        },
+        "telemetryIncludes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "regexes that must match some telemetry line at some sample"
+        },
+        "telemetryFinalIncludes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "movedAtLeastIn": {
+          "type": "number"
+        },
+        "poseNear": {
+          "type": "object",
+          "properties": {
+            "xIn": {
+              "type": "number"
+            },
+            "zIn": {
+              "type": "number"
+            },
+            "tolIn": {
+              "type": "number"
+            }
+          }
+        },
+        "fouls": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

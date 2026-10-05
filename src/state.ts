@@ -1,3 +1,4 @@
+import { type StartPositions, defaultStarts } from "./sim/starts";
 import type { RobotSpec } from "./robot/robotSpec";
 import type { Pose } from "./sim/drive";
 import type { Alliance, CellSide } from "./field/hive";
@@ -30,6 +31,14 @@ export interface AppState {
   overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean; hitmap: boolean };
   /** show per-frame timing of the main loop sections */
   showPerf: boolean;
+  /** match start positions (red frame, inches) */
+  starts: StartPositions;
+  /** transient: setup (robots parked at start, scripted robots idle) / running / stopped */
+  matchPhase?: "setup" | "running" | "stopped";
+  /** transient: seconds left on the 2:30 match clock */
+  matchClock?: number;
+  /** transient: start or stop the match on the next frame */
+  matchRequest?: "start" | "stop";
   /** panel shows every setting (true) or only the everyday ones with per-section "more" expanders (false) */
   panelAdvanced: boolean;
   noise: NoiseConfig;
@@ -73,6 +82,7 @@ export function defaultState(): AppState {
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false },
     showPerf: false,
     panelAdvanced: false,
+    starts: defaultStarts(),
     noise: { ...DEFAULT_NOISE },
     monteCarloN: 150,
     autoTip: true,
@@ -112,7 +122,7 @@ export function loadState(): AppState {
       if (s.robot && !s.robot.massKg) s.robot.massKg = 12;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
-      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig() };
+      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, matchPhase: undefined, matchClock: undefined, matchRequest: undefined };
     }
   } catch { /* ignore */ }
   return defaultState();

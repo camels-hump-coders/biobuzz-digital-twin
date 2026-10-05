@@ -5,6 +5,8 @@ import { aimPoint, upCellFrame, type Alliance, type CellFrame, type CellSide, ty
 import { HitMapJob } from "./ballistics/hitmap";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
+import { startPose } from "./sim/starts";
+import type { ScriptedRobot } from "./sim/opponents";
 import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
 import { BALL, FIELD, m } from "./field/fieldSpec";
@@ -145,6 +147,28 @@ function assignAlliances() {
 let scriptedSide: Alliance = "red";
 assignAlliances();
 
+// ---------- match flow: setup (parked at start) -> running (clock, scripted robots act) -> stopped
+const MATCH_SECONDS = 150; // 0:30 auto + 2:00 teleop
+state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
+function startKeyOf(s: ScriptedRobot): "partner" | "opp1" | "opp2" { return s.name === "Partner" ? "partner" : s.name === "Opponent 1" ? "opp1" : "opp2"; }
+function parkScripted() {
+  for (const s of scripted) { s.pose = startPose(state.starts, startKeyOf(s), state.alliance); s.prevPose = { ...s.pose }; s.target = undefined; (s as any).brain = undefined; s.backoff = undefined; s.index = 0; s.dwellLeft = 0; }
+  scriptedObjs.forEach((o, i) => o.setPose(scripted[i].pose));
+}
+/** Everything back to match start: pieces, inventories, hives, fouls, and every robot on its starting mark. */
+function resetBoard() {
+  match.reset(allAgents);
+  shotsFired = 0; shotsHit = 0;
+  pins.reset();
+  state.pose = startPose(state.starts, "you", state.alliance);
+  robot.setPose(state.pose);
+  parkScripted();
+  state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
+}
+function startMatch() { if (state.matchPhase === "setup" || state.matchPhase === "stopped") { if (state.matchPhase === "stopped" && (state.matchClock ?? 0) <= 0) state.matchClock = MATCH_SECONDS; state.matchPhase = "running"; } }
+function stopMatch() { if (state.matchPhase === "running") state.matchPhase = "stopped"; }
+parkScripted();
+
 // ---------- cameras
 const orbitCam = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
 orbitCam.position.set(3.2, 2.6, 4.2);
@@ -181,7 +205,9 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
     playerAgent.alliance = state.alliance;
     assignAlliances();
     playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar };
-    if (state.resetMatchRequest) { state.resetMatchRequest = false; match.reset(allAgents); shotsFired = 0; shotsHit = 0; }
+    if (state.resetMatchRequest) { state.resetMatchRequest = false; resetBoard(); }
+    if (state.matchRequest === "start") startMatch(); else if (state.matchRequest === "stop") stopMatch();
+    state.matchRequest = undefined;
     robot.setPose(state.pose);
   }
   Object.assign(overlays.show, state.overlays);
@@ -214,7 +240,20 @@ link.onMissingDevice = (name, requested) => {
   saveState(state);
   panel.render();
 };
-link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(state.assetOverrides); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
+let lastLinkStatus = link.status;
+link.onChange = () => {
+  if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(state.assetOverrides); hardwareSent = true; }
+  if (!link.connected) hardwareSent = false;
+  // Driver-Station flow: INIT parks everything at the start positions, START releases the match clock and the other
+  // robots together with the OpMode, STOP freezes them
+  if (link.status !== lastLinkStatus) {
+    if (link.status === "INIT") resetBoard();
+    else if (link.status === "RUNNING") startMatch();
+    else if (lastLinkStatus === "RUNNING") stopMatch();
+    lastLinkStatus = link.status;
+  }
+  panel.render();
+};
 panel = new Panel(state, onChange);
 panel.link = link;
 syncRuntime();
@@ -460,8 +499,10 @@ function frame(now: number) {
     void ex;
   }
 
-  // scripted robots
-  if (state.opponents && !state.pauseOpponents) {
+  // match clock
+  if (state.matchPhase === "running") { state.matchClock = Math.max(0, (state.matchClock ?? MATCH_SECONDS) - dt); if (state.matchClock <= 0) state.matchPhase = "stopped"; }
+  // scripted robots (only while the match runs)
+  if (state.opponents && !state.pauseOpponents && state.matchPhase === "running") {
     const me: Obstacle = { xMin: state.pose.x - state.robot.widthM / 2, xMax: state.pose.x + state.robot.widthM / 2, zMin: state.pose.z - state.robot.lengthM / 2, zMax: state.pose.z + state.robot.lengthM / 2 };
     scripted.forEach((s, i) => {
       s.brainDriven = state.opponentsScore;
@@ -616,6 +657,8 @@ function frame(now: number) {
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
+    match: state.matchPhase === "running" ? `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left` : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`,
+    matchClass: state.matchPhase === "running" ? "ok" : state.matchPhase === "stopped" ? "bad" : "warn",
     contact: contactText, contactBad,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",

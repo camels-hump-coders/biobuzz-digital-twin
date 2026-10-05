@@ -66,6 +66,29 @@ Then pick an OpMode in the **Runtime** panel → INIT → START. Edit your Java 
 
 See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Two sample OpModes (a mecanum TeleOp and an AprilTag auto-aim autonomous) ship with it.
 
+## Test bed for coding agents (and CI)
+
+`pnpm twin-test` runs one OpMode headlessly against the twin from a scenario file, injects gamepad inputs at simulated times, checks expectations and writes a JSON report with telemetry, pose, shots and errors:
+
+```bash
+pnpm exec playwright install chromium                      # once
+pnpm twin-test --team ~/dev/FtcRobotController --scenario scenarios/example-teleop.json
+```
+
+Scenarios (`scenarios/scenario.schema.json`) choose the OpMode, alliance, robot and hardware presets, asset overrides, start pose, inputs and `expect` checks (`noErrors`, `shotsFired ">=1"`, `telemetryIncludes`, `movedAtLeastIn`, …). It uses ports 5190/8790 so a running `pnpm sim` is not disturbed.
+
+**Agent skill.** `skills/biobuzz-twin/SKILL.md` teaches a coding agent (Claude Code and compatible tools) to find the twin, check it is installed, run the team's code through it and read the report. Install it into a team repo with:
+
+```bash
+pnpm skill:install ~/dev/FtcRobotController     # copies to <team>/.claude/skills/biobuzz-twin and writes .biobuzz-twin.json
+```
+
+Commit both files in the team repo; from then on "run this through the twin" is something their agent knows how to do.
+
+## Match flow
+
+The field loads in **setup**: every robot parked on its starting mark (Field & target → *Starting positions*, mirrored when you play blue), pieces at match start, the other robots idle. **Start match** releases the 2:30 clock and the scripted robots; **Stop** freezes them; **Reset to start** parks everything again. With TeamCode connected the Driver-Station buttons do the same for the whole field: INIT resets the board, START starts your OpMode and the match together, STOP ends both.
+
 ## Saving, sharing and resetting
 
 Everything in the side panel is kept in the browser's localStorage. The **Session** section at the top of the panel has:

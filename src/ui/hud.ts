@@ -39,6 +39,9 @@ export interface HudData {
   supply: string;
   theirHive: string;
   launchBlocked?: string;
+  /** match phase + clock */
+  match: string;
+  matchClass?: string;
   /** robot-vs-robot contact / pin count / fouls */
   contact?: string;
   contactBad?: boolean;
@@ -59,6 +62,7 @@ export class Hud {
         <tr><td>Position</td><td>${f(d.poseIn.x)} , ${f(d.poseIn.z)} in · ${f(d.poseIn.headingDeg, 0)}°</td></tr>
         <tr><td>Speed</td><td>${f(d.speedMps, 2)} m/s · ${d.drivetrain}${d.fieldCentric ? " · field-centric" : ""}</td></tr>
         <tr><td>Chassis</td><td>${d.modelStatus}</td></tr>
+        <tr><td>Match</td><td class="${d.matchClass ?? ""}">${d.match}</td></tr>
       </table>
       <h2 style="margin-top:8px">Shot → ${d.target}</h2>
       <table>

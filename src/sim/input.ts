@@ -43,6 +43,10 @@ export class Input {
   private prevButtons = new Set<number>();
   /** which gamepad the keyboard emulates; Tab toggles */
   keyboardPad: 1 | 2 = 1;
+  /** values injected by a test script (pnpm twin-test); they override keyboard/gamepad fields until cleared */
+  private injected: { 1: Partial<GamepadPacket>; 2: Partial<GamepadPacket> } = { 1: {}, 2: {} };
+  inject(pad: 1 | 2, values: Partial<GamepadPacket>) { Object.assign(this.injected[pad], values); }
+  clearInjected(pad?: 1 | 2) { if (pad) this.injected[pad] = {}; else this.injected = { 1: {}, 2: {} }; }
 
   /** gamepad1/gamepad2 packets for the runtime. With no physical gamepad, the keyboard emulates gamepad1:
    * WASD = left stick, Q/E = right stick X, Space = A, Shift = right trigger, B/X/Y keys = buttons, arrows = dpad. */
@@ -71,6 +75,7 @@ export class Input {
     let g1 = pads[0] ? fromPad(pads[0]) : emptyGamepad();
     let g2 = pads[1] ? fromPad(pads[1]) : emptyGamepad();
     if (this.keyboardPad === 1 && !pads[0]) g1 = kb; else if (this.keyboardPad === 2 && !pads[1]) g2 = kb; else if (!pads[0]) g1 = kb;
+    g1 = { ...g1, ...this.injected[1] }; g2 = { ...g2, ...this.injected[2] };
     return { g1, g2 };
   }
 

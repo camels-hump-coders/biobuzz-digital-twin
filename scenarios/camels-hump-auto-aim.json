@@ -1,0 +1,50 @@
+{
+  "$schema": "./scenario.schema.json",
+  "name": "Camels Hump: Home-button auto aim fires at the blue cell",
+  "opMode": "BioBuzz: Drive + Auto Aim",
+  "alliance": "blue",
+  "robotPreset": "starterbot6wd",
+  "hardwarePreset": "camelsHump",
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "tagTracking.autoShootEnabled": true,
+      "tagTracking.shotRangeIn": 60
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 35,
+    "zIn": -75,
+    "headingDeg": 0
+  },
+  "opponents": true,
+  "opponentsScore": false,
+  "durationS": 14,
+  "inputs": [
+    {
+      "t": 1.0,
+      "pad": 1,
+      "set": {
+        "guide": true
+      }
+    },
+    {
+      "t": 1.4,
+      "pad": 1,
+      "set": {
+        "guide": false
+      }
+    }
+  ],
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Auto ready / search : true",
+      "ACTIVE",
+      "CENTERED"
+    ],
+    "shotsFired": ">=1"
+  }
+}

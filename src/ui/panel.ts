@@ -6,6 +6,7 @@ import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
 import { intrinsicsFor } from "../robot/robot";
 import type { RuntimeLink } from "../runtime/link";
+import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/starts";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
 
 const IN = 0.0254;
@@ -319,7 +320,7 @@ export class Panel {
       chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); })),
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),
-        el("button", { onclick: () => { st.pose = { x: 0.9 * (st.alliance === "red" ? -1 : 1), z: st.alliance === "red" ? 1.6 : -1.6, heading: st.alliance === "red" ? 0 : Math.PI }; change("sim"); } }, "To start wall"),
+        el("button", { onclick: () => { st.pose = startPose(st.starts, "you", st.alliance); change("sim"); } }, "To start position"),
         el("button", { onclick: () => { st.aimRequest = true; change("sim"); } }, "Aim at target (R)"),
       ),
       el("div", { class: "row full" },
@@ -432,7 +433,21 @@ export class Panel {
       chk("Can intake POLLEN", () => st.canPollen, (v) => { st.canPollen = v; change("sim"); }),
       chk("Can intake NECTAR", () => st.canNectar, (v) => { st.canNectar = v; change("sim"); }),
       el("div", { class: "note" }, "Match start: 4 POLLEN preloaded, 4 in each FLOWER, 4 in each GARDEN, 3 NECTAR in each raised cell, 5 NECTAR per alliance in reserve (one enters the LOADING ZONE after each tip). Drive the intake end onto a ball or up to a FLOWER's retrieval opening to pick up; you can only launch what you carry. Keyboard driving always runs the intake; under TeamCode the intake motor must be powered.")),
-      el("div", { class: "row full" }, el("button", { class: "primary", onclick: () => { st.resetMatchRequest = true; change("sim"); } }, "Reset match to start")),
+      el("div", { class: "sub" }, `Match: ${st.matchPhase === "running" ? "running" : st.matchPhase === "stopped" ? "stopped" : "setup — robots on their marks"}`),
+      el("div", { class: "row full" },
+        el("button", { class: "primary", ...(st.matchPhase === "running" ? { disabled: "" } : {}), onclick: () => { st.matchRequest = "start"; change("sim"); } }, "▶ Start match"),
+        el("button", { ...(st.matchPhase !== "running" ? { disabled: "" } : {}), onclick: () => { st.matchRequest = "stop"; change("sim"); } }, "■ Stop"),
+        el("button", { onclick: () => { st.resetMatchRequest = true; change("sim"); } }, "Reset to start"),
+      ),
+      el("div", { class: "note" }, "Reset parks every robot on its starting mark with the field at match start; Start releases the 2:30 clock and the other robots. With TeamCode connected, INIT resets and START/STOP do the same for the whole field."),
+      adv(el("div", { class: "sub" }, "Starting positions (red frame, inches; mirrored when you play blue)"),
+        ...(["you", "partner", "opp1", "opp2"] as StartKey[]).flatMap((k) => [
+          num(`${START_LABELS[k]} x`, () => st.starts[k].xIn, (v) => { st.starts[k].xIn = v; change("sim"); }, { unit: "in", min: -70, max: 70, step: 1 }),
+          num(`${START_LABELS[k]} z`, () => st.starts[k].zIn, (v) => { st.starts[k].zIn = v; change("sim"); }, { unit: "in", min: -70, max: 70, step: 1 }),
+          num(`${START_LABELS[k]} heading`, () => st.starts[k].headingDeg, (v) => { st.starts[k].headingDeg = v; change("sim"); }, { unit: "°", min: -180, max: 180, step: 5 }),
+        ]),
+        el("div", { class: "row full" }, el("button", { onclick: () => { st.starts = defaultStarts(); change("sim"); } }, "Default positions")),
+        el("div", { class: "note" }, "x is toward the blue alliance, z toward the audience; heading 0 faces the scoring side, −90° faces +x. Defaults put each robot against its alliance wall facing the field.")),
     ));
 
     // --- View / overlays

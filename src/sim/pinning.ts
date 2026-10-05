@@ -60,6 +60,8 @@ export class PinTracker {
     if (p.release > 3 || this.time - p.lastContact > 6) this.pins.delete(key);
   }
 
+  reset() { this.pins.clear(); this.fouls.clear(); this.lastCall = undefined; }
+
   /** The pin involving `name` with the highest count, for the HUD. */
   current(name: string): PinState | undefined {
     let best: PinState | undefined;

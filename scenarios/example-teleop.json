@@ -1,0 +1,36 @@
+{
+  "name": "Sample TeleOp drives forward and turns (template)",
+  "opMode": "Sim StarterBot TeleOp",
+  "alliance": "red",
+  "robotPreset": "starterbotMecanum",
+  "hardwarePreset": "starterbot",
+  "durationS": 6,
+  "inputs": [
+    {
+      "t": 0.5,
+      "pad": 1,
+      "set": {
+        "ly": -1
+      }
+    },
+    {
+      "t": 2.5,
+      "pad": 1,
+      "set": {
+        "ly": 0,
+        "rx": 0.6
+      }
+    },
+    {
+      "t": 4.0,
+      "pad": 1,
+      "set": {
+        "rx": 0
+      }
+    }
+  ],
+  "expect": {
+    "noErrors": true,
+    "movedAtLeastIn": 12
+  }
+}

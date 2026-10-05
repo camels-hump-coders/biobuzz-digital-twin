@@ -9,10 +9,13 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "sim": "node scripts/sim.mjs"
+    "sim": "node scripts/sim.mjs",
+    "twin-test": "node scripts/twin-test.mjs",
+    "skill:install": "node scripts/install-skill.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "playwright": "^1.63.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vite-plugin-pwa": "^2.0.0",
