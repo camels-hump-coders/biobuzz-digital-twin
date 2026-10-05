@@ -396,9 +396,16 @@ function updateFlying(dt: number) {
   }
 }
 
+let frameInterval = 1 / 60; // EMA of the real time between frames, for the frame-rate / time-dilation readout
 function frame(now: number) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const real = (now - last) / 1000;
   last = now;
+  frameInterval = real > 1 ? frameInterval : frameInterval * 0.9 + real * 0.1;
+  // simulate the real elapsed time, capped so a background tab or a hitch does not teleport things. Below 10 fps the
+  // simulation therefore runs slower than real time; the HUD says so.
+  const dt = Math.min(0.1, real);
+  const fps = 1 / Math.max(frameInterval, 1e-3);
+  const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
 
   // input & drive
   perf.begin();
@@ -583,7 +590,7 @@ function frame(now: number) {
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
-    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""} · keyboard = gamepad${input.keyboardPad}` : ""),
+    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""} · keyboard = gamepad${input.keyboardPad}` : "") + (fps < 20 ? ` · ⚠ ${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""} — turn off camera insets or the hit map` : ""),
   });
 
   perf.mark("hud");
@@ -632,7 +639,7 @@ function frame(now: number) {
   });
 
   perf.mark("insets");
-  perf.end(state.showPerf);
+  perf.end(state.showPerf, fps);
   if (analysisTick % 120 === 0) saveState(state);
   requestAnimationFrame(frame);
 }

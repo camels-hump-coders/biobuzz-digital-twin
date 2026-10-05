@@ -13,7 +13,7 @@ export class Perf {
     const prev = this.ema.get(name);
     if (prev === undefined) { this.ema.set(name, d); this.order.push(name); } else this.ema.set(name, prev * 0.9 + d * 0.1);
   }
-  end(show: boolean) {
+  end(show: boolean, fps?: number) {
     const total = performance.now() - this.t0;
     this.frameEma = this.frameEma * 0.9 + total * 0.1;
     if (!show) { if (this.el) { this.el.remove(); this.el = undefined; } return; }
@@ -22,7 +22,6 @@ export class Perf {
     this.lastDraw = now;
     if (!this.el) { this.el = document.createElement("pre"); this.el.id = "perf"; document.getElementById("app")!.append(this.el); }
     const rows = this.order.map((k) => `${k.padEnd(10)} ${this.ema.get(k)!.toFixed(2).padStart(6)} ms`);
-    const fps = (performance as any).__fps as number | undefined;
     this.el.textContent = `main loop ${this.frameEma.toFixed(2)} ms (budget 16.7 @ 60 fps)${fps ? ` · ${fps.toFixed(0)} fps` : ""}\n` + rows.join("\n");
   }
 }
