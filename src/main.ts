@@ -9,6 +9,7 @@ import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
 import { startPose } from "./sim/starts";
 import { computeBindings, mergeOverrides, parseBindings, twinKnobs } from "./runtime/bindings";
+import { Recorder } from "./runtime/recorder";
 import type { ScriptedRobot } from "./sim/opponents";
 import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
@@ -257,6 +258,7 @@ link.onMissingDevice = (name, requested) => {
   }
   const dev = inferDevice(name, requested, state.hardware.devices);
   state.hardware.devices.push(dev);
+  recorder.event(Date.now(), "hardware", `added ${dev.kind} "${name}" because the code asked for it`);
   link.notes.push(`Added "${name}" as ${dev.kind}${dev.role ? ` (role ${dev.role})` : ""}${dev.port !== undefined ? `, port ${dev.port}` : ""} because your code asked for it. Check its role and port in the Hardware map panel.`);
   if (link.notes.length > 6) link.notes.shift();
   link.sendHardware(hardwareDevices(), hardwareHints());
@@ -276,8 +278,10 @@ function syncBindings() {
   const json = JSON.stringify(link.bound.overrides);
   if (json !== lastBoundJson) { lastBoundJson = json; if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); panel.render(); }
 }
+link.onLog = (level, text, millis) => recorder.event(millis, level === "err" ? "error" : "log", text);
 let lastLinkStatus = link.status;
 link.onChange = () => {
+  if (link.statusError && link.status === "ERROR") recorder.event(Date.now(), "error", link.statusError.split("\n")[0]);
   if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); hardwareSent = true; }
   if (link.bindings?.text !== lastBindingsText) syncBindings();
   if (!link.connected) hardwareSent = false;
@@ -419,33 +423,43 @@ canvas.addEventListener("dblclick", (ev) => teleportAt(ev));
 let currentCamera: THREE.Camera = orbitCam;
 function activeCamera(): THREE.Camera { return currentCamera; }
 
-// ---------- simulated webcam frames for TeamCode (dashboards such as Panels show them, like the real camera feed)
-const frameCanvas = document.createElement("canvas");
-frameCanvas.width = 320; frameCanvas.height = 180;
-const frameRenderer = new THREE.WebGLRenderer({ canvas: frameCanvas, antialias: false, preserveDrawingBuffer: true });
-frameRenderer.setPixelRatio(1); frameRenderer.outputColorSpace = THREE.SRGBColorSpace;
-let lastFrameSent = 0, frameCamIndex = 0;
-function sendWebcamFrames(camInfos: { mount: CameraMount; cam: THREE.PerspectiveCamera; enabled: boolean }[], now: number) {
-  if (!link.connected || now - lastFrameSent < 330) return; // ~3 fps, one camera per tick
-  const webcams = state.hardware.devices.filter((d) => d.kind === "webcam");
-  if (!webcams.length) return;
-  lastFrameSent = now;
-  const dev = webcams[frameCamIndex++ % webcams.length];
-  const ci = camInfos.find((c) => c.mount.id === (dev.cameraId ?? camInfos[0]?.mount.id)) ?? camInfos[0];
-  if (!ci) return;
-  const aspect = ci.cam.aspect; frameCanvas.height = Math.round(320 / aspect) || 180;
-  frameRenderer.setSize(frameCanvas.width, frameCanvas.height, false);
-  robot.cameraGizmos.visible = false; robot.launcherMarker.visible = false; for (const a of allAgents) a.carryGroup.visible = false; overlays.group.visible = false;
-  frameRenderer.render(scene, ci.cam);
-  overlays.group.visible = true; robot.launcherMarker.visible = true; for (const a of allAgents) a.carryGroup.visible = true;
-  const url = frameCanvas.toDataURL("image/jpeg", 0.6);
-  link.sendFrame(dev.name, url.slice(url.indexOf(",") + 1), Math.round(performance.timeOrigin + now) * 1_000_000);
-}
-
 // ---------- main loop
 let last = performance.now();
 const perf = new Perf();
 const pins = new PinTracker();
+// ---------- timeline recorder: 10 Hz samples of telemetry/status/pose/buttons plus events, for scrubbing and snapshots
+const recorder = new Recorder();
+panel.recorder = recorder; panel.snapshotContext = snapshotContext; panel.render();
+let lastSampleAt = 0;
+function recordSample(now: number) {
+  if (now - lastSampleAt < 100) return;
+  lastSampleAt = now;
+  const g = input.gamepads();
+  const held = (p: typeof g.g1, n: number) => (["a", "b", "x", "y", "lb", "rb", "back", "start", "guide", "du", "dd", "dl", "dr", "ls", "rs"] as const).filter((k) => p[k]).map((k) => `${n}:${k}`).join(" ");
+  const buttons = [held(g.g1, 1), held(g.g2, 2)].filter(Boolean).join(" ");
+  recorder.push({
+    t: Date.now(), sim: match.now(),
+    status: link.connected ? link.status : "no runtime", opMode: link.currentOpMode,
+    telemetry: link.connected ? link.telemetry : [],
+    pose: { xIn: state.pose.x / 0.0254, zIn: state.pose.z / 0.0254, headingDeg: (state.pose.heading * 180) / Math.PI },
+    match: `${state.matchPhase ?? "setup"}${state.matchPhase === "running" ? ` ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")}` : ""}`,
+    carrying: `${playerAgent.inventory.pollen}P+${playerAgent.inventory.nectar}N`,
+    shots: { fired: shotsFired, hit: shotsHit },
+    buttons,
+  });
+}
+/** Everything an agent needs to reproduce the moment: OpMode, presets, overrides, bound values, start pose. */
+function snapshotContext() {
+  return {
+    opMode: link.currentOpMode || undefined, runtimeStatus: link.status, statusError: link.statusError || undefined,
+    alliance: state.alliance, robotPreset: state.robotPresetId, drivetrain: state.robot.drivetrain, mirroredSide: state.hardware.mirroredSide,
+    hardware: state.hardware.devices.map((d) => `${d.kind}:${d.name}${d.role ? `(${d.role})` : ""}${d.port !== undefined ? `@${d.port}` : ""}`),
+    assetOverrides: state.assetOverrides, boundOverrides: link.bound.overrides, bindingErrors: link.bound.errors,
+    cameras: state.robot.cameras.map((c) => ({ name: c.name, forwardIn: +(c.forwardM / 0.0254).toFixed(2), leftIn: +(c.leftM / 0.0254).toFixed(2), heightIn: +(c.heightM / 0.0254).toFixed(2), pitchDeg: c.pitchDeg, yawDeg: c.yawDeg })),
+    launcher: { yawOffsetDeg: state.robot.launcher.yawOffsetDeg, elevationDeg: state.robot.launcher.elevationDeg, rpm: Math.round(state.robot.launcher.rpm) },
+    hive: state.hive, matchPhase: state.matchPhase, startPositions: state.starts, keyboardPad: input.keyboardPad,
+  };
+}
 setupUpdates();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
 let analysisTick = 0;
@@ -480,6 +494,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   shotsFired++;
 }
 let roleWarning: string | undefined;
+let lastFoulLogged = -1;
 let launchBlockedUntil = 0;
 let launchBlockedMsg = "";
 
@@ -600,6 +615,7 @@ function frame(now: number) {
     if (myPin) { contactText = `${myPin.pinner === "You" ? `you are pinning ${myPin.pinned}` : `${myPin.pinner} is pinning you`} · ${myPin.count.toFixed(1)} s of ${PIN_LIMIT_S}`; contactBad = myPin.count >= PIN_LIMIT_S; }
     const fouls = [...pins.fouls.entries()].map(([n, k]) => `${n} ${k}`).join(", ");
     if (fouls) contactText = `${contactText ?? "no contact"} · fouls: ${fouls}`;
+    if (pins.lastCall && pins.lastCall.at !== lastFoulLogged) { lastFoulLogged = pins.lastCall.at; recorder.event(Date.now(), "foul", pins.lastCall.text); }
     if (pins.lastCall && match.now() - pins.lastCall.at < 4) { contactText = `${pins.lastCall.text}${contactText ? " · " + contactText : ""}`; contactBad = true; }
   }
   scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
@@ -670,7 +686,6 @@ function frame(now: number) {
 
   // runtime sensors
   if (link.connected) {
-    sendWebcamFrames(camInfos, now);
     lastCamInfos = camInfos; // the sensor timer computes the detections at camera rate, independent of the render rate
     lastYawRate = vel.yawRate;
     if (!link.running) imuYawRef = 0;
@@ -771,12 +786,13 @@ function frame(now: number) {
   });
 
   perf.mark("insets");
+  recordSample(now);
   perf.end(state.showPerf, fps);
   if (analysisTick % 120 === 0) saveState(state);
   if (ciMode) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };

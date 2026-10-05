@@ -7,6 +7,8 @@ import { diagonalDeg } from "../camera/cameraMath";
 import { intrinsicsFor } from "../robot/robot";
 import type { RuntimeLink } from "../runtime/link";
 import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/starts";
+import { twinKnobs } from "../runtime/bindings";
+import type { Recorder } from "../runtime/recorder";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
 
 const IN = 0.0254;
@@ -79,6 +81,10 @@ export class Panel {
   private state: AppState;
   private onChange: Change;
   link?: RuntimeLink;
+  /** timeline recorder and the context block for snapshots (set by main) */
+  recorder?: Recorder;
+  snapshotContext: () => Record<string, unknown> = () => ({});
+  private timelineEl?: HTMLElement;
   private telemetryEl?: HTMLElement;
   private pillEl?: HTMLElement;
   constructor(state: AppState, onChange: Change) {
@@ -97,13 +103,47 @@ export class Panel {
   private moreOpen = new Set<string>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
   updateTelemetry(lines: string[], status: string) {
-    if (this.telemetryEl) { const t = lines.join("\n") || "(telemetry)"; if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t; }
+    const rec = this.recorder;
+    if (this.telemetryEl) {
+      // scrubbed back in time: show that moment's telemetry instead of the live stream
+      const hist = rec?.cursor !== undefined ? rec.at(rec.cursor) : undefined;
+      const t = hist ? `⏪ ${((Date.now() - hist.t) / 1000).toFixed(1)} s ago · ${hist.status}${hist.opMode ? " " + hist.opMode : ""}\n` + (hist.telemetry.join("\n") || "(no telemetry)") : (lines.join("\n") || "(telemetry)");
+      if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t;
+      this.telemetryEl.classList.toggle("rewind", !!hist);
+    }
+    this.refreshTimeline();
     const s = this.root.querySelector("#rt-status"); if (s && !s.textContent!.endsWith(status)) s.textContent = `Status: ${status}`;
     if (this.pillEl && this.link) {
       const t = this.pillEl.querySelector(".time");
       const secs = Math.max(0, (performance.now() - this.link.statusSince) / 1000);
       const txt = this.link.status === "RUNNING" || this.link.status === "INIT" ? `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}` : "";
       if (t && t.textContent !== txt) t.textContent = txt;
+    }
+  }
+
+  /** Live refresh of the timeline section (slider range, event list) without re-rendering the whole panel. */
+  private refreshTimeline() {
+    const rec = this.recorder, box = this.timelineEl;
+    if (!rec || !box) return;
+    const slider = box.querySelector("input[type=range]") as HTMLInputElement | null;
+    const label = box.querySelector(".tl-pos") as HTMLElement | null;
+    const list = box.querySelector(".tl-events") as HTMLElement | null;
+    const start = rec.start, end = rec.end;
+    if (slider && start !== undefined && end !== undefined) {
+      slider.min = String(start); slider.max = String(end);
+      if (rec.cursor === undefined) slider.value = String(end);
+      const shown = rec.cursor ?? end;
+      if (label) label.textContent = rec.cursor === undefined ? `LIVE · ${((end - start) / 1000).toFixed(0)} s recorded` : `⏪ ${((end - shown) / 1000).toFixed(1)} s ago (${new Date(shown).toLocaleTimeString()})`;
+    }
+    if (list) {
+      const recent = rec.events.slice(-40).reverse();
+      const key = recent.map((e) => e.t + e.text).join("|");
+      if ((list as any).__key !== key) {
+        (list as any).__key = key;
+        list.replaceChildren(...recent.map((e) => el("div", { class: `tl-ev ${e.kind}`, title: new Date(e.t).toLocaleTimeString(), onclick: () => { rec.cursor = e.t; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } },
+          el("span", { class: "tl-t" }, end !== undefined ? `-${((end - e.t) / 1000).toFixed(1)}s` : ""), el("span", { class: "tl-k" }, e.kind), e.text)));
+        if (!recent.length) list.append(el("div", { class: "note" }, "Events (status changes, button presses, shots, host log lines, errors, fouls) appear here as they happen. Click one to jump to it."));
+      }
     }
   }
 
@@ -195,6 +235,36 @@ export class Panel {
     rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead.")));
     this.root.append(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
 
+    // --- Timeline & logs: scrub back through what happened, copy a snapshot for a teammate or an agent
+    if (this.recorder) {
+      const rec = this.recorder;
+      const slider = el("input", { type: "range", min: "0", max: "1", step: "100", style: "width:100%" }) as HTMLInputElement;
+      slider.oninput = () => { rec.cursor = Number(slider.value); if (rec.end !== undefined && rec.end - rec.cursor < 300) rec.cursor = undefined; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); };
+      const dl = (name: string, data: unknown) => { const blob = new Blob([typeof data === "string" ? data : JSON.stringify(data, null, 2)], { type: typeof data === "string" ? "text/markdown" : "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+      const flashEl = el("span", { class: "note" }, "");
+      const flash = (m: string) => { flashEl.textContent = m; setTimeout(() => { if (flashEl.textContent === m) flashEl.textContent = ""; }, 4000); };
+      const copy = async (seconds: number) => {
+        const to = rec.cursor ?? rec.end ?? Date.now(); const from = to - seconds * 1000;
+        const text = rec.snapshot({ from, to, context: this.snapshotContext(), title: `BIOBUZZ twin snapshot · ${this.link?.currentOpMode || "no OpMode"} · last ${seconds} s` });
+        try { await navigator.clipboard.writeText(text); flash(`Copied ${seconds} s snapshot (${(text.length / 1024).toFixed(0)} KB)`); } catch { dl(`twin-snapshot-${Date.now()}.md`, text); flash("Clipboard unavailable: downloaded instead"); }
+      };
+      this.timelineEl = el("div", { class: "timeline full" },
+        el("div", { class: "note" }, "The last ~10 minutes are recorded: telemetry, status, pose, buttons, shots, host log lines, errors, fouls. Drag the slider back to read a moment (the telemetry box above shows it); release at the right end to go live. Copy a snapshot to paste into a chat or a bug report."),
+        el("div", { class: "tl-pos" }, "LIVE"),
+        slider,
+        el("div", { class: "row full" },
+          el("button", { class: "primary", onclick: () => copy(30) }, "Copy last 30 s"),
+          el("button", { onclick: () => copy(120) }, "Copy last 2 min"),
+          el("button", { onclick: () => dl(`twin-log-${Date.now()}.json`, { context: this.snapshotContext(), samples: rec.samples, events: rec.events }) }, "Download full log"),
+          el("button", { onclick: () => { rec.cursor = undefined; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } }, "Go live"),
+          el("button", { onclick: () => { rec.clear(); this.refreshTimeline(); } }, "Clear"),
+          flashEl),
+        el("div", { class: "tl-events" }),
+      );
+      this.root.append(section("Timeline & logs", open("Timeline & logs", true), this.timelineEl));
+      this.refreshTimeline();
+    }
+
     // --- TeamCode settings: JSON assets the OpModes read (robot-profile.json, ...), editable here as sim-only overrides
     if (link?.connected && link.assets.length) {
       const total = Object.values(st.assetOverrides).reduce((n, o) => n + Object.keys(o).length, 0);
@@ -202,8 +272,14 @@ export class Panel {
       const filter = el("input", { type: "text", placeholder: "Filter settings… e.g. autoShoot", value: this.assetFilter }) as HTMLInputElement;
       filter.oninput = () => { this.assetFilter = filter.value; renderFiles(); };
       const list = el("div", {});
+      const boundCount = Object.values(link.bound.overrides).reduce((n, o) => n + Object.keys(o).length, 0);
       box.append(
         el("div", { class: "note" }, "Your TeamCode reads these JSON files from assets. Changes here are simulator-only overrides: kept in this browser (and in exported sessions), merged into the file when an OpMode INITs. Your repo files are never modified. Re-INIT after changing."),
+        link.bindings
+          ? el("div", { class: "note" }, `Twin bindings: ${link.bindings.path} binds ${boundCount} key${boundCount === 1 ? "" : "s"} to twin knobs (marked ⇐ below, read-only here: change the twin instead).`)
+          : el("div", { class: "note" }, "No TeamCode/twin-bindings.json in the team repo: settings that mirror the robot (wheel size, ticks, camera mount, alliance) can be derived from the twin's knobs instead of being typed twice. See README → Twin bindings."),
+        ...link.bound.errors.map((e) => el("div", { class: "note", style: "color:#ff8888" }, `binding error: ${e}`)),
+        el("div", { class: "row full" }, el("button", { title: "Every twin knob a binding can reference, with its current value", onclick: () => { const blob = new Blob([JSON.stringify(twinKnobs(st), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "twin-knobs.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); } }, "Download twin knob catalogue")),
         el("div", { class: "arow tools" }, filter, el("button", { ...(total ? {} : { disabled: "" }), title: "Forget every override in every file", onclick: () => { st.assetOverrides = {}; change("assets"); } }, `Clear all${total ? ` (${total})` : ""}`)),
         list,
       );

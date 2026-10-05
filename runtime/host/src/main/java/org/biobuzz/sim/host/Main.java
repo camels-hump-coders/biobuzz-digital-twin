@@ -11,6 +11,7 @@ public class Main {
         for (OpModeScanner.Entry e : opModes) System.out.printf("  [%s] %s  (%s)%n", e.flavor, e.name, e.cls.getName());
         if (opModes.isEmpty()) System.out.println("  none — is the team module on the classpath? (see runtime/README.md)");
         SimLink link = new SimLink(port, opModes);
+        LogTee.install(link::broadcastLog); // OpMode prints and RobotLog lines reach the twin's timeline
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { try { link.stop(500); } catch (Exception ignored) {} }));
         link.run(); // blocks
     }

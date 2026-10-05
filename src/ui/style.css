@@ -97,3 +97,17 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .assets .arow.bound { border-left-color: #4a9eff; }
 #panel .assets .arow.bound label { color: #8cc4ff; }
 #panel .assets .arow .bval { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--fg); }
+
+/* Timeline & logs */
+#panel .timeline { display: flex; flex-direction: column; gap: 6px; }
+#panel .timeline .tl-pos { font-weight: 600; font-size: 12px; color: var(--accent); }
+#panel .timeline .tl-events { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+#panel .timeline .tl-ev { display: flex; gap: 6px; align-items: baseline; padding: 2px 4px; border-radius: 3px; cursor: pointer; color: var(--fg); }
+#panel .timeline .tl-ev:hover { background: #1c2230; }
+#panel .timeline .tl-ev .tl-t { color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 52px; }
+#panel .timeline .tl-ev .tl-k { flex: 0 0 auto; padding: 0 5px; border-radius: 8px; background: #22272e; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+#panel .timeline .tl-ev.error .tl-k, #panel .timeline .tl-ev.foul .tl-k { background: #4a1414; color: #faa; }
+#panel .timeline .tl-ev.status .tl-k { background: #0f3d26; color: #8f8; }
+#panel .timeline .tl-ev.button .tl-k { background: #3b3200; color: var(--accent); }
+#panel .timeline .tl-ev.shot .tl-k { background: #1c2f4a; color: #8cc4ff; }
+#panel pre.rewind { border-color: var(--accent) !important; }

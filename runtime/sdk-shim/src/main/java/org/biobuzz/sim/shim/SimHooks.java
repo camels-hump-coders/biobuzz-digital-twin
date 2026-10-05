@@ -29,14 +29,6 @@ public final class SimHooks {
     public static void setAssetOverrides(java.util.Map<String, org.json.JSONObject> all) { assetOverrides.clear(); assetOverrides.putAll(all); }
     public static org.json.JSONObject assetOverrides(String path) { return assetOverrides.get(path); }
 
-    /** Latest JPEG rendered by the twin for a simulated webcam (what the real camera would deliver). */
-    public static final class Frame { public final byte[] jpeg; public final long nanos; public Frame(byte[] jpeg, long nanos) { this.jpeg = jpeg; this.nanos = nanos; } }
-    public interface FrameSource { Frame latestFrame(String cameraName); }
-    private static volatile FrameSource frameSource;
-    public static void setFrameSource(FrameSource f) { frameSource = f; }
-    /** null when the twin has not sent a frame for that camera yet */
-    public static Frame latestFrame(String cameraName) { FrameSource f = frameSource; return f == null ? null : f.latestFrame(cameraName); }
-
     private static volatile TagSource tagSource;
     public static void setTagSource(TagSource s) { tagSource = s; }
     public static List<TagObservation> tags(String cameraName) { TagSource s = tagSource; return s == null ? Collections.emptyList() : s.tags(cameraName); }

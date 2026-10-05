@@ -30,7 +30,6 @@ public class SimLink extends WebSocketServer {
         super(new InetSocketAddress("127.0.0.1", port));
         this.opModes = opModes;
         SimHooks.setTagSource(state);
-        SimHooks.setFrameSource(state);
         // TeamCode asked for a device the browser's hardware map lacks: create it here so INIT continues, and tell
         // the browser so it appears in the Hardware map panel (role/port still need a human look).
         SimHooks.setMissingDeviceListener((name, type) -> {
@@ -91,10 +90,6 @@ public class SimLink extends WebSocketServer {
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
             case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
-            case "frame": { // JPEG of a simulated webcam: {camera, jpeg (base64), nanos}
-                try { state.setFrame(msg.get("camera").getAsString(), Base64.getDecoder().decode(msg.get("jpeg").getAsString()), msg.has("nanos") ? msg.get("nanos").getAsLong() : System.nanoTime()); } catch (Exception ignored) {}
-                break;
-            }
             case "assetOverrides": { // {overrides: {path: {dotted.key: value}}} from the browser's TeamCode settings panel
                 Map<String, org.json.JSONObject> all = new HashMap<>();
                 if (msg.has("overrides") && msg.get("overrides").isJsonObject())
@@ -203,6 +198,12 @@ public class SimLink extends WebSocketServer {
     }
     private JsonObject telemetryMessage(List<String> lines) {
         JsonObject m = new JsonObject(); m.addProperty("type", "telemetry"); m.add("lines", gson.toJsonTree(lines)); return m;
+    }
+    /** A line the host printed (OpMode output, RobotLog, exceptions): {type:"log", level, text, millis}. */
+    public void broadcastLog(String level, String text) {
+        if (clients.isEmpty()) return;
+        JsonObject m = new JsonObject(); m.addProperty("type", "log"); m.addProperty("level", level); m.addProperty("text", text); m.addProperty("millis", System.currentTimeMillis());
+        broadcastJson(m);
     }
     private void send(WebSocket c, JsonObject o) { try { if (c.isOpen()) c.send(gson.toJson(o)); } catch (Exception ignored) {} }
     private void broadcastJson(JsonObject o) { String s = gson.toJson(o); for (WebSocket c : clients) try { if (c.isOpen()) c.send(s); } catch (Exception ignored) {} }

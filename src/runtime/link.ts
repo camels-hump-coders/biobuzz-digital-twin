@@ -51,6 +51,8 @@ export class RuntimeLink {
   notes: string[] = [];
   /** JSON assets found in the TeamCode assets folder (hardwareMap.appContext.getAssets()) */
   assets: { path: string; text: string }[] = [];
+  /** host console lines (OpMode prints, RobotLog, exceptions) */
+  onLog: (level: string, text: string, millis: number) => void = () => {};
   /** TeamCode/twin-bindings.json from the team repo, when present */
   bindings?: { path: string; text: string };
   /** latest evaluation of the bindings (filled by the app) */
@@ -93,6 +95,7 @@ export class RuntimeLink {
       case "status": { const prev = this.status; this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; if (prev !== this.status) this.statusSince = performance.now(); this.onChange(); break; }
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
+      case "log": this.onLog(msg.level ?? "out", msg.text ?? "", msg.millis ?? Date.now()); break;
       case "assets": this.assets = msg.files ?? []; this.bindings = msg.bindings && msg.bindings.text ? msg.bindings : undefined; this.onChange(); break;
     }
   }
@@ -100,8 +103,6 @@ export class RuntimeLink {
   sendHardware(devices: unknown[], hints?: unknown) { this.send({ type: "hardware", devices, hints }); }
   /** asset path -> dotted key -> value; the host merges these into the JSON the OpMode reads at INIT */
   sendAssetOverrides(overrides: Record<string, Record<string, unknown>>) { this.send({ type: "assetOverrides", overrides }); }
-  /** JPEG (base64, no data: prefix) of what a simulated webcam sees; the host hands it to TeamCode as the camera frame */
-  sendFrame(camera: string, jpegBase64: string, nanos: number) { this.send({ type: "frame", camera, jpeg: jpegBase64, nanos }); }
   sendSensors(p: SensorPacket) { const now = performance.now(); if (now - this.lastSend < 15) return; this.lastSend = now; this.send(p); }
   init(opMode: string) { this.send({ type: "init", opMode }); }
   start() { this.send({ type: "start" }); }
