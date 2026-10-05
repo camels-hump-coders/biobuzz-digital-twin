@@ -23,7 +23,8 @@ public class OpModeManagerImpl implements OpModeManager, OpModeManagerNotifier {
     private static volatile OpMode active;
 
     public static void setDelegate(Delegate d) { delegate = d; }
-    public static void firePreInit(OpMode op) { active = op; for (Notifications l : listeners) try { l.onOpModePreInit(op); } catch (Throwable t) { warn(t); } }
+    public static int listenerCount() { return listeners.size(); }
+    public static void firePreInit(OpMode op) { active = op; if (Boolean.getBoolean("sim.debugLifecycle")) System.out.println("opmode preInit -> " + listeners.size() + " listener(s)"); for (Notifications l : listeners) try { l.onOpModePreInit(op); } catch (Throwable t) { warn(t); } }
     public static void firePreStart(OpMode op) { for (Notifications l : listeners) try { l.onOpModePreStart(op); } catch (Throwable t) { warn(t); } }
     public static void firePostStop(OpMode op) { for (Notifications l : listeners) try { l.onOpModePostStop(op); } catch (Throwable t) { warn(t); } active = null; }
     private static void warn(Throwable t) { System.err.println("dashboard listener threw: " + t); }
