@@ -662,7 +662,7 @@ function frame(now: number) {
     contact: contactText, contactBad,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
-    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""} · keyboard = gamepad${input.keyboardPad}` : "") + (fps < 20 ? ` · ⚠ ${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""} — turn off camera insets or the hit map` : ""),
+    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""}${link.status === "INIT" ? " (press START to drive)" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " ⚠ (Tab switches back to gamepad1)" : ""}` : "") + (fps < 20 ? ` · ⚠ ${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""} — turn off camera insets or the hit map` : ""),
   });
 
   perf.mark("hud");
