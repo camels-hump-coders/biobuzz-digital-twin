@@ -32,41 +32,37 @@ export interface TrajectorySample {
   vel: Vec3;
 }
 
+/** Acceleration on the ball (m/s^2): gravity, quadratic drag, Magnus lift from backspin. Shared by the
+ * predictor and the live ball physics so they agree. */
+export function acceleration(ball: BallProps, vx: number, vy: number, vz: number, spin: number, rho = 1.225, g = 9.80665): { ax: number; ay: number; az: number } {
+  const area = Math.PI * (ball.diameterM / 2) ** 2;
+  const kDrag = (0.5 * rho * ball.cd * area) / ball.massKg;
+  const speed = Math.hypot(vx, vy, vz) || 1e-9;
+  let ax = -kDrag * speed * vx, ay = -g - kDrag * speed * vy, az = -kDrag * speed * vz;
+  if (ball.cl > 0 && spin !== 0) {
+    const hl = Math.hypot(vx, vz) || 1e-9;
+    const axisX = -vz / hl, axisZ = vx / hl;
+    const spinRatio = (spin * (ball.diameterM / 2)) / speed;
+    const cl = ball.cl * Math.min(spinRatio, 1);
+    const lx = -axisZ * vy, ly = axisZ * vx - axisX * vz, lz = axisX * vy;
+    const ll = Math.hypot(lx, ly, lz) || 1e-9;
+    const mag = ((0.5 * rho * area) / ball.massKg) * cl * speed * speed;
+    ax += (mag * lx) / ll; ay += (mag * ly) / ll; az += (mag * lz) / ll;
+  }
+  return { ax, ay, az };
+}
+
 export function simulate(ball: BallProps, launch: LaunchState, opts: TrajectoryOptions = {}): TrajectorySample[] {
   const dt = opts.dt ?? 0.002;
   const maxTime = opts.maxTime ?? 4;
   const floorY = opts.floorY ?? 0;
   const rho = opts.airDensity ?? 1.225;
   const g = opts.gravity ?? 9.80665;
-  const area = Math.PI * (ball.diameterM / 2) ** 2;
-  const kDrag = (0.5 * rho * ball.cd * area) / ball.massKg;
-  const kLift = (0.5 * rho * area) / ball.massKg;
-  const r = ball.diameterM / 2;
   let { x, y, z } = launch.pos;
   let { x: vx, y: vy, z: vz } = launch.vel;
   const out: TrajectorySample[] = [{ t: 0, pos: { x, y, z }, vel: { x: vx, y: vy, z: vz } }];
   for (let t = dt; t <= maxTime; t += dt) {
-    const speed = Math.hypot(vx, vy, vz) || 1e-9;
-    let ax = -kDrag * speed * vx;
-    let ay = -g - kDrag * speed * vy;
-    let az = -kDrag * speed * vz;
-    if (ball.cl > 0 && launch.spin !== 0) {
-      // Spin axis: horizontal, perpendicular to horizontal travel direction. Backspin lifts.
-      const hx = vx, hz = vz;
-      const hl = Math.hypot(hx, hz) || 1e-9;
-      const axisX = -hz / hl, axisZ = hx / hl; // axis = travel x up ... sign chosen so positive spin gives +y lift
-      const spinRatio = (launch.spin * r) / speed;
-      const cl = ball.cl * Math.min(spinRatio, 1);
-      // lift direction = axis x velocity (unit)
-      const lx = 0 * vz - axisZ * vy;
-      const ly = axisZ * vx - axisX * vz;
-      const lz = axisX * vy - 0 * vx;
-      const ll = Math.hypot(lx, ly, lz) || 1e-9;
-      const mag = kLift * cl * speed * speed;
-      ax += (mag * lx) / ll;
-      ay += (mag * ly) / ll;
-      az += (mag * lz) / ll;
-    }
+    const { ax, ay, az } = acceleration(ball, vx, vy, vz, launch.spin, rho, g);
     vx += ax * dt;
     vy += ay * dt;
     vz += az * dt;

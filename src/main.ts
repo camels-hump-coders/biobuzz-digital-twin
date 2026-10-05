@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
-import { aimPoint, upCellFrame, type CellFrame, type Vec3 } from "./field/hive";
+import { aimPoint, upCellFrame, type Alliance, type CellFrame, type Vec3 } from "./field/hive";
 import { BALL, FIELD, m } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
@@ -133,7 +133,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices());
-  if (what === "sim") { field.setHiveState({ alliance: "red", upCell: state.hive.red }); field.setHiveState({ alliance: "blue", upCell: state.hive.blue }); robot.setPose(state.pose); }
+  if (what === "sim") { resetHive("red"); resetHive("blue"); robot.setPose(state.pose); }
   Object.assign(overlays.show, state.overlays);
   saveState(state);
 }
@@ -299,6 +299,8 @@ function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: 
 
 function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const l = state.robot.launcher;
+  // make sure auto-RPM / auto-hood reflect the current pose even if no frame ran since the robot last moved
+  if (!link.running) computeShot(exit, targetFrame());
   const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ, spin: spinRate(l) };
   const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
   const vel = draw.vel;
@@ -308,7 +310,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   mesh.castShadow = true;
   mesh.position.set(exit.x, exit.y, exit.z);
   scene.add(mesh);
-  flying.push({ mesh, pos: new THREE.Vector3(exit.x, exit.y, exit.z), vel: new THREE.Vector3(vel.x, vel.y, vel.z), spin: draw.spin, radius: bp.diameterM / 2, age: 0, restFor: 0, bounces: 0 });
+  flying.push({ mesh, pos: new THREE.Vector3(exit.x, exit.y, exit.z), vel: new THREE.Vector3(vel.x, vel.y, vel.z), spin: draw.spin, radius: bp.diameterM / 2, age: 0, restFor: 0, bounces: 0, kind: state.ballKind, massKg: bp.massKg, contactN: new THREE.Vector3(0, 1, 0), contactAge: 1 });
   shotsFired++;
 }
 
@@ -326,12 +328,12 @@ function updateFlying(dt: number) {
   for (let i = flying.length - 1; i >= 0; i--) {
     const f = flying[i];
     if (!f.settled) {
-      stepBall(f, dt, bp, colliders);
-      if (f.settled) {
+      stepBall(f, dt, f.kind === "nectar" ? { ...bp, diameterM: f.radius * 2, massKg: f.massKg } : bp, colliders);
+      if (f.settled && !f.counted && !tipping) {
         f.scored = insideCell(tf, f.pos, 0.02);
-        if (f.scored) shotsHit++;
+        if (f.scored) { shotsHit++; f.inCell = true; f.counted = true; }
       }
-    } else if ((f.age += dt) > 12) {
+    } else if (!f.inCell && (f.age += dt) > 12) {
       f.mesh.removeFromParent();
       flying.splice(i, 1);
     }
@@ -345,7 +347,7 @@ function frame(now: number) {
   // input & drive
   const { cmd, actions } = input.poll();
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
-  if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; field.setHiveState({ alliance: state.alliance, upCell: state.hive[state.alliance] }); panel.render(); }
+  if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; resetHive(state.alliance); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
   const dp = driveParams();
   const runtimeActive = link.running;
@@ -407,6 +409,7 @@ function frame(now: number) {
   const turretYaw = clamp(bearingErr, (l.turretMinDeg * Math.PI) / 180, (l.turretMaxDeg * Math.PI) / 180);
   const fireHeading = launcherHeading + turretYaw;
   const fireDir = { x: -Math.sin(fireHeading), z: -Math.cos(fireHeading) };
+  lastFireDir = fireDir; lastExit = exit;
   // arc along the direction the launcher points right now, plus Monte Carlo dispersion
   const actualShot = computeActual(exit, tf, fireDir);
   const mc = computeMonteCarlo(exit, tf, fireDir);
@@ -416,6 +419,7 @@ function frame(now: number) {
   if (actions.launch && !runtimeActive) launch(exit, fireDir);
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
   updateFlying(dt);
+  updateTipping(dt);
 
   // overlays
   updateReachMap(tf);
@@ -487,6 +491,9 @@ function frame(now: number) {
     pHit: mc?.pHit, pLo: mc?.lo, pHi: mc?.hi, mcN: mc?.n, meanMissIn: mc ? mToIn(mc.meanMissM) : undefined,
     actualHit: actualShot?.hit,
     shotsFired, shotsHit,
+    cellLoad: (() => { const c = cellLoad(); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
+    tips: hiveTips,
+    tipping: tipping ? `TIPPING… ${(tipping.duration - tipping.t).toFixed(1)} s` : undefined,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""}` : ""),
@@ -533,9 +540,70 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, stats: () => ({ shotsFired, shotsHit }) };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }) };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
+let lastFireDir = { x: 0, z: -1 };
+let lastExit: Vec3 = { x: 0, y: 0, z: 0 };
+
+// ---------- hive tipping (our alliance's hive)
+const TIP_DEG = 30;
+let stagedNectarCount = 3; // the 3 NECTAR field staff place in the up cell at match start
+let hiveTips = 0;
+let tipping: { from: number; to: number; t: number; duration: number } | undefined;
+function cellLoad(): { pollen: number; nectar: number; massKg: number } {
+  let pollen = 0, nectar = 0, massKg = stagedNectarCount * BALL.nectarRed.massKg;
+  for (const f of flying) if (f.inCell) { if (f.kind === "pollen") pollen++; else nectar++; massKg += f.massKg; }
+  return { pollen, nectar: nectar + stagedNectarCount, massKg };
+}
+/** Called from the panel/T key: put the hive back to a chosen state with staged nectar, drop any contents. */
+function releaseCellContents() {
+  for (const f of flying) if (f.inCell) { f.inCell = false; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; }
+}
+function resetHive(alliance: Alliance) {
+  tipping = undefined;
+  releaseCellContents();
+  if (alliance === state.alliance) { stagedNectarCount = 3; field.setStagedNectar(alliance, true); }
+  field.setHiveState({ alliance, upCell: state.hive[alliance] });
+}
+function startTip() {
+  const load = cellLoad();
+  const excess = load.massKg / (state.tipMassG / 1000);
+  // a pendulum swinging over-centre against the damper: heavier load, quicker swing. ~2.6 s at the threshold, ~1 s at 2.5x.
+  const duration = clamp(2.6 / Math.sqrt(Math.max(1, excess)) , 0.9, 2.6);
+  const from = state.hive[state.alliance] === "audience" ? TIP_DEG : -TIP_DEG;
+  tipping = { from: (from * Math.PI) / 180, to: (-from * Math.PI) / 180, t: 0, duration };
+  // staged nectar become live balls so they fall out as the cell swings down
+  const bp = { diameterM: m(BALL.nectarRed.diaIn), massKg: BALL.nectarRed.massKg };
+  for (const p of field.stagedNectar(state.alliance)) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(bp.diameterM / 2, 20, 14), new THREE.MeshStandardMaterial({ color: state.alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color, roughness: 0.45 }));
+    mesh.position.copy(p);
+    scene.add(mesh);
+    flying.push({ mesh, pos: p.clone(), vel: new THREE.Vector3(), spin: 0, radius: bp.diameterM / 2, age: 0, restFor: 0, bounces: 0, kind: "nectar", massKg: bp.massKg, contactN: new THREE.Vector3(0, 1, 0), contactAge: 1, counted: true });
+  }
+  stagedNectarCount = 0;
+  field.setStagedNectar(state.alliance, false);
+  releaseCellContents();
+  hiveTips++;
+}
+function updateTipping(dt: number) {
+  if (tipping) {
+    tipping.t += dt;
+    const k = Math.min(1, tipping.t / tipping.duration);
+    // over-centre swing: slow start, fast middle, damped stop
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    field.setHiveTilt(state.alliance, tipping.from + (tipping.to - tipping.from) * e);
+    if (k >= 1) {
+      tipping = undefined;
+      state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience";
+      field.setHiveState({ alliance: state.alliance, upCell: state.hive[state.alliance] }); // staged nectar stay hidden: the new up cell is empty
+      panel.render();
+      saveState(state);
+    }
+    return;
+  }
+  if (state.autoTip && cellLoad().massKg >= state.tipMassG / 1000 - 1e-6) startTip();
+}
 let lastTagsByCam: SensorPacket["tags"] = {};
 let lastYawRate = 0;
 // Sensors go out on a fixed timer, not per render frame, so gamepad presses and encoder updates reach the

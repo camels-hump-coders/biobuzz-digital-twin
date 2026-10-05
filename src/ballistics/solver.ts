@@ -2,6 +2,9 @@
 import { type CellFrame, type Vec3, dot, pointInOpening, sub } from "../field/hive";
 import { type BallProps, simulate, velocityFrom, type TrajectorySample } from "./projectile";
 
+/** radius of the coloured frame tubes around the CELL opening (m) */
+export const LIP_TUBE_RADIUS = 0.012;
+
 export interface ShotResult {
   elevationRad: number;
   speed: number;
@@ -76,7 +79,8 @@ export function evaluateVelocity(req: ShotRequest, vel: Vec3, elevationRad = Mat
   let hit = false;
   let entryAngleRad: number | undefined;
   if (cross) {
-    const inside = pointInOpening(req.frame, cross.p, req.ball.diameterM / 2);
+    // the opening is framed by ~12 mm tubes; the ball centre must clear them too
+    const inside = pointInOpening(req.frame, cross.p, req.ball.diameterM / 2 + LIP_TUBE_RADIUS);
     const vn = -dot(cross.v, req.frame.normal); // component into the cell
     const vl = Math.hypot(cross.v.x, cross.v.y, cross.v.z) || 1e-9;
     entryAngleRad = Math.asin(Math.max(-1, Math.min(1, vn / vl)));

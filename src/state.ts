@@ -29,6 +29,9 @@ export interface AppState {
   noise: NoiseConfig;
   monteCarloN: number;
   /** virtual runtime (TeamCode) */
+  /** hive tipping */
+  autoTip: boolean;
+  tipMassG: number;
   runtimeEnabled: boolean;
   runtimeUrl: string;
   hardware: HardwareConfig;
@@ -56,6 +59,8 @@ export function defaultState(): AppState {
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false },
     noise: { ...DEFAULT_NOISE },
     monteCarloN: 150,
+    autoTip: true,
+    tipMassG: 195,
     runtimeEnabled: false,
     runtimeUrl: "ws://127.0.0.1:8765",
     hardware: defaultHardwareConfig(),
@@ -80,6 +85,7 @@ export function loadState(): AppState {
         const c = s.robot.cameras?.[0];
         if (sb && c && Math.abs(c.forwardM - 0.0381) < 1e-3 && c.yawDeg === 0 && s.robot.cameras.length === 1) { c.name = "Shooter camera"; c.forwardM = -6 * 0.0254; c.heightM = 13 * 0.0254; c.yawDeg = 180; }
       }
+      if (s.tipMassG === 199) s.tipMassG = 195; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
       return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig() };
     }
   } catch { /* ignore */ }

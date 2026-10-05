@@ -12,6 +12,12 @@ export interface FieldObjects {
   occluders: THREE.Object3D[];
   tagMeshes: THREE.Mesh[];
   setHiveState(state: HiveState): void;
+  /** world positions of the staged nectar in an alliance's up cell (empty if released) */
+  stagedNectar(alliance: Alliance): THREE.Vector3[];
+  /** hide/show the staged nectar (hidden once the hive has tipped and they fell out) */
+  setStagedNectar(alliance: Alliance, visible: boolean): void;
+  /** animate the pivot to an arbitrary tilt angle (radians, +audience up) without changing state */
+  setHiveTilt(alliance: Alliance, tiltRad: number): void;
 }
 
 export interface HiveObject {
@@ -84,6 +90,7 @@ function cellMesh(alliance: Alliance): THREE.Group {
   const shape = new THREE.Shape(prof.map((p) => new THREE.Vector2(p.r, p.u)));
   // back skin: filled pentagon at z = -depth
   const back = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({ color: 0xeeeeee, side: THREE.DoubleSide, roughness: 0.8 }));
+  back.name = "cellBack";
   back.position.z = -depth;
   grp.add(back);
   // side panels: extrude the pentagon outline as thin strips
@@ -92,6 +99,7 @@ function cellMesh(alliance: Alliance): THREE.Group {
     const w = Math.hypot(b.r - a.r, b.u - a.u);
     const geo = new THREE.PlaneGeometry(w, depth);
     const mesh = new THREE.Mesh(geo, i === 0 ? new THREE.MeshStandardMaterial({ color: 0xcfd3d8, side: THREE.DoubleSide, roughness: 0.7 }) : skin);
+    mesh.name = i === 0 ? "cellFloor" : `cellPanel${i}`;
     const mid = new THREE.Vector3((a.r + b.r) / 2, (a.u + b.u) / 2, -depth / 2);
     mesh.position.copy(mid);
     const ang = Math.atan2(b.u - a.u, b.r - a.r);
@@ -100,6 +108,7 @@ function cellMesh(alliance: Alliance): THREE.Group {
     // coloured frame tube along the opening edge and the back edge
     for (const z of [0, -depth]) {
       const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, w, 10), frameMat);
+      tube.name = `cellTube${i}${z === 0 ? "Front" : "Back"}`;
       tube.position.set(mid.x, mid.y, z);
       tube.rotation.z = ang + Math.PI / 2;
       grp.add(tube);
@@ -325,6 +334,7 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
   }
   const nectarGroup = new THREE.Group();
   group.add(nectarGroup);
+  const stagedVisible: Record<Alliance, boolean> = { red: true, blue: true };
 
   // flowers
   for (const f of FLOWER.positions) {
@@ -365,6 +375,7 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
   function placeNectar() {
     nectarGroup.clear();
     for (const alliance of ["red", "blue"] as Alliance[]) {
+      if (!stagedVisible[alliance]) continue;
       const st = hives[alliance].state;
       const up = cellFrames(st).find((f) => f.isUp)!;
       const rn = m(BALL.nectarRed.diaIn) / 2;
@@ -383,6 +394,7 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
         // right vector sign: choose direction so that across>0 moves toward +X
         const rx = up.right.x >= 0 ? 1 : -1;
         b.position.set(base.x + up.right.x * across * rx, base.y + up.right.y * across * rx, base.z + up.right.z * across * rx);
+        b.userData.alliance = alliance;
         nectarGroup.add(b);
       }
     }
@@ -396,5 +408,10 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
   }
   for (const alliance of ["red", "blue"] as Alliance[]) setHiveState(hives[alliance].state);
 
-  return { group, hives, occluders, tagMeshes, setHiveState };
+  function stagedNectar(alliance: Alliance): THREE.Vector3[] {
+    return nectarGroup.children.filter((c) => c.userData.alliance === alliance).map((c) => c.position.clone());
+  }
+  function setStagedNectar(alliance: Alliance, visible: boolean) { stagedVisible[alliance] = visible; placeNectar(); }
+  function setHiveTilt(alliance: Alliance, tiltRad: number) { hives[alliance].pivotGroup.rotation.x = -tiltRad; }
+  return { group, hives, occluders, tagMeshes, setHiveState, stagedNectar, setStagedNectar, setHiveTilt };
 }

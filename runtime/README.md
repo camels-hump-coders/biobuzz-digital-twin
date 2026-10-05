@@ -32,9 +32,12 @@ Telemetry appears in the panel. With no gamepad plugged in, the keyboard is game
 | B, X, Y | B, X, Y |
 | Z / C | left / right bumper |
 | Shift / Ctrl | right / left trigger |
+| G | Home / guide (the goBILDA logo button, `gamepad1.guide` / `gamepad1.ps`) |
+| Enter / Backspace | Start / Back |
+| V / N | left / right stick click |
 | arrows | d-pad |
 
-A physical gamepad (Xbox or PS layout, standard mapping) is used automatically when connected; a second one becomes gamepad2.
+A physical gamepad (Xbox or PS layout, standard mapping, including the goBILDA kit controller) is used automatically when connected; a second one becomes gamepad2. The kit controller's Home button arrives as `guide` (button 16 in the browser's standard mapping).
 
 ## Running your own TeamCode
 

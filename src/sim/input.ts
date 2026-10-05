@@ -57,6 +57,7 @@ export class Input {
       lt: k.has("ControlLeft") || k.has("ControlRight") ? 1 : 0,
       a: k.has("Space"), b: k.has("KeyB"), x: k.has("KeyX"), y: k.has("KeyY"),
       lb: k.has("KeyZ"), rb: k.has("KeyC"),
+      guide: k.has("KeyG"), start: k.has("Enter"), back: k.has("Backspace"), ls: k.has("KeyV"), rs: k.has("KeyN"),
       du: k.has("ArrowUp"), dd: k.has("ArrowDown"), dl: k.has("ArrowLeft"), dr: k.has("ArrowRight"),
     };
     const g1 = pads[0] ? fromPad(pads[0]) : kb;
