@@ -666,14 +666,7 @@ function frame(now: number) {
   // runtime sensors
   if (link.connected) {
     sendWebcamFrames(camInfos, now);
-    const tagsByCam: SensorPacket["tags"] = {};
-    for (const dev of state.hardware.devices) if (dev.kind === "webcam") {
-      const ci = camInfos.find((c) => c.mount.id === (dev.cameraId ?? camInfos[0]?.mount.id)) ?? camInfos[0];
-      if (!ci) { tagsByCam[dev.name] = []; continue; }
-      const vis = ci === selected && lastTags.length ? lastTags : analyseTagsFor(ci.cam, ci.intr, field.tagMeshes, [...field.occluders, ...scriptedObjs.filter((o) => o.group.visible).map((o) => o.chassis)]);
-      tagsByCam[dev.name] = buildDetections(ci.cam, ci.intr, vis, field.tagMeshes, state.pose, state.tagNoiseIn);
-    }
-    lastTagsByCam = tagsByCam;
+    lastCamInfos = camInfos; // the sensor timer computes the detections at camera rate, independent of the render rate
     lastYawRate = vel.yawRate;
     if (!link.running) imuYawRef = 0;
     panel.updateTelemetry(link.telemetry, `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}`);
@@ -785,10 +778,29 @@ let lastExit: Vec3 = { x: 0, y: 0, z: 0 };
 
 let lastTagsByCam: SensorPacket["tags"] = {};
 let lastYawRate = 0;
+let lastCamInfos: { mount: CameraMount; cam: THREE.PerspectiveCamera; intr: ReturnType<typeof intrinsicsFor>; enabled: boolean; selected: boolean }[] = [];
+let lastTagScan = 0;
+/** AprilTag detections for every webcam device, timestamped now: a real camera delivers frames at its own rate, so the
+ * OpMode's freshness checks must not depend on how fast this page renders. Runs on the sensor timer at 20 Hz. */
+function scanTagsForRuntime() {
+  const nowMs = performance.now();
+  if (nowMs - lastTagScan < 50 || !lastCamInfos.length) return;
+  lastTagScan = nowMs;
+  const occluders = [...field.occluders, ...scriptedObjs.filter((o) => o.group.visible).map((o) => o.chassis)];
+  const tagsByCam: SensorPacket["tags"] = {};
+  for (const dev of state.hardware.devices) if (dev.kind === "webcam") {
+    const ci = lastCamInfos.find((c) => c.mount.id === (dev.cameraId ?? lastCamInfos[0]?.mount.id)) ?? lastCamInfos[0];
+    if (!ci) { tagsByCam[dev.name] = []; continue; }
+    const vis = analyseTagsFor(ci.cam, ci.intr, field.tagMeshes, occluders);
+    tagsByCam[dev.name] = buildDetections(ci.cam, ci.intr, vis, field.tagMeshes, state.pose, state.tagNoiseIn);
+  }
+  lastTagsByCam = tagsByCam;
+}
 // Sensors go out on a fixed timer, not per render frame, so gamepad presses and encoder updates reach the
 // OpMode at 50 Hz even when the page renders slowly (background tab, software GL).
 window.setInterval(() => {
   if (!link.connected) return;
+  scanTagsForRuntime();
   const g = input.gamepads();
   link.sendSensors({
     type: "sensors",
