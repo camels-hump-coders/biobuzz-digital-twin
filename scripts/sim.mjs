@@ -94,8 +94,9 @@ const gradlew = join(root, "runtime", isWin ? "gradlew.bat" : "gradlew");
 const gradleArgs = [":host:run", "--console=plain", "-q", `--args=${hostPort}`];
 // Files that import Android-only or robot-only packages can never compile on the desktop. Skip them
 // automatically unless a sim override with the same relative path exists in <TeamCode>/src/sim/java.
-const ANDROID_ONLY = /^import (android\.(?!util\.Size)|androidx\.|org\.opencv\.|fi\.iki\.elonen|com\.qualcomm\.ftccommon|org\.firstinspires\.ftc\.ftccommon|org\.firstinspires\.ftc\.robotcore\.internal|com\.bylazar\.(camerastream|field)|com\.acmerobotics\.dashboard)/m;
-const ANDROID_ALLOWED = /^import android\.(content\.Context|content\.SharedPreferences|content\.res\.AssetManager|util\.Size);/m;
+const ANDROID_ONLY = /^import (android\.|androidx\.|org\.opencv\.|fi\.iki\.elonen|com\.qualcomm\.ftccommon|org\.firstinspires\.ftc\.ftccommon|org\.firstinspires\.ftc\.robotcore\.internal|com\.acmerobotics\.dashboard)/m;
+// Android classes the shim does provide (Context/assets/prefs, Bitmap for camera frames, Base64, the Activity Panels pokes)
+const ANDROID_ALLOWED = /^import android\.(content\.Context|content\.SharedPreferences|content\.res\.AssetManager|util\.Size|util\.Base64|graphics\.Bitmap|graphics\.BitmapFactory|app\.Activity);\s*$/gm;
 function walk(dir, out = []) { for (const e of readdirSync(dir)) { const p = join(dir, e); if (statSync(p).isDirectory()) walk(p, out); else if (p.endsWith(".java")) out.push(p); } return out; }
 let autoExcluded = [];
 let simDir;

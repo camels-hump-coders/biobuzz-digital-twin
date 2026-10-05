@@ -90,3 +90,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .body.adv-hidden > .adv { display: none; }
 #panel button.more { grid-column: 1 / -1; justify-self: start; background: transparent; border: 1px dashed #3a434e; color: var(--muted); font-size: 11px; padding: 3px 8px; }
 #panel button.more:hover { color: var(--fg); border-color: var(--fg); }
+
+#panel a.button-link { display: inline-block; background: #22272e; color: var(--fg); border: 1px solid #2a313a; border-radius: 4px; padding: 5px 8px; text-decoration: none; font-size: 12px; }
+#panel a.button-link:hover { background: #2d333b; }

@@ -2,6 +2,7 @@ package org.biobuzz.sim.host;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.eventloop.opmode.OpModeManagerImpl;
 import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.google.gson.JsonObject;
@@ -23,6 +24,7 @@ public class OpModeRunner {
     public Status status() { return status; }
     public String error() { return error; }
     public String currentName() { return currentName; }
+    public OpMode currentOpMode() { return current; }
 
     public synchronized void init(OpModeScanner.Entry entry, HardwareMap map) {
         stop();
@@ -31,6 +33,7 @@ public class OpModeRunner {
             op.hardwareMap = map; op.gamepad1 = gp1; op.gamepad2 = gp2; op.telemetry = new SimTelemetry(telemetrySink);
             op.resetRuntime();
             current = op; currentName = entry.name; startRequested = false; stopRequested = false; error = "";
+            OpModeManagerImpl.firePreInit(op); // dashboards (Panels) hook telemetry/field/camera here, like on the robot
             status = Status.INIT; statusSink.accept("INIT");
             thread = new Thread(() -> run(op), "opmode-" + entry.name);
             thread.setDaemon(true);
@@ -44,6 +47,7 @@ public class OpModeRunner {
         if (op instanceof LinearOpMode) ((LinearOpMode) op).internalStop();
         if (op != null) op.requestOpModeStop();
         if (th != null) { th.interrupt(); try { th.join(1500); } catch (InterruptedException ignored) {} }
+        if (op != null) OpModeManagerImpl.firePostStop(op);
         current = null; thread = null;
         // zero every actuator so the sim robot stops
         for (JsonObject o : state.actuators.values()) { if (o.has("power")) o.addProperty("power", 0); if (o.has("targetVel")) o.addProperty("targetVel", 0); }
@@ -70,7 +74,7 @@ public class OpModeRunner {
         try {
             if (op instanceof LinearOpMode) {
                 LinearOpMode lop = (LinearOpMode) op;
-                Thread starter = new Thread(() -> { while (!startRequested && !stopRequested) sleepQuiet(5); if (startRequested && !stopRequested) { status = Status.RUNNING; statusSink.accept("RUNNING"); lop.internalStart(); } }, "opmode-start-watch");
+                Thread starter = new Thread(() -> { while (!startRequested && !stopRequested) sleepQuiet(5); if (startRequested && !stopRequested) { OpModeManagerImpl.firePreStart(lop); status = Status.RUNNING; statusSink.accept("RUNNING"); lop.internalStart(); } }, "opmode-start-watch");
                 starter.setDaemon(true); starter.start();
                 lop.runOpMode();
                 lop.internalStop();
@@ -79,6 +83,7 @@ public class OpModeRunner {
                 op.telemetry.update();
                 while (!startRequested && !stopRequested) { op.internalUpdateTime(); op.init_loop(); sleepQuiet(20); }
                 if (!stopRequested) {
+                    OpModeManagerImpl.firePreStart(op);
                     op.resetRuntime(); op.start(); status = Status.RUNNING; statusSink.accept("RUNNING");
                     while (!stopRequested && !op.internalStopRequested()) { op.internalUpdateTime(); op.loop(); sleepQuiet(10); }
                 }

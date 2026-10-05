@@ -9,7 +9,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Latest sensor snapshot from the browser and the actuator commands to send back. Thread-safe via volatile swaps. */
-public class SimState implements SimHooks.TagSource {
+public class SimState implements SimHooks.TagSource, SimHooks.FrameSource {
+    private final java.util.Map<String, SimHooks.Frame> frames = new java.util.concurrent.ConcurrentHashMap<>();
+    /** JPEG rendered by the twin for a simulated webcam */
+    public void setFrame(String camera, byte[] jpeg, long nanos) { frames.put(camera, new SimHooks.Frame(jpeg, nanos)); }
+    @Override public SimHooks.Frame latestFrame(String cameraName) { SimHooks.Frame f = frames.get(cameraName); if (f == null && frames.size() == 1) f = frames.values().iterator().next(); return f; }
     public static class MotorSensor { public double position, velocity; }
     public static class Snapshot {
         public long nanos = System.nanoTime();

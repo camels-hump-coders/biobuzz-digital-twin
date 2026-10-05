@@ -24,11 +24,13 @@ public class SimLink extends WebSocketServer {
     private final Set<WebSocket> clients = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "sim-link"); t.setDaemon(true); return t; });
     private volatile List<String> lastTelemetry = Collections.emptyList();
+    private final boolean panels;
 
     public SimLink(int port, List<OpModeScanner.Entry> opModes) {
         super(new InetSocketAddress("127.0.0.1", port));
         this.opModes = opModes;
         SimHooks.setTagSource(state);
+        SimHooks.setFrameSource(state);
         // TeamCode asked for a device the browser's hardware map lacks: create it here so INIT continues, and tell
         // the browser so it appears in the Hardware map panel (role/port still need a human look).
         SimHooks.setMissingDeviceListener((name, type) -> {
@@ -47,6 +49,7 @@ public class SimLink extends WebSocketServer {
             return null;
         });
         runner = new OpModeRunner(state, lines -> { lastTelemetry = lines; broadcastJson(telemetryMessage(lines)); }, s -> broadcastJson(statusMessage()));
+        panels = PanelsBoot.start(runner, opModes, () -> hardwareMap);
         setReuseAddr(true);
         exec.scheduleAtFixedRate(() -> { if (!clients.isEmpty()) broadcastJson(state.actuatorMessage()); }, 20, 20, TimeUnit.MILLISECONDS);
     }
@@ -88,6 +91,10 @@ public class SimLink extends WebSocketServer {
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
             case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
+            case "frame": { // JPEG of a simulated webcam: {camera, jpeg (base64), nanos}
+                try { state.setFrame(msg.get("camera").getAsString(), Base64.getDecoder().decode(msg.get("jpeg").getAsString()), msg.has("nanos") ? msg.get("nanos").getAsLong() : System.nanoTime()); } catch (Exception ignored) {}
+                break;
+            }
             case "assetOverrides": { // {overrides: {path: {dotted.key: value}}} from the browser's TeamCode settings panel
                 Map<String, org.json.JSONObject> all = new HashMap<>();
                 if (msg.has("overrides") && msg.get("overrides").isJsonObject())
@@ -158,7 +165,9 @@ public class SimLink extends WebSocketServer {
         JsonObject m = new JsonObject(); m.addProperty("type", "opmodes");
         JsonArray arr = new JsonArray();
         for (OpModeScanner.Entry e : opModes) { JsonObject o = new JsonObject(); o.addProperty("name", e.name); o.addProperty("group", e.group); o.addProperty("flavor", e.flavor); o.addProperty("className", e.cls.getName()); arr.add(o); }
-        m.add("opModes", arr); return m;
+        m.add("opModes", arr);
+        if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);
+        return m;
     }
     /** Every JSON asset under the sim.assets roots (not the .sim.json variants), with its text, for the browser's settings panel. */
     private JsonObject assetsMessage() {

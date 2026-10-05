@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
 import { aimPoint, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
 import { HitMapJob } from "./ballistics/hitmap";
+import type { CameraMount } from "./robot/robotSpec";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
 import { startPose } from "./sim/starts";
@@ -397,6 +398,29 @@ canvas.addEventListener("dblclick", (ev) => teleportAt(ev));
 let currentCamera: THREE.Camera = orbitCam;
 function activeCamera(): THREE.Camera { return currentCamera; }
 
+// ---------- simulated webcam frames for TeamCode (dashboards such as Panels show them, like the real camera feed)
+const frameCanvas = document.createElement("canvas");
+frameCanvas.width = 320; frameCanvas.height = 180;
+const frameRenderer = new THREE.WebGLRenderer({ canvas: frameCanvas, antialias: false, preserveDrawingBuffer: true });
+frameRenderer.setPixelRatio(1); frameRenderer.outputColorSpace = THREE.SRGBColorSpace;
+let lastFrameSent = 0, frameCamIndex = 0;
+function sendWebcamFrames(camInfos: { mount: CameraMount; cam: THREE.PerspectiveCamera; enabled: boolean }[], now: number) {
+  if (!link.connected || now - lastFrameSent < 330) return; // ~3 fps, one camera per tick
+  const webcams = state.hardware.devices.filter((d) => d.kind === "webcam");
+  if (!webcams.length) return;
+  lastFrameSent = now;
+  const dev = webcams[frameCamIndex++ % webcams.length];
+  const ci = camInfos.find((c) => c.mount.id === (dev.cameraId ?? camInfos[0]?.mount.id)) ?? camInfos[0];
+  if (!ci) return;
+  const aspect = ci.cam.aspect; frameCanvas.height = Math.round(320 / aspect) || 180;
+  frameRenderer.setSize(frameCanvas.width, frameCanvas.height, false);
+  robot.cameraGizmos.visible = false; robot.launcherMarker.visible = false; for (const a of allAgents) a.carryGroup.visible = false; overlays.group.visible = false;
+  frameRenderer.render(scene, ci.cam);
+  overlays.group.visible = true; robot.launcherMarker.visible = true; for (const a of allAgents) a.carryGroup.visible = true;
+  const url = frameCanvas.toDataURL("image/jpeg", 0.6);
+  link.sendFrame(dev.name, url.slice(url.indexOf(",") + 1), Math.round(performance.timeOrigin + now) * 1_000_000);
+}
+
 // ---------- main loop
 let last = performance.now();
 const perf = new Perf();
@@ -625,6 +649,7 @@ function frame(now: number) {
 
   // runtime sensors
   if (link.connected) {
+    sendWebcamFrames(camInfos, now);
     const tagsByCam: SensorPacket["tags"] = {};
     for (const dev of state.hardware.devices) if (dev.kind === "webcam") {
       const ci = camInfos.find((c) => c.mount.id === (dev.cameraId ?? camInfos[0]?.mount.id)) ?? camInfos[0];

@@ -1,6 +1,7 @@
 plugins { application }
 dependencies {
     implementation(project(":sdk-shim"))
+    implementation(project(":panels")) // the real FTC Panels dashboard, served by the host on :8001/:8002
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.slf4j:slf4j-simple:2.0.16")
@@ -10,7 +11,11 @@ dependencies {
 }
 tasks.named<JavaExec>("run") {
     // TeamCode assets (hardwareMap.appContext.getAssets()) and the SharedPreferences store
-    systemProperty("sim.assets", (findProperty("simAssets") as String?) ?: "")
+    dependsOn(":panels:extractPanels")
+    // asset roots: the team\'s assets first, then Panels\' unpacked web UI so its StaticServer can list and serve it
+    val panelsAssets = project(":panels").layout.buildDirectory.dir("panels/assets").get().asFile.path
+    systemProperty("sim.assets", listOfNotNull((findProperty("simAssets") as String?)?.takeIf { it.isNotBlank() }, panelsAssets).joinToString(","))
+    systemProperty("sim.panels", (findProperty("simPanels") as String?) ?: "true")
     systemProperty("sim.prefs", (findProperty("simPrefs") as String?) ?: layout.projectDirectory.dir("../.sim-prefs").asFile.path)
 }
 

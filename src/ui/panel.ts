@@ -183,6 +183,9 @@ export class Panel {
         ));
         rtRows.push(el("div", { class: "note" }, s === "IDLE" || s === "STOPPED" ? "Pick an OpMode and press INIT." : s === "INIT" ? "init() ran. Press START to begin, or STOP to abort." : s === "RUNNING" ? "Running. Keyboard is gamepad1 while the 3D view has focus. STOP cuts all power." : s === "ERROR" ? "The OpMode threw; see the message below, fix and INIT again." : ""));
       }
+      if (link.panelsUrl) rtRows.push(el("div", { class: "row full", style: "align-items:center;gap:8px" },
+        el("a", { href: link.panelsUrl, target: "_blank", rel: "noopener", class: "button-link" }, "Open Panels dashboard ↗"),
+        el("span", { class: "note" }, "The real FTC Panels (com.bylazar) running on the host: telemetry, graphs, field and the simulated camera stream, exactly as your code publishes them on the robot.")));
       if (link.statusError) rtRows.push(el("pre", { class: "note full", style: "white-space:pre-wrap;color:#ff8888" }, link.statusError));
       for (const n of link.notes) rtRows.push(el("div", { class: "note full", style: "color:#f2c200" }, n));
       rtRows.push(adv(el("div", { class: "note full" }, `Hardware map: ${st.hardware.devices.length} devices (${st.hardware.devices.map((d) => d.name).join(", ")}). Names must match your hardwareMap.get() calls; see the Hardware map panel for presets.`)));

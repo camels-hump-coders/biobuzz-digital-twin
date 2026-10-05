@@ -27,4 +27,7 @@ public class Context {
     public Context getApplicationContext() { return this; }
     public String getPackageName() { return "org.biobuzz.sim"; }
     public Object getSystemService(String name) { return null; }
+    /** Panels passes this to its class scanner; the desktop scanner reads the classpath instead. */
+    public String getPackageCodePath() { return System.getProperty("java.class.path", ""); }
+    public android.content.res.Resources getResources() { return new android.content.res.Resources(); }
 }

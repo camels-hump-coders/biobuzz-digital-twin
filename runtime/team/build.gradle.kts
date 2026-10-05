@@ -6,7 +6,7 @@ val teamExclude: List<String> = ((findProperty("teamExclude") as String?) ?: "")
 val teamSim: String? = (findProperty("teamSim") as String?)?.takeIf { it.isNotBlank() && file(it).isDirectory }
 val overridden: List<String> = teamSim?.let { dir -> fileTree(dir).matching { include("**/*.java") }.files.map { it.relativeTo(file(dir)).path } } ?: emptyList()
 
-dependencies { implementation(project(":sdk-shim")) }
+dependencies { implementation(project(":sdk-shim")); implementation(project(":panels")) }
 
 sourceSets {
     main {
