@@ -11,6 +11,17 @@ Use it to:
 Field geometry comes from the Competition Manual (TU02, Section 9) and the Event Field Setup Guide v1.0.
 See `docs/superpowers/specs/2026-10-04-biobuzz-digital-twin-design.md` for the numbers used and the design.
 
+## Run your TeamCode against the twin (virtual runtime)
+
+Coders can test OpModes without touching the robot. `runtime/` is a desktop JVM host with an FTC SDK shim: your unmodified Java OpModes compile against it and run with INIT / START / STOP from the browser, reading encoders, IMU, AprilTag detections and gamepads from the sim and driving the simulated robot with their motor and servo commands.
+
+```bash
+cd runtime && ./gradlew :host:run -PteamCode=/path/to/FtcRobotController/TeamCode/src/main/java
+# then in the browser: Runtime panel -> Connect -> pick OpMode -> INIT -> START
+```
+
+See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Two sample OpModes (a mecanum TeleOp and an AprilTag auto-aim autonomous) ship with it.
+
 ## Run it
 
 ```bash

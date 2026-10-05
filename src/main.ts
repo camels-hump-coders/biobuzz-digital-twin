@@ -16,6 +16,10 @@ import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { computeReachability, type ReachMap } from "./ballistics/reachability";
 import { monteCarlo, perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
 import { stepBall, insideCell, type LiveBall } from "./sim/ballPhysics";
+import { RuntimeLink, type SensorPacket } from "./runtime/link";
+import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
+import { buildDetections } from "./runtime/apriltags";
+import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
 import { velocityFrom } from "./ballistics/projectile";
 import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
 import { clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
@@ -125,11 +129,28 @@ function applyRobotSpec() {
 function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "reset") { applyRobotSpec(); }
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
+  if (what === "runtime") syncRuntime();
+  if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices());
   if (what === "sim") { field.setHiveState({ alliance: "red", upCell: state.hive.red }); field.setHiveState({ alliance: "blue", upCell: state.hive.blue }); robot.setPose(state.pose); }
   Object.assign(overlays.show, state.overlays);
   saveState(state);
 }
+// ---------- virtual runtime link
+const link = new RuntimeLink(state.runtimeUrl);
+const actuatorModel = createActuatorModel();
+let imuYawRef = 0; // IMU yaw is reported relative to the heading at connect time
+function hardwareDevices() {
+  return state.hardware.devices.map((d) => ({ name: d.name, kind: d.kind, ticksPerRev: d.ticksPerRev ?? 537.7 }));
+}
+function syncRuntime() {
+  if (state.runtimeEnabled) { if ((link as any).url !== state.runtimeUrl) { link.disconnect(); (link as any).url = state.runtimeUrl; } link.connect(); }
+  else link.disconnect();
+}
+let hardwareSent = false;
+link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices()); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
 panel = new Panel(state, onChange);
+panel.link = link;
+syncRuntime();
 Object.assign(overlays.show, state.overlays);
 window.addEventListener("keydown", (e) => {
   const t = e.target as HTMLElement | null;
@@ -320,7 +341,21 @@ function frame(now: number) {
   if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; field.setHiveState({ alliance: state.alliance, upCell: state.hive[state.alliance] }); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
   const dp = driveParams();
-  const vel = commandToVelocity(cmd, state.pose, dp);
+  const runtimeActive = link.running;
+  let vel = commandToVelocity(runtimeActive ? { forward: 0, left: 0, turn: 0 } : cmd, state.pose, dp);
+  if (runtimeActive) {
+    const act = stepActuators(actuatorModel, state.hardware, link.actuators, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
+    vel = act.vel;
+    const l = state.robot.launcher;
+    l.rpm = clamp(act.flywheelRpm, 0, l.maxRpm);
+    if (act.hoodPos !== undefined && l.elevationMinDeg !== l.elevationMaxDeg) l.elevationDeg = l.elevationMinDeg + act.hoodPos * (l.elevationMaxDeg - l.elevationMinDeg);
+    state.autoRpm = false;
+    pendingFires += feederFires(state.hardware, link.takeServoTransitions());
+  } else {
+    link.takeServoTransitions();
+    // keep encoders moving sensibly when the keyboard drives, so init_loop telemetry is not frozen
+    stepActuators(actuatorModel, state.hardware, {}, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
+  }
   const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
   state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
   robot.setPose(state.pose);
@@ -370,7 +405,8 @@ function frame(now: number) {
   // the analysed arc is always toward the target (what the robot would do if aimed); the fired ball goes where the launcher points
   const { shot, scan, required } = computeShot(exit, tf);
   robot.launcherMarker.rotation.y = -turretYaw * 0 + turretYaw; // local +Y rotation = yaw left
-  if (actions.launch) launch(exit, fireDir);
+  if (actions.launch && !runtimeActive) launch(exit, fireDir);
+  while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
   updateFlying(dt);
 
   // overlays
@@ -395,6 +431,30 @@ function frame(now: number) {
     const occluders = [...field.occluders, ...scriptedObjs.filter((o) => o.group.visible).map((o) => o.chassis)];
     tags = analyseTags(selected.cam, selected.intr, field.tagMeshes, occluders);
     lastTags = tags;
+  }
+
+  // runtime sensors
+  if (link.connected) {
+    const tagsByCam: SensorPacket["tags"] = {};
+    for (const dev of state.hardware.devices) if (dev.kind === "webcam") {
+      const ci = camInfos.find((c) => c.mount.id === (dev.cameraId ?? camInfos[0]?.mount.id)) ?? camInfos[0];
+      if (!ci) { tagsByCam[dev.name] = []; continue; }
+      const vis = ci === selected && lastTags.length ? lastTags : analyseTagsFor(ci.cam, ci.intr, field.tagMeshes, [...field.occluders, ...scriptedObjs.filter((o) => o.group.visible).map((o) => o.chassis)]);
+      tagsByCam[dev.name] = buildDetections(ci.cam, ci.intr, vis, field.tagMeshes, state.pose, state.tagNoiseIn);
+    }
+    const g = input.gamepads();
+    if (!link.running) imuYawRef = 0;
+    link.sendSensors({
+      type: "sensors",
+      motors: motorSensors(actuatorModel, state.hardware),
+      imu: { yaw: rad2deg(wrapAngle(state.pose.heading - imuYawRef)), pitch: 0, roll: 0, yawRate: rad2deg(vel.yawRate) },
+      distances: {},
+      tags: tagsByCam,
+      gamepad1: g.g1,
+      gamepad2: g.g2,
+      battery: 12.6,
+    });
+    panel.updateTelemetry(link.telemetry, `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}`);
   }
 
   // HUD
@@ -430,7 +490,7 @@ function frame(now: number) {
     shotsFired, shotsHit,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
-    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus],
+    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""}` : ""),
   });
 
   // render main view
@@ -471,8 +531,9 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, stats: () => ({ shotsFired, shotsHit }) };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, stats: () => ({ shotsFired, shotsHit }) };
 let lastTags: HudData["tags"] = [];
+let pendingFires = 0;
 let actualCache: { key: string; shot?: ShotResult } = { key: "" };
 function computeActual(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): ShotResult | undefined {
   const l = state.robot.launcher;

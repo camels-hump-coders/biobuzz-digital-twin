@@ -5,10 +5,12 @@ import { CAMERA_PRESETS, presetById } from "../camera/cameraPresets";
 import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
 import { intrinsicsFor } from "../robot/robot";
+import type { RuntimeLink } from "../runtime/link";
+import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
 
 const IN = 0.0254;
 
-type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset") => void;
+type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset" | "runtime" | "hardware") => void;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -55,6 +57,8 @@ export class Panel {
   private openState = new Map<string, boolean>();
   private state: AppState;
   private onChange: Change;
+  link?: RuntimeLink;
+  private telemetryEl?: HTMLElement;
   constructor(state: AppState, onChange: Change) {
     this.state = state;
     this.onChange = onChange;
@@ -63,6 +67,12 @@ export class Panel {
   }
 
   toggle() { this.root.classList.toggle("hidden"); }
+  selectedOpMode = "";
+  /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
+  updateTelemetry(lines: string[], status: string) {
+    if (this.telemetryEl) { const t = lines.join("\n") || "(telemetry)"; if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t; }
+    const s = this.root.querySelector("#rt-status"); if (s && !s.textContent!.endsWith(status)) s.textContent = `Status: ${status}`;
+  }
 
   render() {
     // remember open/closed
@@ -72,6 +82,64 @@ export class Panel {
     const open = (t: string, def: boolean) => this.openState.get(t) ?? def;
     const change = (w: Parameters<Change>[0]) => { this.onChange(w); this.render(); };
     this.root.append(el("h1", {}, "BIOBUZZ Digital Twin"));
+
+    // --- Runtime (TeamCode)
+    const link = this.link;
+    const rtRows: (HTMLElement | HTMLElement[])[] = [];
+    rtRows.push(chk("Connect to runtime host", () => st.runtimeEnabled, (v) => { st.runtimeEnabled = v; change("runtime"); }));
+    const urlInput = el("input", { type: "text", value: st.runtimeUrl }) as HTMLInputElement;
+    urlInput.onchange = () => { st.runtimeUrl = urlInput.value; change("runtime"); };
+    rtRows.push([el("label", {}, "Host URL"), urlInput]);
+    const statusTxt = link ? (link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}` : "not connected — run ./gradlew :host:run in runtime/") : "off";
+    rtRows.push(el("div", { class: "note", id: "rt-status" }, `Status: ${statusTxt}`));
+    if (link?.connected) {
+      const names = link.opModes.map((o) => ({ value: o.name, label: `[${o.flavor}] ${o.name}` }));
+      if (!names.length) rtRows.push(el("div", { class: "note" }, "No OpModes found on the host classpath."));
+      else {
+        if (!names.some((n) => n.value === this.selectedOpMode)) this.selectedOpMode = names[0].value;
+        rtRows.push(sel("OpMode", names, () => this.selectedOpMode, (v) => { this.selectedOpMode = v; }));
+        rtRows.push(el("div", { class: "row full" },
+          el("button", { class: "primary", onclick: () => link.init(this.selectedOpMode) }, "INIT"),
+          el("button", { class: "primary", onclick: () => link.start() }, "▶ START"),
+          el("button", { onclick: () => link.stop() }, "■ STOP"),
+        ));
+      }
+      if (link.statusError) rtRows.push(el("pre", { class: "note full", style: "white-space:pre-wrap;color:#ff8888" }, link.statusError));
+      this.telemetryEl = el("pre", { class: "full", style: "margin:0;white-space:pre-wrap;font-size:11px;background:#0b0e13;border:1px solid #2a313a;border-radius:4px;padding:6px;min-height:60px;max-height:220px;overflow:auto" }, link.telemetry.join("\n") || "(telemetry)");
+      rtRows.push(this.telemetryEl);
+    }
+    rtRows.push(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, B/X/Y buttons, arrows = dpad). Plug in a gamepad to use it instead."));
+    this.root.append(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
+
+    // --- Hardware map
+    const hw = st.hardware;
+    const hwRows: (HTMLElement | HTMLElement[])[] = [];
+    hwRows.push(el("div", { class: "note" }, "Names must match what your OpMode passes to hardwareMap.get(). Roles tell the sim what each device moves."));
+    hwRows.push(sel("Mirrored drive side", [{ value: "left", label: "Left motors mirrored (code reverses left)" }, { value: "right", label: "Right motors mirrored (code reverses right)" }, { value: "none", label: "None (positive power = forward on all)" }], () => hw.mirroredSide ?? "left", (v) => { hw.mirroredSide = v as any; change("hardware"); }));
+    hw.devices.forEach((d, i) => {
+      const nameIn = el("input", { type: "text", value: d.name }) as HTMLInputElement;
+      nameIn.onchange = () => { d.name = nameIn.value; change("hardware"); };
+      hwRows.push([el("label", {}, d.kind), nameIn]);
+      if (d.kind === "motor") {
+        hwRows.push(sel("role", MOTOR_ROLES.map((r) => ({ value: r, label: r })), () => d.role ?? "other", (v) => { d.role = v as any; change("hardware"); }));
+        hwRows.push(num("ticks/rev", () => d.ticksPerRev ?? 537.7, (v) => { d.ticksPerRev = v; change("hardware"); }, { min: 1, max: 10000, step: 0.1 }));
+        hwRows.push(num("free RPM", () => d.freeRpm ?? 312, (v) => { d.freeRpm = v; change("hardware"); }, { min: 10, max: 12000, step: 1 }));
+      } else if (d.kind === "servo" || d.kind === "crservo") {
+        hwRows.push(sel("role", SERVO_ROLES.map((r) => ({ value: r, label: r })), () => d.role ?? "other", (v) => { d.role = v as any; change("hardware"); }));
+        if (d.role === "feeder") hwRows.push(num("fire at position ≥", () => d.fireThreshold ?? 0.5, (v) => { d.fireThreshold = v; change("hardware"); }, { min: 0, max: 1, step: 0.05 }));
+      } else if (d.kind === "webcam") {
+        hwRows.push(sel("camera mount", st.robot.cameras.map((c) => ({ value: c.id, label: c.name })), () => d.cameraId ?? st.robot.cameras[0]?.id ?? "", (v) => { d.cameraId = v; change("hardware"); }));
+      }
+      hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { hw.devices.splice(i, 1); change("hardware"); } }, "Remove")));
+    });
+    const addDev = (kind: DeviceKind) => { hw.devices.push({ name: `${kind}${hw.devices.length + 1}`, kind, ...(kind === "motor" ? { role: "other" as const, ticksPerRev: 537.7, freeRpm: 312 } : {}), ...(kind === "servo" ? { role: "other" as const } : {}) }); change("hardware"); };
+    hwRows.push(el("div", { class: "row full" },
+      el("button", { onclick: () => addDev("motor") }, "+ motor"), el("button", { onclick: () => addDev("servo") }, "+ servo"), el("button", { onclick: () => addDev("crservo") }, "+ CR servo"),
+      el("button", { onclick: () => addDev("distance") }, "+ distance"), el("button", { onclick: () => addDev("webcam") }, "+ webcam"),
+    ));
+    hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "Reset to StarterBot names")));
+    hwRows.push(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 }));
+    this.root.append(section("Hardware map", open("Hardware map", false), ...hwRows));
 
     // --- Robot
     const r = st.robot;

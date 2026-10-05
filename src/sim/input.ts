@@ -1,5 +1,6 @@
 /** Keyboard + gamepad input -> DriveCommand and action edges. */
 import type { DriveCommand } from "./drive";
+import { emptyGamepad, type GamepadPacket } from "../runtime/link";
 
 export interface Actions {
   launch: boolean; // edge
@@ -35,6 +36,33 @@ export class Input {
   }
 
   private prevButtons = new Set<number>();
+
+  /** gamepad1/gamepad2 packets for the runtime. With no physical gamepad, the keyboard emulates gamepad1:
+   * WASD = left stick, Q/E = right stick X, Space = A, Shift = right trigger, B/X/Y keys = buttons, arrows = dpad. */
+  gamepads(): { g1: GamepadPacket; g2: GamepadPacket } {
+    const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter((p): p is Gamepad => !!p && p.connected) : [];
+    const fromPad = (p: Gamepad): GamepadPacket => {
+      const dz = (v: number) => (Math.abs(v) < 0.08 ? 0 : v);
+      const bt = (i: number) => !!p.buttons[i]?.pressed;
+      const tv = (i: number) => p.buttons[i]?.value ?? 0;
+      return { lx: dz(p.axes[0] ?? 0), ly: dz(p.axes[1] ?? 0), rx: dz(p.axes[2] ?? 0), ry: dz(p.axes[3] ?? 0), lt: tv(6), rt: tv(7),
+        a: bt(0), b: bt(1), x: bt(2), y: bt(3), lb: bt(4), rb: bt(5), back: bt(8), start: bt(9), guide: bt(16), ls: bt(10), rs: bt(11), du: bt(12), dd: bt(13), dl: bt(14), dr: bt(15) };
+    };
+    const k = this.keys;
+    const kb: GamepadPacket = { ...emptyGamepad(),
+      lx: (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0),
+      ly: (k.has("KeyS") ? 1 : 0) - (k.has("KeyW") ? 1 : 0),
+      rx: (k.has("KeyE") ? 1 : 0) - (k.has("KeyQ") ? 1 : 0),
+      rt: k.has("ShiftLeft") || k.has("ShiftRight") ? 1 : 0,
+      lt: k.has("ControlLeft") || k.has("ControlRight") ? 1 : 0,
+      a: k.has("Space"), b: k.has("KeyB"), x: k.has("KeyX"), y: k.has("KeyY"),
+      lb: k.has("KeyZ"), rb: k.has("KeyC"),
+      du: k.has("ArrowUp"), dd: k.has("ArrowDown"), dl: k.has("ArrowLeft"), dr: k.has("ArrowRight"),
+    };
+    const g1 = pads[0] ? fromPad(pads[0]) : kb;
+    const g2 = pads[1] ? fromPad(pads[1]) : emptyGamepad();
+    return { g1, g2 };
+  }
 
   poll(): { cmd: DriveCommand; actions: Actions } {
     const k = this.keys;

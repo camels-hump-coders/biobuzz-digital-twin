@@ -3,6 +3,7 @@ import type { Pose } from "./sim/drive";
 import type { Alliance, CellSide } from "./field/hive";
 import { clonePreset } from "./robot/presets";
 import { DEFAULT_NOISE, type NoiseConfig } from "./ballistics/dispersion";
+import { defaultHardwareConfig, type HardwareConfig } from "./runtime/hardwareConfig";
 
 export type ViewMode = "orbit" | "top" | "chase" | "robot";
 
@@ -27,6 +28,11 @@ export interface AppState {
   overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean };
   noise: NoiseConfig;
   monteCarloN: number;
+  /** virtual runtime (TeamCode) */
+  runtimeEnabled: boolean;
+  runtimeUrl: string;
+  hardware: HardwareConfig;
+  tagNoiseIn: number;
 }
 
 export function defaultState(): AppState {
@@ -50,6 +56,10 @@ export function defaultState(): AppState {
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false },
     noise: { ...DEFAULT_NOISE },
     monteCarloN: 150,
+    runtimeEnabled: false,
+    runtimeUrl: "ws://127.0.0.1:8765",
+    hardware: defaultHardwareConfig(),
+    tagNoiseIn: 0.3,
   };
 }
 
@@ -61,7 +71,7 @@ export function loadState(): AppState {
       const s = JSON.parse(raw);
       // migration: StarterBot CAD exports face +Z; older saves predate the yaw fix
       if (s.robot && s.robot.model !== "box" && s.robot.modelYawDeg === undefined) s.robot.modelYawDeg = 90;
-      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) } };
+      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig() };
     }
   } catch { /* ignore */ }
   return defaultState();
