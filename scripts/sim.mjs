@@ -129,7 +129,7 @@ console.log(`sim: host      ws://127.0.0.1:${hostPort}${watch ? "  (auto-rebuild
 console.log(`sim: twin      http://localhost:${port}/?runtime=1`);
 
 const children = [];
-const prefix = (name, color) => (chunk) => { for (const line of chunk.toString().split(/\r?\n/)) if (line.trim()) process.stdout.write(`\x1b[${color}m[${name}]\x1b[0m ${line}\n`); };
+const prefix = (name, color) => { let buf = ""; return (chunk) => { buf += chunk.toString(); const lines = buf.split(/\r?\n/); buf = lines.pop() ?? ""; for (const line of lines) if (line.trim()) process.stdout.write(`\x1b[${color}m[${name}]\x1b[0m ${line}\n`); }; };
 
 const host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}) }, shell: isWin });
 const errFiles = new Set();

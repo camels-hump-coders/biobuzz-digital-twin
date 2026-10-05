@@ -27,6 +27,20 @@ public class SimLink extends WebSocketServer {
         super(new InetSocketAddress("127.0.0.1", port));
         this.opModes = opModes;
         SimHooks.setTagSource(state);
+        // TeamCode asked for a device the browser's hardware map lacks: create it here so INIT continues, and tell
+        // the browser so it appears in the Hardware map panel (role/port still need a human look).
+        SimHooks.setMissingDeviceListener((name, type) -> {
+            JsonObject m = new JsonObject(); m.addProperty("type", "missingDevice"); m.addProperty("name", name); m.addProperty("requested", type); broadcastJson(m);
+            int hubPort = (int) hardwareMap.getAll(com.qualcomm.robotcore.hardware.HardwareDevice.class).stream().filter(d -> sameKind(d, type)).count();
+            if (type.matches(".*(DcMotor|DcMotorEx|DcMotorSimple).*")) return new Devices.SimMotor(name, state, 537.7, hubPort);
+            if (type.contains("CRServo")) return new Devices.SimCRServo(name, state, hubPort);
+            if (type.matches(".*Servo.*")) return new Devices.SimServo(name, state, hubPort);
+            if (type.matches(".*(IMU|Gyro|BNO055).*")) return new Devices.SimImu(name, state);
+            if (type.matches(".*(Webcam|Camera).*")) return new Devices.SimWebcam(name);
+            if (type.contains("Distance")) return new Devices.SimDistance(name, state);
+            if (type.contains("Touch")) return new Devices.SimTouch(name);
+            return null;
+        });
         runner = new OpModeRunner(state, lines -> { lastTelemetry = lines; broadcastJson(telemetryMessage(lines)); }, s -> broadcastJson(statusMessage()));
         setReuseAddr(true);
         exec.scheduleAtFixedRate(() -> { if (!clients.isEmpty()) broadcastJson(state.actuatorMessage()); }, 20, 20, TimeUnit.MILLISECONDS);
@@ -65,6 +79,13 @@ public class SimLink extends WebSocketServer {
             case "list": send(conn, opModesMessage()); break;
             default: break;
         }
+    }
+
+    private static boolean sameKind(com.qualcomm.robotcore.hardware.HardwareDevice d, String type) {
+        if (type.matches(".*(DcMotor|DcMotorEx|DcMotorSimple).*")) return d instanceof com.qualcomm.robotcore.hardware.DcMotor;
+        if (type.contains("CRServo")) return d instanceof com.qualcomm.robotcore.hardware.CRServo;
+        if (type.matches(".*Servo.*")) return d instanceof com.qualcomm.robotcore.hardware.Servo;
+        return false;
     }
 
     private HardwareMap buildHardwareMap(JsonArray devices) {

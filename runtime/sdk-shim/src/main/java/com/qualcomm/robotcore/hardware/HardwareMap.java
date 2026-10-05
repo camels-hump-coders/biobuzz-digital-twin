@@ -10,7 +10,10 @@ public class HardwareMap implements Iterable<HardwareDevice> {
         public DeviceMapping(Class<T> type) { this.type = type; }
         public T get(String name) {
             T d = map.get(name);
-            if (d == null) throw new IllegalArgumentException("Unable to find a hardware device with name \"" + name + "\" and type " + type.getSimpleName());
+            if (d == null) {
+                HardwareDevice created = org.biobuzz.sim.shim.SimHooks.reportMissing(name.trim(), type.getSimpleName());
+                if (created != null && type.isInstance(created)) { register(name.trim(), created); return type.cast(created); }
+                throw new IllegalArgumentException("Unable to find a hardware device with name \"" + name + "\" and type " + type.getSimpleName() + ". The twin has now added it to its Hardware map; check its role/port there and INIT again."); }
             return d;
         }
         public void put(String name, T device) { map.put(name, device); allDevices.put(name, device); }
@@ -40,12 +43,21 @@ public class HardwareMap implements Iterable<HardwareDevice> {
 
     public <T> T get(Class<? extends T> classOrInterface, String deviceName) {
         T t = tryGet(classOrInterface, deviceName);
-        if (t == null) throw new IllegalArgumentException("Unable to find a hardware device with name \"" + deviceName + "\" and type " + classOrInterface.getSimpleName());
+        if (t == null) {
+            HardwareDevice created = org.biobuzz.sim.shim.SimHooks.reportMissing(deviceName.trim(), classOrInterface.getSimpleName());
+            if (created != null && classOrInterface.isInstance(created)) { register(deviceName.trim(), created); return classOrInterface.cast(created); }
+            throw new IllegalArgumentException("Unable to find a hardware device with name \"" + deviceName + "\" and type " + classOrInterface.getSimpleName()
+                + ". Add it in the twin's Hardware map panel. Configured: " + allDevices.keySet());
+        }
         return t;
     }
     public <T> T tryGet(Class<? extends T> classOrInterface, String deviceName) {
         HardwareDevice d = allDevices.get(deviceName.trim());
         if (d != null && classOrInterface.isInstance(d)) return classOrInterface.cast(d);
+        if (d == null) {
+            HardwareDevice created = org.biobuzz.sim.shim.SimHooks.reportMissing(deviceName.trim(), classOrInterface.getSimpleName());
+            if (created != null && classOrInterface.isInstance(created)) { register(deviceName.trim(), created); return classOrInterface.cast(created); }
+        }
         return null;
     }
     public HardwareDevice get(String deviceName) { return allDevices.get(deviceName); }

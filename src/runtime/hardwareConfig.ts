@@ -61,5 +61,33 @@ export function camelsHumpHardwareConfig(): HardwareConfig {
   };
 }
 
+/** Guess kind and role for a device TeamCode asked for by name and SDK type, so it can be added automatically. */
+export function inferDevice(name: string, requestedType: string, existing: DeviceConfig[]): DeviceConfig {
+  const n = name.toLowerCase();
+  const t = requestedType;
+  let kind: DeviceKind = "motor";
+  if (/Servo$|ServoImplEx/.test(t) && !/CRServo/.test(t)) kind = "servo";
+  else if (/CRServo/.test(t)) kind = "crservo";
+  else if (/IMU|BNO055|Gyro/.test(t)) kind = "imu";
+  else if (/Webcam|Camera/.test(t)) kind = "webcam";
+  else if (/Distance|Rev2mDistance/.test(t)) kind = "distance";
+  else if (/Touch/.test(t)) kind = "touch";
+  const dev: DeviceConfig = { name, kind, port: existing.filter((d) => d.kind === kind).length };
+  if (kind === "motor") {
+    dev.ticksPerRev = 537.7; dev.freeRpm = 312;
+    const hasFB = /front|back|rear/.test(n);
+    if (/left/.test(n)) dev.role = hasFB ? (/front/.test(n) ? "frontLeft" : "backLeft") : "left";
+    else if (/right/.test(n)) dev.role = hasFB ? (/front/.test(n) ? "frontRight" : "backRight") : "right";
+    else if (/intake|gecko|roller/.test(n)) dev.role = "intake";
+    else if (/shoot|fly|fir|launch|wheel/.test(n)) { dev.role = "flywheel"; dev.ticksPerRev = 28; dev.freeRpm = 6000; }
+    else dev.role = "other";
+  } else if (kind === "servo" || kind === "crservo") {
+    if (/feed|windmill|trigger|index|kick/.test(n)) { dev.role = "feeder"; dev.fireThreshold = kind === "crservo" ? 0.1 : 0.5; }
+    else if (/hood|angle|tilt/.test(n)) dev.role = "hood";
+    else dev.role = "other";
+  }
+  return dev;
+}
+
 export const MOTOR_ROLES: MotorRole[] = ["frontLeft", "frontRight", "backLeft", "backRight", "left", "right", "flywheel", "intake", "other"];
 export const SERVO_ROLES: ServoRole[] = ["feeder", "hood", "other"];

@@ -41,6 +41,10 @@ export class RuntimeLink {
   servoTransitions: { name: string; from: number; to: number }[] = [];
   private lastServo: Record<string, number> = {};
   onChange: () => void = () => {};
+  /** TeamCode asked for a device the hardware map does not have */
+  onMissingDevice: (name: string, requested: string) => void = () => {};
+  /** human-readable notes for the panel */
+  notes: string[] = [];
   private retryTimer?: number;
   private lastSend = 0;
 
@@ -76,6 +80,7 @@ export class RuntimeLink {
       case "opmodes": this.opModes = msg.opModes ?? []; this.onChange(); break;
       case "status": this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; this.onChange(); break;
       case "telemetry": this.telemetry = msg.lines ?? []; break;
+      case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
     }
   }
   private send(o: unknown) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }

@@ -19,6 +19,7 @@ import { stepBall, type LiveBall } from "./sim/ballPhysics";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
+import { inferDevice } from "./runtime/hardwareConfig";
 import { buildDetections } from "./runtime/apriltags";
 import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
 import { velocityFrom } from "./ballistics/projectile";
@@ -168,6 +169,16 @@ function syncRuntime() {
   else link.disconnect();
 }
 let hardwareSent = false;
+link.onMissingDevice = (name, requested) => {
+  if (state.hardware.devices.some((d) => d.name === name)) return;
+  const dev = inferDevice(name, requested, state.hardware.devices);
+  state.hardware.devices.push(dev);
+  link.notes.push(`Added "${name}" as ${dev.kind}${dev.role ? ` (role ${dev.role})` : ""}${dev.port !== undefined ? `, port ${dev.port}` : ""} because your code asked for it. Check its role and port in the Hardware map panel.`);
+  if (link.notes.length > 6) link.notes.shift();
+  link.sendHardware(hardwareDevices());
+  saveState(state);
+  panel.render();
+};
 link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices()); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
 panel = new Panel(state, onChange);
 panel.link = link;

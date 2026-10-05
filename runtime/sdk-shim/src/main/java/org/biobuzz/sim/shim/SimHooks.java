@@ -16,6 +16,12 @@ public final class SimHooks {
     }
     public interface TagSource { List<TagObservation> tags(String cameraName); long lastSensorNanos(); }
 
+    /** Called when TeamCode asks the HardwareMap for a device that is not configured. */
+    public interface MissingDeviceListener { /** return a device to register under that name, or null */ com.qualcomm.robotcore.hardware.HardwareDevice missing(String name, String requestedType); }
+    private static volatile MissingDeviceListener missingListener;
+    public static void setMissingDeviceListener(MissingDeviceListener l) { missingListener = l; }
+    public static com.qualcomm.robotcore.hardware.HardwareDevice reportMissing(String name, String type) { MissingDeviceListener l = missingListener; return l == null ? null : l.missing(name, type); }
+
     private static volatile TagSource tagSource;
     public static void setTagSource(TagSource s) { tagSource = s; }
     public static List<TagObservation> tags(String cameraName) { TagSource s = tagSource; return s == null ? Collections.emptyList() : s.tags(cameraName); }
