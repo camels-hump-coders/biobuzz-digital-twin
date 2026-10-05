@@ -21,6 +21,8 @@ import java.util.function.Supplier;
  */
 public final class PanelsBoot {
     public static final String URL = "http://localhost:8001";
+    // Panels plugins keep only weak references to these; hold them for the life of the host
+    private static OpModeManagerImpl manager; private static FtcEventLoop eventLoop; private static Context context;
     private PanelsBoot() {}
 
     public static boolean start(OpModeRunner runner, List<OpModeScanner.Entry> opModes, Supplier<HardwareMap> hardwareMap) {
@@ -42,8 +44,10 @@ public final class PanelsBoot {
                 @Override public String getActiveOpModeName() { OpModeRunner.Status s = runner.status(); return s == OpModeRunner.Status.INIT || s == OpModeRunner.Status.RUNNING ? runner.currentName() : OpModeManager.DEFAULT_OP_MODE_NAME; }
                 @Override public OpMode getActiveOpMode() { return runner.currentOpMode(); }
             });
-            Context context = new Context();
-            FtcEventLoop eventLoop = new FtcEventLoop(new OpModeManagerImpl());
+            context = new Context();
+            manager = new OpModeManagerImpl();
+            eventLoop = new FtcEventLoop(manager);
+            if (Boolean.getBoolean("sim.debugLifecycle")) { com.bylazar.panels.PanelsConfig cfg = new com.bylazar.panels.PanelsConfig(); cfg.setEnableLogs(true); com.bylazar.panels.Panels.INSTANCE.setConfig(cfg); }
             com.bylazar.panels.Panels.start(context);
             com.bylazar.panels.Panels.attachEventLoop(context, eventLoop);
             System.out.println("Panels dashboard: " + URL + "  (the real com.bylazar Panels, fed by the twin)");
