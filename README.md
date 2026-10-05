@@ -34,6 +34,7 @@ pnpm build        # static site in dist/
 | F | toggle field-centric driving |
 | 1 / 2 / 3 / 4 | orbit / top-down / chase / robot-camera view |
 | H | hide the side panel |
+| Shift+click or double-click on the mat | teleport the robot there (any view) |
 
 Gamepad: left stick drive, right stick rotate, A launch, B aim at target, Y flip target, X field-centric, right trigger boost.
 

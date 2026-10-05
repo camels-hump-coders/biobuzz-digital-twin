@@ -151,6 +151,26 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+// Shift+click (or double-click) on the mat teleports the robot there, keeping its heading.
+const pickRay = new THREE.Raycaster();
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function teleportAt(ev: MouseEvent) {
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+  const cam = activeCamera();
+  pickRay.setFromCamera(ndc, cam);
+  const hit = new THREE.Vector3();
+  if (!pickRay.ray.intersectPlane(floorPlane, hit)) return;
+  const half = m(FIELD.sizeIn) / 2;
+  if (Math.abs(hit.x) > half || Math.abs(hit.z) > half) return;
+  state.pose = { ...state.pose, x: hit.x, z: hit.z };
+  robot.setPose(state.pose);
+}
+canvas.addEventListener("pointerdown", (ev) => { if (ev.shiftKey && ev.button === 0) teleportAt(ev); });
+canvas.addEventListener("dblclick", (ev) => teleportAt(ev));
+let currentCamera: THREE.Camera = orbitCam;
+function activeCamera(): THREE.Camera { return currentCamera; }
+
 // ---------- main loop
 let last = performance.now();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
@@ -224,8 +244,13 @@ function frame(now: number) {
     const ap = aimPoint(tfr, 0.05);
     // heading such that the launcher (at its turret centre) points at the target
     const mid = (state.robot.launcher.turretMinDeg + state.robot.launcher.turretMaxDeg) / 2;
-    state.pose = { ...state.pose, heading: headingToward({ x: ex.x, z: ex.z }, ap) - (mid * Math.PI) / 180 };
-    robot.setPose(state.pose);
+    // the exit point moves when the robot turns, so iterate a few times
+    for (let i = 0; i < 4; i++) {
+      const e = robot.exitPoint();
+      state.pose = { ...state.pose, heading: headingToward({ x: e.x, z: e.z }, ap) - (mid * Math.PI) / 180 };
+      robot.setPose(state.pose);
+    }
+    void ex;
   }
   const dp = driveParams();
   const vel = commandToVelocity(cmd, state.pose, dp);
@@ -327,6 +352,7 @@ function frame(now: number) {
     chaseCam.lookAt(ahead.x, 0.3, ahead.z);
     cam = chaseCam;
   } else if (state.view === "robot" && selected) cam = selected.cam;
+  currentCamera = cam;
   const showGizmos = cam !== selected?.cam;
   robot.cameraGizmos.visible = showGizmos;
   renderer.render(scene, cam);
