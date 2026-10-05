@@ -4,6 +4,7 @@ import type { Vec3, CellFrame } from "../field/hive";
 import type { ShotResult } from "../ballistics/solver";
 import type { CameraPose, Intrinsics } from "../camera/cameraMath";
 import { groundFootprint, cornerRays } from "../camera/cameraMath";
+import type { ReachMap } from "../ballistics/reachability";
 
 function lineFrom(points: Vec3[], color: number, opacity = 1, dashed = false): THREE.Line {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
@@ -22,10 +23,39 @@ export class Overlays {
   private fov = new THREE.Group();
   private target = new THREE.Group();
   private aim = new THREE.Group();
-  show = { trajectory: true, fan: true, footprint: true, frustum: true, target: true, aim: true };
+  private reach = new THREE.Group();
+  show = { trajectory: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false };
 
   constructor() {
-    this.group.add(this.trajectory, this.fan, this.fov, this.target, this.aim);
+    this.group.add(this.trajectory, this.fan, this.fov, this.target, this.aim, this.reach);
+  }
+
+  /** Colour tiles by required RPM: green (low) -> yellow -> red (near max); unreachable = dark red hatch. */
+  setReachMap(map?: ReachMap) {
+    this.reach.clear();
+    this.reach.visible = this.show.reach;
+    if (!map) return;
+    const geo = new THREE.PlaneGeometry(map.stepM * 0.96, map.stepM * 0.96);
+    const okMat = new Map<number, THREE.MeshBasicMaterial>();
+    const badMat = new THREE.MeshBasicMaterial({ color: 0x5a1a1a, transparent: true, opacity: 0.35, depthWrite: false });
+    for (const c of map.cells) {
+      let mat: THREE.Material = badMat;
+      if (c.rpm !== undefined) {
+        const f = Math.min(1, c.rpm / map.maxRpm);
+        const bucket = Math.round(f * 20);
+        let mm = okMat.get(bucket);
+        if (!mm) {
+          const col = new THREE.Color().setHSL((1 - f) * 0.33, 0.9, 0.5);
+          mm = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, depthWrite: false });
+          okMat.set(bucket, mm);
+        }
+        mat = mm;
+      }
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(c.x, 0.003, c.z);
+      this.reach.add(mesh);
+    }
   }
 
   setTrajectory(shot?: ShotResult, ballRadius = 0.035, aimed = true) {

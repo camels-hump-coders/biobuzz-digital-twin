@@ -88,6 +88,7 @@ export class Panel {
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),
         el("button", { onclick: () => { st.pose = { x: 0.9 * (st.alliance === "red" ? -1 : 1), z: st.alliance === "red" ? 1.6 : -1.6, heading: st.alliance === "red" ? 0 : Math.PI }; change("sim"); } }, "To start wall"),
+        el("button", { onclick: () => { st.aimRequest = true; change("sim"); } }, "Aim at target (R)"),
       ),
     ));
 
@@ -163,6 +164,8 @@ export class Panel {
       chk("Camera frustum", () => o.frustum, (v) => { o.frustum = v; change("overlays"); }),
       chk("Target opening", () => o.target, (v) => { o.target = v; change("overlays"); }),
       chk("Aim line", () => o.aim, (v) => { o.aim = v; change("overlays"); }),
+      chk("Reachability map (RPM by position)", () => o.reach, (v) => { o.reach = v; change("overlays"); }),
+      el("div", { class: "note" }, "Reachability colours the mat by the flywheel RPM needed to hit the target cell from each 6 in square with the current launcher (green = low, red = near max, dark = cannot reach). Recomputed when launcher or target change."),
       el("div", { class: "row full" },
         el("button", { onclick: () => { const blob = new Blob([JSON.stringify(st, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "biobuzz-twin-config.json"; a.click(); } }, "Export JSON"),
         el("button", { onclick: () => { const i = document.createElement("input"); i.type = "file"; i.accept = "application/json"; i.onchange = async () => { const f = i.files?.[0]; if (!f) return; Object.assign(st, JSON.parse(await f.text())); change("reset"); }; i.click(); } }, "Import JSON"),

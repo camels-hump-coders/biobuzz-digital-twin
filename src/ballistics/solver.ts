@@ -64,7 +64,11 @@ function planeCrossing(samples: TrajectorySample[], frame: CellFrame): { p: Vec3
 
 export function evaluateShot(req: ShotRequest, elevationRad: number, speed: number): ShotResult {
   const dir = { x: req.target.x - req.launchPos.x, z: req.target.z - req.launchPos.z };
-  const vel = velocityFrom(speed, elevationRad, dir);
+  return evaluateVelocity(req, velocityFrom(speed, elevationRad, dir), elevationRad, speed);
+}
+
+/** Evaluate an arbitrary launch velocity (e.g. the direction the launcher actually points). */
+export function evaluateVelocity(req: ShotRequest, vel: Vec3, elevationRad = Math.atan2(vel.y, Math.hypot(vel.x, vel.z)), speed = Math.hypot(vel.x, vel.y, vel.z)): ShotResult {
   const samples = simulate(req.ball, { pos: req.launchPos, vel, spin: req.spin ?? 0 }, { maxTime: 3 });
   const h = heightAtRange(samples, req.launchPos, req.target);
   const heightError = h === undefined ? -Infinity : h - req.target.y;

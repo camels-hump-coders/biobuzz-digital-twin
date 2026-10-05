@@ -30,11 +30,12 @@ pnpm build        # static site in dist/
 | Shift | boost to full speed |
 | Space | launch a ball with the current hood angle and RPM |
 | T | flip which cell of our hive is up |
+| R | rotate the robot so the launcher points at the target |
 | F | toggle field-centric driving |
 | 1 / 2 / 3 / 4 | orbit / top-down / chase / robot-camera view |
 | H | hide the side panel |
 
-Gamepad: left stick drive, right stick rotate, A launch, Y flip target, X field-centric, right trigger boost.
+Gamepad: left stick drive, right stick rotate, A launch, B aim at target, Y flip target, X field-centric, right trigger boost.
 
 ## What the HUD tells you
 
@@ -42,6 +43,7 @@ Gamepad: left stick drive, right stick rotate, A launch, Y flip target, X field-
 - **Required exit speed / RPM** for the current hood angle. With *Auto-RPM* on, the commanded RPM tracks this as you drive.
 - **Predicted HIT / MISS** for the current hood angle and RPM, with the height error at the target and the entry angle into the opening plane. The arc is drawn green (hit) or red (miss). If the launcher is not pointed at the target the arc shows what would happen once aimed.
 - **Lowest-energy** solution across the hood's adjustable range, plus a fan of all feasible arcs. *Auto-hood* sets the hood to it.
+- **Reachability map** (View & overlays): colours every 6 in square of the mat by the RPM needed to hit the target from there with the current launcher. Green is comfortable, red is near the motor limit, dark red cannot reach. Use it to pick launch spots and to see what a fixed hood angle costs you.
 - **AprilTags**: green = in frame, facing the camera and unoccluded; orange = in frame but blocked; hover for distance and apparent size in pixels.
 
 ## Cameras

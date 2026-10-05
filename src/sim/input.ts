@@ -5,6 +5,7 @@ export interface Actions {
   launch: boolean; // edge
   toggleTarget: boolean;
   toggleFieldCentric: boolean;
+  aim: boolean;
   view?: number;
   boost: boolean;
 }
@@ -44,6 +45,7 @@ export class Input {
       launch: this.edges.has("Space"),
       toggleTarget: this.edges.has("KeyT"),
       toggleFieldCentric: this.edges.has("KeyF"),
+      aim: this.edges.has("KeyR"),
       boost: k.has("ShiftLeft") || k.has("ShiftRight"),
     };
     for (let i = 1; i <= 5; i++) if (this.edges.has(`Digit${i}`)) actions.view = i;
@@ -62,6 +64,7 @@ export class Input {
       if (edge(0)) actions.launch = true; // A / cross
       if (edge(3)) actions.toggleTarget = true; // Y
       if (edge(2)) actions.toggleFieldCentric = true; // X
+      if (edge(1)) actions.aim = true; // B
       if (pressed.has(5) || pressed.has(7)) actions.boost = true;
       this.prevButtons = pressed;
     }

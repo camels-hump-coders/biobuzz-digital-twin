@@ -11,8 +11,9 @@ import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
 import { Hud, type HudData } from "./ui/hud";
 import { loadState, saveState, type AppState } from "./state";
-import { evaluateShot, scanElevations, solveSpeedForElevation, type ShotResult } from "./ballistics/solver";
+import { evaluateShot, evaluateVelocity, scanElevations, solveSpeedForElevation, type ShotResult } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
+import { computeReachability, type ReachMap } from "./ballistics/reachability";
 import { simulate, velocityFrom } from "./ballistics/projectile";
 import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
 import { clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
@@ -177,7 +178,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const bp = ballProps();
   const samples = simulate(bp, { pos: exit, vel, spin: spinRate(l) }, { maxTime: 4 });
   const frame = targetFrame();
-  const r = evaluateShot({ ball: bp, launchPos: exit, target: aimPoint(frame), frame, spin: spinRate(l) }, (l.elevationDeg * Math.PI) / 180, exitSpeed(l));
+  const r = evaluateVelocity({ ball: bp, launchPos: exit, target: aimPoint(frame), frame, spin: spinRate(l) }, vel);
   const color = state.ballKind === "pollen" ? BALL.pollen.color : state.alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color;
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(bp.diameterM / 2, 20, 14), new THREE.MeshStandardMaterial({ color, roughness: 0.45 }));
   mesh.castShadow = true;
@@ -216,6 +217,16 @@ function frame(now: number) {
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
   if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; field.setHiveState({ alliance: state.alliance, upCell: state.hive[state.alliance] }); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
+  if (actions.aim || state.aimRequest) {
+    state.aimRequest = false;
+    const ex = robot.exitPoint();
+    const tfr = targetFrame();
+    const ap = aimPoint(tfr, 0.05);
+    // heading such that the launcher (at its turret centre) points at the target
+    const mid = (state.robot.launcher.turretMinDeg + state.robot.launcher.turretMaxDeg) / 2;
+    state.pose = { ...state.pose, heading: headingToward({ x: ex.x, z: ex.z }, ap) - (mid * Math.PI) / 180 };
+    robot.setPose(state.pose);
+  }
   const dp = driveParams();
   const vel = commandToVelocity(cmd, state.pose, dp);
   const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
@@ -249,6 +260,7 @@ function frame(now: number) {
   updateFlying();
 
   // overlays
+  updateReachMap(tf);
   overlays.setTrajectory(shot, ballProps().diameterM / 2, turretOk);
   overlays.setFan(scan?.solutions ?? []);
   overlays.setTarget(tf, target);
@@ -334,4 +346,15 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 let lastTags: HudData["tags"] = [];
+let reachKey = "";
+let reachMap: ReachMap | undefined;
+function updateReachMap(frame: CellFrame) {
+  if (!state.overlays.reach) { if (reachKey) { reachKey = ""; overlays.setReachMap(undefined); } return; }
+  const l = state.robot.launcher;
+  const key = JSON.stringify([l.wheelDiameterM, l.maxRpm, l.efficiency, l.elevationDeg, l.elevationMinDeg, l.elevationMaxDeg, l.exitHeightM, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive]);
+  if (key === reachKey) return;
+  reachKey = key;
+  reachMap = computeReachability(frame, l, ballProps(), 6);
+  overlays.setReachMap(reachMap);
+}
 requestAnimationFrame(frame);

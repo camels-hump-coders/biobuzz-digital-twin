@@ -21,7 +21,9 @@ export interface AppState {
   pauseOpponents: boolean;
   view: ViewMode;
   pip: boolean;
-  overlays: { trajectory: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean };
+  /** transient: rotate to face the target on the next frame */
+  aimRequest?: boolean;
+  overlays: { trajectory: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean };
 }
 
 export function defaultState(): AppState {
@@ -42,7 +44,7 @@ export function defaultState(): AppState {
     pauseOpponents: false,
     view: "orbit",
     pip: true,
-    overlays: { trajectory: true, fan: true, footprint: true, frustum: true, target: true, aim: true },
+    overlays: { trajectory: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false },
   };
 }
 
