@@ -1,5 +1,5 @@
 /** Drivetrain kinematics and simple field bounds. Pure, unit tested. */
-import { FIELD, HIVE, m } from "../field/fieldSpec";
+import { FIELD, FLOWER, HIVE, m } from "../field/fieldSpec";
 import { clamp, wrapAngle } from "../util/units";
 
 export type Drivetrain = "mecanum" | "tank";
@@ -111,6 +111,17 @@ export function hiveFrameObstacles(): Obstacle[] {
     { xMin: hx - legHalfThick, xMax: hx + legHalfThick, zMin: -hz, zMax: hz },
   ];
 }
+/** Each FLOWER's post cage, about 5.5 in square centred on its axis against the wall. */
+export function flowerObstacles(): Obstacle[] {
+  const half = m(2.75), off = m(FLOWER.axisFromWallIn);
+  return FLOWER.positions.map((f) => {
+    let x = m(f.x), z = m(f.z);
+    switch (f.wall) { case "N": z += off; break; case "S": z -= off; break; case "E": x -= off; break; case "W": x += off; break; }
+    return { xMin: x - half, xMax: x + half, zMin: z - half, zMax: z + half };
+  });
+}
+/** Hive legs plus flowers: what a chassis can never overlap. */
+export function fieldObstacles(): Obstacle[] { return [...hiveFrameObstacles(), ...flowerObstacles()]; }
 /** @deprecated use hiveFrameObstacles */
 export function hiveFrameObstacle(): Obstacle {
   return hiveFrameObstacles()[0];

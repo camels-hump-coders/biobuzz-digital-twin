@@ -1,5 +1,5 @@
 /** Scripted alliance partner and opponent robots that patrol waypoint loops. */
-import { type Pose, type Footprint, headingToward, stepPose, type Obstacle, hiveFrameObstacles } from "./drive";
+import { type Pose, type Footprint, headingToward, stepPose, type Obstacle, fieldObstacles } from "./drive";
 import { wrapAngle } from "../util/units";
 import { m } from "../field/fieldSpec";
 
@@ -14,6 +14,10 @@ export interface ScriptedRobot {
   /** time to wait at each waypoint (simulated launching / intaking) */
   dwell: number;
   dwellLeft: number;
+  /** when set (by the match brain), drive here instead of the waypoint loop; undefined = hold position */
+  target?: { x: number; z: number };
+  /** true while the match brain controls this robot */
+  brainDriven?: boolean;
 }
 
 const IN = 0.0254;
@@ -34,6 +38,19 @@ export function defaultScriptedRobots(): ScriptedRobot[] {
 }
 
 export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = []): void {
+  if (r.brainDriven) {
+    if (!r.target) return;
+    const dx = r.target.x - r.pose.x, dz = r.target.z - r.pose.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.06) return;
+    const want = headingToward(r.pose, r.target);
+    const err = wrapAngle(want - r.pose.heading);
+    const yawRate = Math.max(-2.5, Math.min(2.5, err * 4));
+    const fwd = Math.abs(err) < 0.6 ? Math.min(r.speed, dist * 2) : 0.15;
+    const vx = -Math.sin(r.pose.heading) * fwd, vz = -Math.cos(r.pose.heading) * fwd;
+    r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, [...fieldObstacles(), ...extra]);
+    return;
+  }
   if (r.dwellLeft > 0) {
     r.dwellLeft -= dt;
     return;
@@ -51,5 +68,5 @@ export function stepScripted(r: ScriptedRobot, dt: number, extra: Obstacle[] = [
   const yawRate = Math.max(-2.5, Math.min(2.5, err * 4));
   const fwd = Math.abs(err) < 0.6 ? Math.min(r.speed, dist * 2) : 0.2;
   const vx = -Math.sin(r.pose.heading) * fwd, vz = -Math.cos(r.pose.heading) * fwd;
-  r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, [...hiveFrameObstacles(), ...extra]);
+  r.pose = stepPose(r.pose, { vx, vz, yawRate }, dt, r.footprint, [...fieldObstacles(), ...extra]);
 }

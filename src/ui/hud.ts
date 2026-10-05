@@ -35,6 +35,10 @@ export interface HudData {
   cellLoad: string;
   tips: number;
   tipping?: string;
+  carrying: string;
+  supply: string;
+  theirHive: string;
+  launchBlocked?: string;
   tags: TagVisibility[];
   cameraName: string;
   modelStatus: string;
@@ -66,8 +70,11 @@ export class Hud {
         <tr><td>As pointed now</td><td class="${cls(d.actualHit)}">${d.actualHit === undefined ? "–" : d.actualHit ? "HIT" : "MISS"}</td></tr>
         <tr><td>Hit probability</td><td class="${d.pHit === undefined ? "" : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad"}">${d.pHit === undefined ? "–" : `${(d.pHit * 100).toFixed(0)}% (95% CI ${(d.pLo! * 100).toFixed(0)}–${(d.pHi! * 100).toFixed(0)}, n=${d.mcN})`}${d.meanMissIn ? ` · misses by ${f(d.meanMissIn, 1)} in` : ""}</td></tr>
         <tr><td>Fired / hit</td><td>${d.shotsFired} / ${d.shotsHit}</td></tr>
-        <tr><td>Up cell load</td><td class="${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad}</td></tr>
-        <tr><td>Hive tips</td><td>${d.tips} (${d.tips * 20} pts)</td></tr>
+        <tr><td>Carrying</td><td class="${d.launchBlocked ? "bad" : ""}">${d.carrying}${d.launchBlocked ? " · " + d.launchBlocked : ""}</td></tr>
+        <tr><td>Our up cell</td><td class="${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad}</td></tr>
+        <tr><td>Our hive tips</td><td>${d.tips} (${d.tips * 20} pts)</td></tr>
+        <tr><td>Their hive</td><td>${d.theirHive}</td></tr>
+        <tr><td>Field supply</td><td>${d.supply}</td></tr>
       </table>
       <h2 style="margin-top:8px">AprilTags — ${d.cameraName}</h2>
       <div class="tags">${tags || '<span class="tag">no camera</span>'}</div>

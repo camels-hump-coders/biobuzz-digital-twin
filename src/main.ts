@@ -5,7 +5,7 @@ import { aimPoint, upCellFrame, type Alliance, type CellFrame, type Vec3 } from 
 import { BALL, FIELD, m } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
-import { commandToVelocity, stepPose, robotToWorld, headingToward, hiveFrameObstacles, type DriveParams, type Obstacle } from "./sim/drive";
+import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, type DriveParams, type Obstacle } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
@@ -15,7 +15,8 @@ import { evaluateShot, evaluateVelocity, scanElevations, solveSpeedForElevation,
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { computeReachability, type ReachMap } from "./ballistics/reachability";
 import { monteCarlo, perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
-import { stepBall, insideCell, type LiveBall } from "./sim/ballPhysics";
+import { stepBall, type LiveBall } from "./sim/ballPhysics";
+import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
 import { buildDetections } from "./runtime/apriltags";
@@ -102,6 +103,19 @@ const scriptedObjs = scripted.map((s) => {
   return o;
 });
 
+// ---------- match dynamics (inventories, pickup, flowers, both hives)
+const flying: LiveBall[] = [];
+const match = new Match(scene, field, flying, state.hive, () => state.tipMassG / 1000, () => state.autoTip);
+function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Agent["caps"]): Agent {
+  const carryGroup = new THREE.Group();
+  carryGroup.name = "carry";
+  group.add(carryGroup);
+  return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, intake: { x: 0, z: 0 }, lastPick: 0, carryGroup };
+}
+const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar });
+const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, s.name.toLowerCase().includes("red") ? "red" : "blue", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }));
+const allAgents = [playerAgent, ...scriptedAgents];
+
 // ---------- cameras
 const orbitCam = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
 orbitCam.position.set(3.2, 2.6, 4.2);
@@ -116,7 +130,6 @@ topCam.lookAt(0, 0, 0);
 const chaseCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
 
 // ---------- flying balls
-const flying: LiveBall[] = [];
 let shotsFired = 0, shotsHit = 0;
 
 // ---------- UI
@@ -133,7 +146,13 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices());
-  if (what === "sim") { resetHive("red"); resetHive("blue"); robot.setPose(state.pose); }
+  if (what === "sim") {
+    for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
+    playerAgent.alliance = state.alliance;
+    playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar };
+    if (state.resetMatchRequest) { state.resetMatchRequest = false; match.reset(allAgents); shotsFired = 0; shotsHit = 0; }
+    robot.setPose(state.pose);
+  }
   Object.assign(overlays.show, state.overlays);
   saveState(state);
 }
@@ -304,15 +323,12 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ, spin: spinRate(l) };
   const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
   const vel = draw.vel;
-  const bp = ballProps();
-  const color = state.ballKind === "pollen" ? BALL.pollen.color : state.alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color;
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(bp.diameterM / 2, 20, 14), new THREE.MeshStandardMaterial({ color, roughness: 0.45 }));
-  mesh.castShadow = true;
-  mesh.position.set(exit.x, exit.y, exit.z);
-  scene.add(mesh);
-  flying.push({ mesh, pos: new THREE.Vector3(exit.x, exit.y, exit.z), vel: new THREE.Vector3(vel.x, vel.y, vel.z), spin: draw.spin, radius: bp.diameterM / 2, age: 0, restFor: 0, bounces: 0, kind: state.ballKind, massKg: bp.massKg, contactN: new THREE.Vector3(0, 1, 0), contactAge: 1 });
+  const ball = match.launch(playerAgent, state.ballKind, new THREE.Vector3(exit.x, exit.y, exit.z), new THREE.Vector3(vel.x, vel.y, vel.z), draw.spin);
+  if (!ball) { launchBlockedUntil = performance.now() + 1500; return; }
+  (ball as any).owner = "player";
   shotsFired++;
 }
+let launchBlockedUntil = 0;
 
 function ballColliders(): THREE.Object3D[] {
   const list: THREE.Object3D[] = [...field.occluders];
@@ -324,19 +340,9 @@ function updateFlying(dt: number) {
   if (!flying.length) return;
   const colliders = ballColliders();
   const bp = ballProps();
-  const tf = targetFrame();
-  for (let i = flying.length - 1; i >= 0; i--) {
-    const f = flying[i];
-    if (!f.settled) {
-      stepBall(f, dt, f.kind === "nectar" ? { ...bp, diameterM: f.radius * 2, massKg: f.massKg } : bp, colliders);
-      if (f.settled && !f.counted && !tipping) {
-        f.scored = insideCell(tf, f.pos, 0.02);
-        if (f.scored) { shotsHit++; f.inCell = true; f.counted = true; }
-      }
-    } else if (!f.inCell && (f.age += dt) > 12) {
-      f.mesh.removeFromParent();
-      flying.splice(i, 1);
-    }
+  for (const f of flying) {
+    if (!f.settled) stepBall(f, dt, { ...bp, diameterM: f.radius * 2, massKg: f.massKg }, colliders);
+    if ((f as any).owner === "player" && f.counted && !(f as any).tallied) { (f as any).tallied = true; shotsHit++; }
   }
 }
 
@@ -347,7 +353,7 @@ function frame(now: number) {
   // input & drive
   const { cmd, actions } = input.poll();
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
-  if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; resetHive(state.alliance); panel.render(); }
+  if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; match.resetHive(state.alliance); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
   const dp = driveParams();
   const runtimeActive = link.running;
@@ -355,18 +361,21 @@ function frame(now: number) {
   if (runtimeActive) {
     const act = stepActuators(actuatorModel, state.hardware, link.actuators, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
     vel = act.vel;
+    playerAgent.intakeActive = Math.abs(act.intakePower) > 0.2;
     const l = state.robot.launcher;
     l.rpm = clamp(act.flywheelRpm, 0, l.maxRpm);
     if (act.hoodPos !== undefined && l.elevationMinDeg !== l.elevationMaxDeg) l.elevationDeg = l.elevationMinDeg + act.hoodPos * (l.elevationMaxDeg - l.elevationMinDeg);
     state.autoRpm = false;
     pendingFires += feederFires(state.hardware, link.takeServoTransitions());
+    void 0;
   } else {
+    playerAgent.intakeActive = true; // keyboard driving: the intake always runs
     link.takeServoTransitions();
     // keep encoders moving sensibly when the keyboard drives, so init_loop telemetry is not frozen
     stepActuators(actuatorModel, state.hardware, {}, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
   }
   const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
-  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
+  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...fieldObstacles(), ...others]);
   robot.setPose(state.pose);
 
   // aim after the collision push-out so a teleport into the frame still ends up pointed at the target
@@ -382,7 +391,7 @@ function frame(now: number) {
       const e = robot.exitPoint();
       state.pose = { ...state.pose, heading: headingToward({ x: e.x, z: e.z }, ap) - ((mid + state.robot.launcher.yawOffsetDeg) * Math.PI) / 180 };
       // the rotated footprint may now overlap a frame leg; push out and aim again
-      state.pose = stepPose(state.pose, { vx: 0, vz: 0, yawRate: 0 }, 0.001, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
+      state.pose = stepPose(state.pose, { vx: 0, vz: 0, yawRate: 0 }, 0.001, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...fieldObstacles(), ...others]);
       robot.setPose(state.pose);
     }
     void ex;
@@ -391,9 +400,21 @@ function frame(now: number) {
   // scripted robots
   if (state.opponents && !state.pauseOpponents) {
     const me: Obstacle = { xMin: state.pose.x - state.robot.widthM / 2, xMax: state.pose.x + state.robot.widthM / 2, zMin: state.pose.z - state.robot.lengthM / 2, zMax: state.pose.z + state.robot.lengthM / 2 };
-    scripted.forEach((s) => stepScripted(s, dt, [me]));
+    scripted.forEach((s, i) => {
+      s.brainDriven = state.opponentsScore;
+      const ag = scriptedAgents[i];
+      ag.pose = s.pose;
+      ag.intake = robotToWorld(s.pose, s.footprint.lengthM / 2, 0);
+      if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) { /* fired */ } } else ag.intakeActive = false;
+      stepScripted(s, dt, [me]);
+    });
   }
-  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); });
+  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
+  // our agent
+  playerAgent.pose = state.pose;
+  playerAgent.intake = robotToWorld(state.pose, state.robot.lengthM / 2, 0);
+  Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
+  match.update(dt, state.opponents ? allAgents : [playerAgent]);
 
   // shot analysis
   const tf = targetFrame();
@@ -419,7 +440,6 @@ function frame(now: number) {
   if (actions.launch && !runtimeActive) launch(exit, fireDir);
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
   updateFlying(dt);
-  updateTipping(dt);
 
   // overlays
   updateReachMap(tf);
@@ -491,9 +511,13 @@ function frame(now: number) {
     pHit: mc?.pHit, pLo: mc?.lo, pHi: mc?.hi, mcN: mc?.n, meanMissIn: mc ? mToIn(mc.meanMissM) : undefined,
     actualHit: actualShot?.hit,
     shotsFired, shotsHit,
-    cellLoad: (() => { const c = cellLoad(); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
-    tips: hiveTips,
-    tipping: tipping ? `TIPPING… ${(tipping.duration - tipping.t).toFixed(1)} s` : undefined,
+    cellLoad: (() => { const c = match.cellLoad(state.alliance); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
+    tips: match.hives[state.alliance].tips,
+    tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
+    carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
+    launchBlocked: performance.now() < launchBlockedUntil ? "nothing to launch — pick up balls" : undefined,
+    supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
+    theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""}` : ""),
@@ -515,6 +539,7 @@ function frame(now: number) {
   const showGizmos = cam !== selected?.cam;
   robot.cameraGizmos.visible = showGizmos;
   robot.launcherMarker.visible = showGizmos;
+  for (const a of allAgents) a.carryGroup.visible = showGizmos;
   renderer.render(scene, cam);
 
   // PiP: every enabled camera gets an inset (except the one filling the main view)
@@ -529,10 +554,12 @@ function frame(now: number) {
     if (p.el.clientWidth && (p.canvas.width !== p.el.clientWidth || p.canvas.height !== p.el.clientHeight)) p.renderer.setSize(p.el.clientWidth, p.el.clientHeight, false);
     robot.cameraGizmos.visible = false;
     robot.launcherMarker.visible = false;
+    for (const a of allAgents) a.carryGroup.visible = false;
     overlays.group.visible = false;
     p.renderer.render(scene, c.cam);
     overlays.group.visible = true;
     robot.launcherMarker.visible = true;
+    for (const a of allAgents) a.carryGroup.visible = true;
     p.label.textContent = `${c.mount.name} · ${c.intr.width}x${c.intr.height} · ${(c.intr.hfov * 180 / Math.PI).toFixed(0)}°x${(c.intr.vfov * 180 / Math.PI).toFixed(0)}°`;
   });
 
@@ -540,70 +567,12 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }) };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }) };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };
 let lastExit: Vec3 = { x: 0, y: 0, z: 0 };
 
-// ---------- hive tipping (our alliance's hive)
-const TIP_DEG = 30;
-let stagedNectarCount = 3; // the 3 NECTAR field staff place in the up cell at match start
-let hiveTips = 0;
-let tipping: { from: number; to: number; t: number; duration: number } | undefined;
-function cellLoad(): { pollen: number; nectar: number; massKg: number } {
-  let pollen = 0, nectar = 0, massKg = stagedNectarCount * BALL.nectarRed.massKg;
-  for (const f of flying) if (f.inCell) { if (f.kind === "pollen") pollen++; else nectar++; massKg += f.massKg; }
-  return { pollen, nectar: nectar + stagedNectarCount, massKg };
-}
-/** Called from the panel/T key: put the hive back to a chosen state with staged nectar, drop any contents. */
-function releaseCellContents() {
-  for (const f of flying) if (f.inCell) { f.inCell = false; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; }
-}
-function resetHive(alliance: Alliance) {
-  tipping = undefined;
-  releaseCellContents();
-  if (alliance === state.alliance) { stagedNectarCount = 3; field.setStagedNectar(alliance, true); }
-  field.setHiveState({ alliance, upCell: state.hive[alliance] });
-}
-function startTip() {
-  const load = cellLoad();
-  const excess = load.massKg / (state.tipMassG / 1000);
-  // a pendulum swinging over-centre against the damper: heavier load, quicker swing. ~2.6 s at the threshold, ~1 s at 2.5x.
-  const duration = clamp(2.6 / Math.sqrt(Math.max(1, excess)) , 0.9, 2.6);
-  const from = state.hive[state.alliance] === "audience" ? TIP_DEG : -TIP_DEG;
-  tipping = { from: (from * Math.PI) / 180, to: (-from * Math.PI) / 180, t: 0, duration };
-  // staged nectar become live balls so they fall out as the cell swings down
-  const bp = { diameterM: m(BALL.nectarRed.diaIn), massKg: BALL.nectarRed.massKg };
-  for (const p of field.stagedNectar(state.alliance)) {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(bp.diameterM / 2, 20, 14), new THREE.MeshStandardMaterial({ color: state.alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color, roughness: 0.45 }));
-    mesh.position.copy(p);
-    scene.add(mesh);
-    flying.push({ mesh, pos: p.clone(), vel: new THREE.Vector3(), spin: 0, radius: bp.diameterM / 2, age: 0, restFor: 0, bounces: 0, kind: "nectar", massKg: bp.massKg, contactN: new THREE.Vector3(0, 1, 0), contactAge: 1, counted: true });
-  }
-  stagedNectarCount = 0;
-  field.setStagedNectar(state.alliance, false);
-  releaseCellContents();
-  hiveTips++;
-}
-function updateTipping(dt: number) {
-  if (tipping) {
-    tipping.t += dt;
-    const k = Math.min(1, tipping.t / tipping.duration);
-    // over-centre swing: slow start, fast middle, damped stop
-    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    field.setHiveTilt(state.alliance, tipping.from + (tipping.to - tipping.from) * e);
-    if (k >= 1) {
-      tipping = undefined;
-      state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience";
-      field.setHiveState({ alliance: state.alliance, upCell: state.hive[state.alliance] }); // staged nectar stay hidden: the new up cell is empty
-      panel.render();
-      saveState(state);
-    }
-    return;
-  }
-  if (state.autoTip && cellLoad().massKg >= state.tipMassG / 1000 - 1e-6) startTip();
-}
 let lastTagsByCam: SensorPacket["tags"] = {};
 let lastYawRate = 0;
 // Sensors go out on a fixed timer, not per render frame, so gamepad presses and encoder updates reach the

@@ -25,6 +25,8 @@ export interface AppState {
   pip: boolean;
   /** transient: rotate to face the target on the next frame */
   aimRequest?: boolean;
+  /** transient: put every game piece back to match start */
+  resetMatchRequest?: boolean;
   overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean };
   noise: NoiseConfig;
   monteCarloN: number;
@@ -32,6 +34,12 @@ export interface AppState {
   /** hive tipping */
   autoTip: boolean;
   tipMassG: number;
+  /** our robot's game-piece handling */
+  capacity: number;
+  canPollen: boolean;
+  canNectar: boolean;
+  /** scripted robots collect and score (otherwise they just patrol) */
+  opponentsScore: boolean;
   runtimeEnabled: boolean;
   runtimeUrl: string;
   hardware: HardwareConfig;
@@ -61,6 +69,10 @@ export function defaultState(): AppState {
     monteCarloN: 150,
     autoTip: true,
     tipMassG: 195,
+    capacity: 4,
+    canPollen: true,
+    canNectar: true,
+    opponentsScore: true,
     runtimeEnabled: false,
     runtimeUrl: "ws://127.0.0.1:8765",
     hardware: defaultHardwareConfig(),

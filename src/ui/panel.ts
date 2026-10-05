@@ -159,6 +159,16 @@ export class Panel {
         el("button", { onclick: () => { st.pose = { x: 0.9 * (st.alliance === "red" ? -1 : 1), z: st.alliance === "red" ? 1.6 : -1.6, heading: st.alliance === "red" ? 0 : Math.PI }; change("sim"); } }, "To start wall"),
         el("button", { onclick: () => { st.aimRequest = true; change("sim"); } }, "Aim at target (R)"),
       ),
+      el("div", { class: "row full" },
+        el("button", { title: "Rotate everything attached to the chassis by 180° so the other end is forward: CAD, cameras, launcher. The robot does not move.", onclick: () => {
+          r.modelYawDeg = (((r.modelYawDeg ?? 0) + 180 + 180) % 360) - 180;
+          for (const c of r.cameras) { c.forwardM = -c.forwardM; c.leftM = -c.leftM; c.yawDeg = ((c.yawDeg + 180 + 180) % 360) - 180; }
+          const l = r.launcher; l.exitForwardM = -l.exitForwardM; l.exitLeftM = -l.exitLeftM; l.yawOffsetDeg = ((l.yawOffsetDeg + 180 + 180) % 360) - 180;
+          st.pose = { ...st.pose, heading: st.pose.heading + Math.PI };
+          change("robot");
+        } }, "Flip forward direction (180°)"),
+        el("span", { class: "note" }, "Makes the other end of the robot the forward arrow (drive code's +forward). Cameras and launcher come along, so a shooter-forward robot is one click."),
+      ),
     ));
 
     // --- Cameras
@@ -242,7 +252,14 @@ export class Panel {
       num("Tip load", () => st.tipMassG, (v) => { st.tipMassG = v; change("sim"); }, { unit: "g", min: 50, max: 600, step: 1 }),
       el("div", { class: "note" }, "Field staff calibrate each cell to tip at 8 POLLEN or 3 NECTAR + 3 POLLEN (198.6 g, so the default threshold is 195 g). The up cell starts with 3 NECTAR, so three POLLEN in tips it. A heavier load tips faster. When it tips the contents fall out and the other cell comes up, facing the other way, so you must move to keep scoring. T or the selectors above reset the hive to match start."),
       chk("Simulated other robots", () => st.opponents, (v) => { st.opponents = v; change("sim"); }),
+      chk("They collect and score", () => st.opponentsScore, (v) => { st.opponentsScore = v; change("sim"); }),
       chk("Pause other robots", () => st.pauseOpponents, (v) => { st.pauseOpponents = v; change("sim"); }),
+      el("div", { class: "sub" }, "Game pieces"),
+      num("Robot capacity", () => st.capacity, (v) => { st.capacity = Math.round(v); change("sim"); }, { min: 1, max: 8, step: 1 }),
+      chk("Can intake POLLEN", () => st.canPollen, (v) => { st.canPollen = v; change("sim"); }),
+      chk("Can intake NECTAR", () => st.canNectar, (v) => { st.canNectar = v; change("sim"); }),
+      el("div", { class: "note" }, "Match start: 4 POLLEN preloaded, 4 in each FLOWER, 4 in each GARDEN, 3 NECTAR in each raised cell, 5 NECTAR per alliance in reserve (one enters the LOADING ZONE after each tip). Drive the intake end onto a ball or up to a FLOWER's retrieval opening to pick up; you can only launch what you carry. Keyboard driving always runs the intake; under TeamCode the intake motor must be powered."),
+      el("div", { class: "row full" }, el("button", { class: "primary", onclick: () => { st.resetMatchRequest = true; change("sim"); } }, "Reset match to start")),
     ));
 
     // --- View / overlays

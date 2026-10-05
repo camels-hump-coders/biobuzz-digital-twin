@@ -96,12 +96,13 @@ export function cellFrames(state: HiveState): CellFrame[] {
     const h = m(HIVE.openingHeightIn);
     const openingCenter = add(floorCenterAtOpening, scale(up, h / 2));
     const poly = openingProfile().map((p) => add(floorCenterAtOpening, add(scale(right, p.r), scale(up, p.u))));
-    // tags: 4 across the underside, bottom edge toward field centre (toward pivot), facing -up
+    // tags: 4 across the underside at the Fig 9-15 offsets, bottom edge toward field centre (toward pivot), facing -up.
+    // The id arrays list tags from -X to +X as seen in the manual's top view, so lay them out along world +X.
     const ids = tagIdsFor(state.alliance, side);
-    const pitch = m(HIVE.openingWidthIn) / 4;
+    const xdir = right.x >= 0 ? right : scale(right, -1);
+    const clusterCenter = add(floorCenterAtOpening, scale(along, -m(APRILTAG.fromOpeningIn)));
     const tags = ids.map((id, i) => {
-      const r = (i - 1.5) * pitch;
-      const center = add(floorCenter, add(scale(right, r), scale(up, -0.004)));
+      const center = add(clusterCenter, add(scale(xdir, m(APRILTAG.offsetsIn[i])), scale(up, -0.004)));
       // viewed from below, the tag "up" direction points away from field centre (bottom edge toward centre)
       return { id, center, normal: scale(up, -1), right: scale(right, -1), up: along };
     });

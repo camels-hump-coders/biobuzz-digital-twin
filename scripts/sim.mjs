@@ -33,12 +33,35 @@ const openBrowser = !has("--no-browser");
 function resolveTeam(p) {
   if (!p) return undefined;
   const abs = resolve(p.replace(/^~(?=$|\/)/, homedir()));
-  for (const cand of [abs, join(abs, "src/main/java"), join(abs, "TeamCode/src/main/java")]) {
-    if (existsSync(cand) && existsSync(join(cand, "org"))) return cand;
+  // Prefer the TeamCode module. The FtcRobotController module next to it holds the Android app's own
+  // sources (activities, Blocks, OnBot Java) which can never compile on the desktop.
+  const candidates = [
+    join(abs, "TeamCode/src/main/java"),
+    join(abs, "../TeamCode/src/main/java"),
+    join(abs, "src/main/java"),
+    abs,
+  ];
+  for (const cand of candidates) {
+    const r = resolve(cand);
+    if (existsSync(r) && existsSync(join(r, "org"))) {
+      if (/[\/\\]FtcRobotController[\/\\]src[\/\\]main[\/\\]java$/.test(r)) {
+        console.error(`sim: ${r} is the FtcRobotController app module, not TeamCode, and no TeamCode module was found next to it.`);
+        console.error("sim: point --team at your project root or at TeamCode/src/main/java.");
+        process.exit(1);
+      }
+      return r;
+    }
   }
   if (existsSync(abs)) return abs;
   console.error(`sim: TeamCode path not found: ${p}`);
   process.exit(1);
+}
+
+// Fresh clone? Install JS dependencies first.
+if (!existsSync(join(root, "node_modules"))) {
+  console.log("sim: installing JS dependencies (first run)…");
+  const r = spawnSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["install"], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
+  if (r.status !== 0) { console.error("sim: pnpm install failed"); process.exit(1); }
 }
 team = resolveTeam(team);
 writeFileSync(cfgPath, JSON.stringify({ team, exclude }, null, 2) + "\n");
@@ -83,8 +106,21 @@ const children = [];
 const prefix = (name, color) => (chunk) => { for (const line of chunk.toString().split(/\r?\n/)) if (line.trim()) process.stdout.write(`\x1b[${color}m[${name}]\x1b[0m ${line}\n`); };
 
 const host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}) }, shell: isWin });
-host.stdout.on("data", prefix("host", "33"));
-host.stderr.on("data", prefix("host", "33"));
+const errFiles = new Set();
+const hostOut = (chunk) => {
+  prefix("host", "33")(chunk);
+  for (const m of chunk.toString().matchAll(/^(\S+\.java):\d+: error:/gm)) errFiles.add(m[1]);
+  if (/BUILD FAILED|Compilation failed/.test(chunk.toString()) && errFiles.size) {
+    const rels = [...errFiles].map((f) => (team ? f.replace(team + "/", "") : f));
+    console.log(`\x1b[33m[host]\x1b[0m ${rels.length} file(s) use SDK classes the shim does not have:`);
+    for (const f of rels) console.log(`\x1b[33m[host]\x1b[0m   ${f}`);
+    console.log(`\x1b[33m[host]\x1b[0m Either add those classes to runtime/sdk-shim or skip the files:`);
+    console.log(`\x1b[33m[host]\x1b[0m   pnpm sim --exclude "${rels.map((f) => "**/" + f.split("/").pop()).join(",")}"`);
+    errFiles.clear();
+  }
+};
+host.stdout.on("data", hostOut);
+host.stderr.on("data", hostOut);
 children.push(host);
 
 const viteArgs = ["exec", "vite", "--port", port, "--strictPort"];

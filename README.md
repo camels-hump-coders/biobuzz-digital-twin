@@ -47,7 +47,7 @@ pnpm build        # static site in dist/
 | Q / E or ← / → | rotate |
 | Shift | boost to full speed |
 | Space | launch a ball with the current hood angle and RPM |
-| T | flip which cell of our hive is up |
+| T | flip which cell of our hive is up (resets that hive) |
 | R | rotate the robot so the launcher points at the target |
 | F | toggle field-centric driving |
 | 1 / 2 / 3 / 4 | orbit / top-down / chase / robot-camera view |
@@ -62,7 +62,9 @@ Gamepad: left stick drive, right stick rotate, A launch, B aim at target, Y flip
 - **Required exit speed / RPM** for the current hood angle. With *Auto-RPM* on, the commanded RPM tracks this as you drive.
 - **Two arcs**: green/red is the arc *if the robot were aimed* at the target with the current hood angle and RPM; orange is the arc along the direction the launcher *actually points right now*. They coincide once you press R or turn to face the target. Either can be switched off in View & overlays.
 - **Shot variability**: every fired ball draws random exit speed, elevation, yaw and spin errors (1-sigma values in the Launcher panel, defaults 3 %, 1°, 1°, 20 %). The HUD **hit probability** re-simulates 150 perturbed shots from the current pose and shows the hit fraction with a 95 % confidence interval and the mean miss distance; the dot cloud on the opening plane shows where each lands (green hit, red miss).
-- **Hive tipping.** Balls that come to rest in the up cell count toward its load, shown in the HUD with the 3 NECTAR field staff stage there. Field staff calibrate cells to tip at 8 POLLEN or 3 NECTAR + 3 POLLEN, 198.6 g, so with the default 195 g threshold three POLLEN in tips it. The hive then swings over, faster the heavier the load (about 2.6 s at the threshold, under 1 s when well over), everything in the cell falls out, and the other cell comes up facing the other side of the field, so you have to reposition to keep scoring. Tips and points are tallied in the HUD. Pressing T or choosing a cell in the Field panel resets the hive to match start. The threshold and the auto-tip toggle live in the Field panel.
+- **Match pieces.** The field starts as at competition: 4 POLLEN preloaded on the robot, 4 in each FLOWER, 4 in each GARDEN, 3 NECTAR in each raised cell, 5 NECTAR per alliance in reserve. You can only launch what you carry (capacity 4 by default, POLLEN/NECTAR handling configurable in the Field panel). Drive the intake end over a loose ball, or up to a FLOWER's retrieval opening, to pick up; under TeamCode the intake motor must be powered. After every tip one reserve NECTAR appears in that alliance's LOADING ZONE. The HUD shows what you carry, FLOWER stocks and the NECTAR reserve. *Reset match to start* puts everything back.
+- **Other robots score.** With *They collect and score* on, the partner and the two opponents run a loop: collect from FLOWERS or loose balls, drive to a launch spot in front of their raised cell, aim, fire with a noisy but calibrated shot, repeat. Both hives count loads and tip, so ball availability and the cell you are aiming at change under you. They are also obstacles and occluders.
+- **Hive tipping.** Balls that come to rest in the up cell count toward its load, shown in the HUD with the 3 NECTAR field staff stage there. Field staff calibrate cells to tip at 8 POLLEN or 3 NECTAR + 3 POLLEN, 198.6 g, so with the default 195 g threshold three POLLEN in tips it. The hive then swings over, faster the heavier the load (about 2.6 s at the threshold, under 1 s when well over), the balls ride the swinging cell and roll out as its floor steepens, and the other cell comes up facing the other side of the field, so you have to reposition to keep scoring. Tips and points are tallied in the HUD. Pressing T or choosing a cell in the Field panel resets the hive to match start. The threshold and the auto-tip toggle live in the Field panel.
 - **Predicted HIT / MISS** for the current hood angle and RPM, with the height error at the target and the entry angle into the opening plane. The arc is drawn green (hit) or red (miss). If the launcher is not pointed at the target the arc shows what would happen once aimed.
 - **Lowest-energy** solution across the hood's adjustable range, plus a fan of all feasible arcs. *Auto-hood* sets the hood to it.
 - **Reachability map** (View & overlays): colours every 6 in square of the mat by the RPM needed to hit the target from there with the current launcher. Green is comfortable, red is near the motor limit, dark red cannot reach. Use it to pick launch spots and to see what a fixed hood angle costs you.
@@ -71,6 +73,8 @@ Gamepad: left stick drive, right stick rotate, A launch, B aim at target, Y flip
 ## Cameras
 
 **Placing cameras**: in orbit view drag a camera's green body across the robot to move it; hold Alt while dragging to raise or lower it. Use the *+ Rear camera*, *+ Left*, *+ Right* buttons for quick extra mounts (rear is yaw 180°, 7 in behind centre), then fine-tune the numbers. The inset always shows the selected camera, so a rear camera's view is one click away.
+
+*Flip forward direction (180°)* in the Robot panel makes the other end of the robot the forward arrow, moving the CAD, cameras and launcher with it, for teams that treat the shooter side as forward.
 
 Pre-seeded FTC-legal UVC webcams with their published fields of view (Logitech C270/C920/C930e/Brio, Microsoft LifeCam HD-3000, Arducam OV9281/OV9782 global shutter lenses, Limelight 3A). Add as many mounts as you like; each has height, forward/left offset, pitch, yaw, roll and a FOV/resolution override. Every enabled camera gets its own inset in the bottom-left (click an inset to select that camera); press 4 to put the selected one full screen. FTC allows at most two cameras on a robot, so the add buttons stop at two.
 
@@ -103,9 +107,9 @@ If a GLB is missing the app falls back to a procedural box with the same footpri
 ## Known simplifications
 
 - The *predicted* HIT/MISS and the hit probability are geometric: the arc must cross the opening plane inside the pentagon (shrunk by the ball radius plus the 12 mm lip tube) while moving into the cell. *Fired* balls are simulated live with drag, gravity and bounces off the hive cells, frame, flowers, walls, robots and floor (restitution about 0.45, foam floor 0.5), and a shot only counts as a hit in the Fired / hit tally when the ball comes to rest inside the target cell (low-speed contacts are treated as resting, so balls settle on the sloped floor). Tipping is a timed swing driven by the load, not a rigid-body simulation of the bi-stable hive.
-- AprilTags are labelled placeholders at the correct size and pose, not real 36h11 codes.
+- AprilTags are real tag36h11 codes (IDs 30–45) at the manual's cluster geometry (centres at ±2.75 and ±6.5 in, 7.19 in behind the opening), so a vision pipeline looking at the camera inset sees genuine tags. The runtime still hands detections to TeamCode synthetically rather than decoding pixels.
 - Other robots follow fixed waypoint loops and do not score or avoid each other.
-- Driving: only the two triangular frame legs block the robot; the space under the cells between the legs is open, as on the real field.
+- Driving: the two triangular frame legs and the four FLOWER cages block the robot; the space under the cells between the legs is open, as on the real field.
 - Camera images are ideal pinhole renders: no lens distortion, exposure or motion blur.
 
 ## Coordinate system

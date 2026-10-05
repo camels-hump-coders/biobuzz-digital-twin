@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { APRILTAG, BALL, FIELD, FLOWER, HIVE, ZONES, m } from "./fieldSpec";
 import { type Alliance, type CellSide, type HiveState, cellFrames, hivePivot, hiveTiltAngle, openingProfile } from "./hive";
+import { tag36h11Cells } from "./tag36h11";
 
 const RED = 0xd42a2a, BLUE = 0x2a5bd4;
 
@@ -18,6 +19,14 @@ export interface FieldObjects {
   setStagedNectar(alliance: Alliance, visible: boolean): void;
   /** animate the pivot to an arbitrary tilt angle (radians, +audience up) without changing state */
   setHiveTilt(alliance: Alliance, tiltRad: number): void;
+  /** POLLEN meshes stacked in each FLOWER (index matches FLOWER.positions), bottom first */
+  flowerPollen: THREE.Mesh[][];
+  /** POLLEN meshes staged in the two GARDENS; the match converts them to live balls */
+  gardenPollen: THREE.Mesh[];
+  /** world position of a FLOWER's axis on the floor */
+  flowerAxis(i: number): THREE.Vector3;
+  /** restore the 4 POLLEN in every FLOWER */
+  restockFlowers(): void;
 }
 
 export interface HiveObject {
@@ -55,27 +64,30 @@ function tileTexture(): THREE.Texture {
   return t;
 }
 
+/** Real tag36h11 image: 8x8 cells (black border + 6x6 data) inside a 1-cell white quiet zone = 10x10 cells. */
+export const TAG_CELLS_TOTAL = 10;
 function tagTexture(id: number): THREE.CanvasTexture {
+  const px = 40; // pixels per cell
   const c = document.createElement("canvas");
-  c.width = c.height = 256;
+  c.width = c.height = px * TAG_CELLS_TOTAL;
   const g = c.getContext("2d")!;
   g.fillStyle = "#fff";
-  g.fillRect(0, 0, 256, 256);
-  g.fillStyle = "#000";
-  g.fillRect(24, 24, 208, 208);
-  // pseudo-random 6x6 payload seeded by id (placeholder, not a real 36h11 code)
-  let s = id * 2654435761 >>> 0;
-  const cell = 208 / 8;
-  for (let y = 1; y < 7; y++) for (let x = 1; x < 7; x++) {
-    s = (s * 1103515245 + 12345) >>> 0;
-    if ((s >>> 16) & 1) { g.fillStyle = "#fff"; g.fillRect(24 + x * cell, 24 + y * cell, cell, cell); }
+  g.fillRect(0, 0, c.width, c.height);
+  const cells = tag36h11Cells(id);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    g.fillStyle = cells[y][x] ? "#fff" : "#000";
+    g.fillRect((x + 1) * px, (y + 1) * px, px, px);
   }
+  // tiny id label in the quiet zone below, like the sticker
   g.fillStyle = "#000";
-  g.font = "bold 28px sans-serif";
+  g.font = `${px * 0.6}px sans-serif`;
   g.textAlign = "center";
-  g.fillText(String(id), 128, 20);
+  g.fillText(`ID:${id}`, c.width / 2, c.height - px * 0.25);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.anisotropy = 8;
   return t;
 }
 
@@ -150,7 +162,9 @@ function buildHive(state: HiveState): { pivotGroup: THREE.Group; tags: THREE.Mes
     // tags on underside of the floor
     for (const t of f.tags) {
       const tex = tagTexture(t.id);
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(m(APRILTAG.sizeIn), m(APRILTAG.sizeIn)), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+      // the 3.25 in tag size is the black square; the plane includes the white quiet zone (10/8 of that)
+      const planeSize = m(APRILTAG.sizeIn) * (TAG_CELLS_TOTAL / 8);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(planeSize, planeSize), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
       const lp = new THREE.Vector3(t.center.x - p.x, t.center.y - p.y, t.center.z - p.z).applyQuaternion(unrot);
       mesh.position.copy(lp);
       // orient: plane normal (+Z of PlaneGeometry) -> t.normal, plane +Y -> t.up, all in untilted frame
@@ -337,6 +351,8 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
   const stagedVisible: Record<Alliance, boolean> = { red: true, blue: true };
 
   // flowers
+  const flowerPollen: THREE.Mesh[][] = [];
+  const flowerAxes: THREE.Vector3[] = [];
   for (const f of FLOWER.positions) {
     const fl = buildFlower();
     const off = m(FLOWER.axisFromWallIn);
@@ -352,24 +368,45 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
     fl.rotation.y = rotY;
     group.add(fl);
     occluders.push(fl);
+    flowerAxes.push(new THREE.Vector3(px, 0, pz));
     // 4 pollen stacked inside
+    const stack: THREE.Mesh[] = [];
     for (let i = 0; i < 4; i++) {
       const b = ball("pollen");
       const zig = (i % 2 === 0 ? -1 : 1) * 0.008;
       b.position.set(px + zig, m(FLOWER.bottomRingThickIn) + m(BALL.pollen.diaIn) * (0.5 + i * 0.92), pz);
       group.add(b);
+      stack.push(b);
     }
+    flowerPollen.push(stack);
+  }
+  function restockFlowers() {
+    flowerPollen.forEach((stack, fi) => {
+      stack.forEach((b) => b.removeFromParent());
+      stack.length = 0;
+      const ax = flowerAxes[fi];
+      for (let i = 0; i < 4; i++) {
+        const b = ball("pollen");
+        const zig = (i % 2 === 0 ? -1 : 1) * 0.008;
+        b.position.set(ax.x + zig, m(FLOWER.bottomRingThickIn) + m(BALL.pollen.diaIn) * (0.5 + i * 0.92), ax.z);
+        group.add(b);
+        stack.push(b);
+      }
+    });
   }
 
-  // garden pollen lines
+  // garden pollen lines (static until the match converts them into live balls)
   const r = m(BALL.pollen.diaIn) / 2;
+  const gardenPollen: THREE.Mesh[] = [];
   for (let i = 0; i < 4; i++) {
     const bRed = ball("pollen");
     bRed.position.set(-size / 2 + r + i * 2 * r, r, size / 2 - r);
     group.add(bRed);
+    gardenPollen.push(bRed);
     const bBlue = ball("pollen");
     bBlue.position.set(size / 2 - r - i * 2 * r, r, -size / 2 + r);
     group.add(bBlue);
+    gardenPollen.push(bBlue);
   }
 
   function placeNectar() {
@@ -413,5 +450,5 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
   }
   function setStagedNectar(alliance: Alliance, visible: boolean) { stagedVisible[alliance] = visible; placeNectar(); }
   function setHiveTilt(alliance: Alliance, tiltRad: number) { hives[alliance].pivotGroup.rotation.x = -tiltRad; }
-  return { group, hives, occluders, tagMeshes, setHiveState, stagedNectar, setStagedNectar, setHiveTilt };
+  return { group, hives, occluders, tagMeshes, setHiveState, stagedNectar, setStagedNectar, setHiveTilt, flowerPollen, gardenPollen, flowerAxis: (i: number) => flowerAxes[i].clone(), restockFlowers };
 }

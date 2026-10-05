@@ -79,6 +79,10 @@ export const ZONES = {
 
 export const APRILTAG = {
   sizeIn: 3.25,
+  /** tag centre offsets across the cell from the cluster centre (Fig 9-15) */
+  offsetsIn: [-6.5, -2.75, 2.75, 6.5],
+  /** cluster centre distance behind the cell opening: reference holes 9.938 in from the front, tags 2.75 in forward of them */
+  fromOpeningIn: 9.938 - 2.75,
   /** IDs left-to-right when viewed from above with the audience at the bottom. */
   clusters: {
     redScoring: [33, 32, 31, 30],

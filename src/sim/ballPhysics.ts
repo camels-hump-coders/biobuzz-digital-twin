@@ -17,7 +17,11 @@ export interface LiveBall {
   scored?: boolean;
   bounces: number;
   kind: "pollen" | "nectar";
+  /** nectar colour / owner; undefined for pollen */
+  alliance?: "red" | "blue";
   massKg: number;
+  /** set while a tipping hive is carrying this ball: disables settling for the frame */
+  carried?: boolean;
   /** counted into a cell's load */
   inCell?: boolean;
   /** a ball scores at most once; after a tip releases it, it is just field debris */
@@ -45,6 +49,7 @@ const tmpD = new THREE.Vector3();
 export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: THREE.Object3D[]): void {
   if (b.settled) return;
   b.age += dt;
+  const carried = b.carried; b.carried = false;
   // integrate in substeps for accuracy (same acceleration model as the predictor), collide once per frame
   const start = b.pos.clone();
   const n = Math.max(1, Math.ceil(dt / 0.002));
@@ -124,7 +129,8 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
   const recent = (b.contacts ?? []).filter((c) => b.age - c.at < 0.2);
   const wedged = recent.some((c1) => recent.some((c2) => c1.n.dot(c2.n) < 0.7));
   if ((moved < 0.15 && b.vel.lengthSq() < 0.8 * 0.8) || (wedged && b.vel.lengthSq() < 1.0)) b.restFor += dt * (wedged ? 3 : 1); else b.restFor = 0;
-  if (b.restFor > 0.4 || b.age > 8) { b.settled = true; b.vel.set(0, 0, 0); }
+  if (carried) b.restFor = 0;
+  if (b.restFor > 0.4 || (b.age > 8 && !carried)) { b.settled = true; b.vel.set(0, 0, 0); }
   b.mesh.position.copy(b.pos);
 }
 

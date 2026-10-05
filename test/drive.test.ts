@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commandToVelocity, forwardVector, headingToward, maxLinearSpeed, stepPose, type DriveParams } from "../src/sim/drive";
+import { commandToVelocity, forwardVector, headingToward, maxLinearSpeed, stepPose, flowerObstacles, type DriveParams } from "../src/sim/drive";
 import { m } from "../src/field/fieldSpec";
 
 const p: DriveParams = { drivetrain: "mecanum", wheelRpm: 312, wheelDiameterM: 0.104, trackWidthM: 0.33, wheelbaseM: 0.3, fieldCentric: false };
@@ -35,6 +35,12 @@ describe("drive", () => {
     let pose = { x: -1.2, z: 0, heading: 0 };
     for (let i = 0; i < 60; i++) pose = stepPose(pose, { vx: 1.5, vz: 0, yawRate: 0 }, 0.02, { lengthM: m(18), widthM: m(18) });
     expect(pose.x).toBeLessThanOrEqual(-m(49.46 / 2) - 0.03 - m(9) + 1e-9);
+  });
+  it("cannot drive through a flower cage", () => {
+    // west-wall flower at z = +24 in, axis 3.6 in off the wall
+    let pose = { x: -1.2, z: m(24), heading: Math.PI / 2 };
+    for (let i = 0; i < 60; i++) pose = stepPose(pose, { vx: -1.5, vz: 0, yawRate: 0 }, 0.02, { lengthM: m(18), widthM: m(18) }, flowerObstacles());
+    expect(pose.x).toBeGreaterThan(m(-72 + 3.6 + 2.75 + 9) - 1e-9);
   });
   it("headingToward points forward at the target", () => {
     const h = headingToward({ x: 0, z: 0 }, { x: -1, z: 0 });

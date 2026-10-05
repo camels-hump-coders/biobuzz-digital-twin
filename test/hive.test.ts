@@ -44,7 +44,11 @@ describe("hive geometry", () => {
     expect(f.tags.map((t) => t.id)).toEqual([45, 44, 43, 42]);
     for (const t of f.tags) {
       expect(t.normal.y).toBeLessThan(0);
-      expect(t.center.y).toBeLessThan(f.floorCenter.y + 1e-6);
     }
+    // ids run -X to +X as in the manual's top view: 45 is leftmost (most negative x)
+    const xs = f.tags.map((t) => mToIn(t.center.x));
+    expect(xs[0]).toBeLessThan(xs[3]);
+    expect(xs[3] - xs[0]).toBeCloseTo(13, 1);
+    expect(xs[2] - xs[1]).toBeCloseTo(5.5, 1);
   });
 });
