@@ -67,7 +67,7 @@ export function defaultState(): AppState {
     robotPresetId: "starterbotMecanum",
     robot,
     pose: { x: -1.2, z: 1.5, heading: 0 },
-    alliance: "red",
+    alliance: "blue",
     hive: { red: "audience", blue: "scoring" },
     selectedCameraId: robot.cameras[0].id,
     ballKind: "pollen",
