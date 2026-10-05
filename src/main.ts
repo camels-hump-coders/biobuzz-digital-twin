@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { camelsHumpHardwareConfig } from "./runtime/hardwareConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
 import { aimPoint, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
@@ -232,6 +233,20 @@ function syncRuntime() {
 let hardwareSent = false;
 link.onMissingDevice = (name, requested) => {
   if (state.hardware.devices.some((d) => d.name === name)) return;
+  // the code uses the Camels Hump tank bot's names while the map is another preset (e.g. after a session reset):
+  // switch to that preset wholesale, since names, ports, drive polarity and the tank drivetrain go together
+  const ch = camelsHumpHardwareConfig();
+  const chDrive = ["Left Drive", "Right Drive"];
+  if (chDrive.includes(name) && !state.hardware.devices.some((d) => chDrive.includes(d.name))) {
+    state.hardware = ch;
+    if (state.robot.drivetrain !== "tank") state.robot.drivetrain = "tank";
+    link.notes.push(`Your code asked for "${name}": loaded the Camels Hump tank bot hardware preset (names, ports, right side mirrored) and set the drivetrain to tank.`);
+    if (link.notes.length > 6) link.notes.shift();
+    link.sendHardware(hardwareDevices(), hardwareHints());
+    saveState(state);
+    panel.render();
+    return;
+  }
   const dev = inferDevice(name, requested, state.hardware.devices);
   state.hardware.devices.push(dev);
   link.notes.push(`Added "${name}" as ${dev.kind}${dev.role ? ` (role ${dev.role})` : ""}${dev.port !== undefined ? `, port ${dev.port}` : ""} because your code asked for it. Check its role and port in the Hardware map panel.`);
