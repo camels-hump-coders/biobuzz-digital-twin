@@ -11,6 +11,21 @@ Use it to:
 Field geometry comes from the Competition Manual (TU02, Section 9) and the Event Field Setup Guide v1.0.
 See `docs/superpowers/specs/2026-10-04-biobuzz-digital-twin-design.md` for the numbers used and the design.
 
+**Try it in the browser:** the twin is a static web app, published to GitHub Pages from `main` at
+<https://camels-hump-coders.github.io/biobuzz-digital-twin/> (see [Hosting](#hosting-github-pages)). Driving, cameras, launcher
+analysis and the match simulation all run in the page; only running your Java TeamCode needs the local host below.
+
+## Gallery
+
+| | |
+|---|---|
+| ![Overview: predicted arc, dispersion cloud and hit probability for the raised cell](docs/screenshots/overview.png) | ![What the robot's webcam sees: AprilTags under the raised cell](docs/screenshots/camera-view.png) |
+| **Shot analysis.** Hood angle, exit speed and flywheel RPM to reach the raised CELL from where the robot stands, the Monte-Carlo dispersion cloud and the hit probability; partner and opponents on the field. | **Robot camera.** Press 4 to see exactly what the configured webcam sees (preset lens, mount position, pitch); the HUD lists which AprilTags are in frame and which are occluded. |
+| ![Top view with camera footprints and the planned trajectory](docs/screenshots/top-view.png) | ![Red hive mid-tip after eight POLLEN, balls rolling out](docs/screenshots/hive-tipping.png) |
+| **Top view.** Camera ground footprint, FOV frustum, the launch line and the start/loading zones; shift-click anywhere to teleport and auto-aim. | **Hive physics.** Balls fly, bounce and settle in the cell; the hive tips at the calibrated load and pours the pieces out as it swings. |
+| ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and telemetry](docs/screenshots/runtime-teamcode.png) | ![Browser editor for the TeamCode JSON assets](docs/screenshots/teamcode-settings.png) |
+| **Virtual runtime.** The team's unmodified Java OpMode (here: tag-based auto aim) running on a desktop JVM, driving the simulated robot from the browser with INIT / START / STOP and live telemetry. | **TeamCode settings.** The OpModes' JSON assets as a searchable form; edits are simulator-only overrides merged at INIT, the repo files stay untouched. |
+
 ## Run your TeamCode against the twin (virtual runtime)
 
 Coders can test OpModes without touching the robot. `runtime/` is a desktop JVM host with an FTC SDK shim: your unmodified Java OpModes compile against it and run with INIT / START / STOP from the browser, reading encoders, IMU, AprilTag detections and gamepads from the sim and driving the simulated robot with their motor and servo commands.
@@ -111,6 +126,12 @@ scripts/optimize-glb.sh starterbot-mecanum.glb public/models/starterbot-mecanum.
 The raw tessellation is about 185 MB with 8 million triangles; the optimise step welds, simplifies to about 320 k triangles and Draco-compresses it to roughly 600 KB, which is what is committed in `public/models/`. Use the *CAD yaw* field in the Robot panel if the model's front does not match the robot's forward arrow.
 
 If a GLB is missing the app falls back to a procedural box with the same footprint and says so in the HUD.
+
+## Hosting (GitHub Pages)
+
+The browser part needs no server: `pnpm build` produces a static site in `dist/`, and `.github/workflows/pages.yml` builds and deploys it to GitHub Pages on every push to `main` (one-time setup: repository **Settings → Pages → Source: GitHub Actions**). `BASE_PATH` sets the sub-path the site is served from, so the same build works at `https://<org>.github.io/<repo>/` or at a root domain.
+
+What works on the hosted page: everything except running Java TeamCode. The virtual runtime needs the JVM host on your own machine; start it with `pnpm sim --team <path>` and the hosted page can still connect to it, because browsers treat `ws://127.0.0.1` as a trusted origin even from an https page (Chrome and Firefox do; Safari may block it, in which case use the local dev server that `pnpm sim` opens).
 
 ## Known simplifications
 
