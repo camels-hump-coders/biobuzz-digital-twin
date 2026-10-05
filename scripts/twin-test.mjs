@@ -98,7 +98,10 @@ const simStart = await page.evaluate(() => window.__twin.match.now());
 const inputs = [...(scenario.inputs ?? [])].sort((a, b) => a.t - b.t);
 const samples = [];
 let nextSample = 0, idx = 0;
+const wallLimit = Date.now() + (60 + duration * 12) * 1000; // simulated time can run slowly headless, but never hang
 for (;;) {
+  if (pageErrors.length) { console.error(`twin-test: the twin threw in the browser: ${pageErrors[0]}`); break; }
+  if (Date.now() > wallLimit) { console.error("twin-test: simulated time stopped advancing (frame loop stalled?)"); break; }
   const now = (await page.evaluate(() => window.__twin.match.now())) - simStart;
   while (idx < inputs.length && inputs[idx].t <= now) { const inp = inputs[idx++]; await page.evaluate(({ pad, set }) => window.__twin.input.inject(pad ?? 1, set), inp); }
   if (now >= nextSample) { samples.push({ t: +now.toFixed(2), ...(await snapshot(true)) }); nextSample += sampleEvery; }
