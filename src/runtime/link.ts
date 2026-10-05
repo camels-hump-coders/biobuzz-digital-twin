@@ -84,7 +84,7 @@ export class RuntimeLink {
     }
   }
   private send(o: unknown) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }
-  sendHardware(devices: unknown[]) { this.send({ type: "hardware", devices }); }
+  sendHardware(devices: unknown[], hints?: unknown) { this.send({ type: "hardware", devices, hints }); }
   sendSensors(p: SensorPacket) { const now = performance.now(); if (now - this.lastSend < 15) return; this.lastSend = now; this.send(p); }
   init(opMode: string) { this.send({ type: "init", opMode }); }
   start() { this.send({ type: "start" }); }

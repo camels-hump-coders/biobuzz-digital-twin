@@ -10,7 +10,7 @@ public final class Devices {
     private Devices() {}
 
     public static class SimMotor implements DcMotorEx {
-        final String name; final SimState st; final double ticksPerRev; final int port;
+        final String name; final SimState st; double ticksPerRev; int port;
         Direction dir = Direction.FORWARD; RunMode mode = RunMode.RUN_WITHOUT_ENCODER; ZeroPowerBehavior zpb = ZeroPowerBehavior.BRAKE;
         double power = 0, targetVel = 0; int targetPos = 0; int tolerance = 5; boolean enabled = true; double encoderOffset = 0;
         public SimMotor(String name, SimState st, double ticksPerRev, int port) { this.name = name; this.st = st; this.ticksPerRev = ticksPerRev; this.port = port; push(); }
@@ -54,7 +54,7 @@ public final class Devices {
     }
 
     public static class SimServo implements ServoImplEx {
-        final String name; final SimState st; final int port; Direction dir = Direction.FORWARD; double pos = 0.5, min = 0, max = 1;
+        final String name; final SimState st; int port; Direction dir = Direction.FORWARD; double pos = 0.5, min = 0, max = 1;
         public SimServo(String name, SimState st, int port) { this.name = name; this.st = st; this.port = port; push(); }
         @Override public int getPortNumber() { return port; }
         @Override public ServoController getController() { return ServoController.SIM_HUB; }
@@ -69,7 +69,7 @@ public final class Devices {
     }
 
     public static class SimCRServo implements CRServo {
-        final String name; final SimState st; final int port; Direction dir = Direction.FORWARD; double power = 0;
+        final String name; final SimState st; int port; Direction dir = Direction.FORWARD; double power = 0;
         public SimCRServo(String name, SimState st, int port) { this.name = name; this.st = st; this.port = port; push(); }
         @Override public int getPortNumber() { return port; }
         @Override public ServoController getController() { return ServoController.SIM_HUB; }

@@ -19,6 +19,8 @@ public class SimLink extends WebSocketServer {
     private final List<OpModeScanner.Entry> opModes;
     private volatile HardwareMap hardwareMap = new HardwareMap();
     private volatile String hardwareJson = "";
+    /** name -> {kind, port, ticksPerRev} for devices the browser knows from its presets */
+    private volatile JsonObject hints = new JsonObject();
     private final Set<WebSocket> clients = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "sim-link"); t.setDaemon(true); return t; });
     private volatile List<String> lastTelemetry = Collections.emptyList();
@@ -32,7 +34,10 @@ public class SimLink extends WebSocketServer {
         SimHooks.setMissingDeviceListener((name, type) -> {
             JsonObject m = new JsonObject(); m.addProperty("type", "missingDevice"); m.addProperty("name", name); m.addProperty("requested", type); broadcastJson(m);
             int hubPort = (int) hardwareMap.getAll(com.qualcomm.robotcore.hardware.HardwareDevice.class).stream().filter(d -> sameKind(d, type)).count();
-            if (type.matches(".*(DcMotor|DcMotorEx|DcMotorSimple).*")) return new Devices.SimMotor(name, state, 537.7, hubPort);
+            double tpr = 537.7;
+            JsonObject hint = hints.has(name) ? hints.getAsJsonObject(name) : null;
+            if (hint != null) { if (hint.has("port")) hubPort = hint.get("port").getAsInt(); if (hint.has("ticksPerRev")) tpr = hint.get("ticksPerRev").getAsDouble(); }
+            if (type.matches(".*(DcMotor|DcMotorEx|DcMotorSimple).*")) return new Devices.SimMotor(name, state, tpr, hubPort);
             if (type.contains("CRServo")) return new Devices.SimCRServo(name, state, hubPort);
             if (type.matches(".*Servo.*")) return new Devices.SimServo(name, state, hubPort);
             if (type.matches(".*(IMU|Gyro|BNO055).*")) return new Devices.SimImu(name, state);
@@ -64,9 +69,15 @@ public class SimLink extends WebSocketServer {
                 state.ingest(msg);
                 runner.updateGamepads(msg.getAsJsonObject("gamepad1"), msg.getAsJsonObject("gamepad2"));
                 break;
-            case "hardware": { // the browser's hardware map: [{name, kind, ticksPerRev}]; rebuild only when it actually changed
+            case "hardware": { // the browser's hardware map: [{name, kind, ticksPerRev, port}] plus preset hints
+                if (msg.has("hints") && msg.get("hints").isJsonObject()) hints = msg.getAsJsonObject("hints");
                 String j = gson.toJson(msg.getAsJsonArray("devices"));
-                if (!j.equals(hardwareJson)) { hardwareJson = j; if (runner.status() == OpModeRunner.Status.RUNNING || runner.status() == OpModeRunner.Status.INIT) runner.stop(); hardwareMap = buildHardwareMap(msg.getAsJsonArray("devices")); }
+                if (!j.equals(hardwareJson)) {
+                    hardwareJson = j;
+                    boolean live = runner.status() == OpModeRunner.Status.RUNNING || runner.status() == OpModeRunner.Status.INIT;
+                    if (live) updateHardwareMap(msg.getAsJsonArray("devices")); // keep the OpMode's device objects, refresh ports/ticks, add new
+                    else hardwareMap = buildHardwareMap(msg.getAsJsonArray("devices"));
+                }
                 break;
             }
             case "init": {
@@ -86,6 +97,31 @@ public class SimLink extends WebSocketServer {
         if (type.contains("CRServo")) return d instanceof com.qualcomm.robotcore.hardware.CRServo;
         if (type.matches(".*Servo.*")) return d instanceof com.qualcomm.robotcore.hardware.Servo;
         return false;
+    }
+
+    /** In-place update while an OpMode holds references: adjust ports/ticks of existing devices and add missing ones. */
+    private void updateHardwareMap(JsonArray devices) {
+        if (devices == null) return;
+        for (JsonElement el : devices) {
+            JsonObject d = el.getAsJsonObject();
+            String name = d.get("name").getAsString(), kind = d.get("kind").getAsString();
+            int port = d.has("port") ? d.get("port").getAsInt() : 0;
+            com.qualcomm.robotcore.hardware.HardwareDevice existing = hardwareMap.get(name);
+            if (existing instanceof Devices.SimMotor) { ((Devices.SimMotor) existing).port = port; if (d.has("ticksPerRev")) ((Devices.SimMotor) existing).ticksPerRev = d.get("ticksPerRev").getAsDouble(); continue; }
+            if (existing instanceof Devices.SimServo) { ((Devices.SimServo) existing).port = port; continue; }
+            if (existing instanceof Devices.SimCRServo) { ((Devices.SimCRServo) existing).port = port; continue; }
+            if (existing != null) continue;
+            switch (kind) {
+                case "motor": hardwareMap.register(name, new Devices.SimMotor(name, state, d.has("ticksPerRev") ? d.get("ticksPerRev").getAsDouble() : 537.7, port)); break;
+                case "servo": hardwareMap.register(name, new Devices.SimServo(name, state, port)); break;
+                case "crservo": hardwareMap.register(name, new Devices.SimCRServo(name, state, port)); break;
+                case "imu": hardwareMap.register(name, new Devices.SimImu(name, state)); break;
+                case "webcam": hardwareMap.register(name, new Devices.SimWebcam(name)); break;
+                case "distance": hardwareMap.register(name, new Devices.SimDistance(name, state)); break;
+                case "touch": hardwareMap.register(name, new Devices.SimTouch(name)); break;
+                default: break;
+            }
+        }
     }
 
     private HardwareMap buildHardwareMap(JsonArray devices) {

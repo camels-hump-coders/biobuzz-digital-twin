@@ -19,7 +19,7 @@ import { stepBall, type LiveBall } from "./sim/ballPhysics";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
-import { inferDevice } from "./runtime/hardwareConfig";
+import { inferDevice, deviceHints } from "./runtime/hardwareConfig";
 import { buildDetections } from "./runtime/apriltags";
 import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
 import { velocityFrom } from "./ballistics/projectile";
@@ -146,7 +146,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "reset") { applyRobotSpec(); }
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
-  if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices());
+  if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
   if (what === "sim") {
     for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
     playerAgent.alliance = state.alliance;
@@ -164,6 +164,11 @@ let imuYawRef = 0; // IMU yaw is reported relative to the heading at connect tim
 function hardwareDevices() {
   return state.hardware.devices.map((d) => ({ name: d.name, kind: d.kind, ticksPerRev: d.ticksPerRev ?? 537.7, port: d.port ?? 0 }));
 }
+function hardwareHints() {
+  const out: Record<string, { kind: string; port: number; ticksPerRev: number }> = {};
+  for (const [name, d] of Object.entries(deviceHints())) out[name] = { kind: d.kind, port: d.port ?? 0, ticksPerRev: d.ticksPerRev ?? 537.7 };
+  return out;
+}
 function syncRuntime() {
   if (state.runtimeEnabled) { if ((link as any).url !== state.runtimeUrl) { link.disconnect(); (link as any).url = state.runtimeUrl; } link.connect(); }
   else link.disconnect();
@@ -175,11 +180,11 @@ link.onMissingDevice = (name, requested) => {
   state.hardware.devices.push(dev);
   link.notes.push(`Added "${name}" as ${dev.kind}${dev.role ? ` (role ${dev.role})` : ""}${dev.port !== undefined ? `, port ${dev.port}` : ""} because your code asked for it. Check its role and port in the Hardware map panel.`);
   if (link.notes.length > 6) link.notes.shift();
-  link.sendHardware(hardwareDevices());
+  link.sendHardware(hardwareDevices(), hardwareHints());
   saveState(state);
   panel.render();
 };
-link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices()); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
+link.onChange = () => { if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); hardwareSent = true; } if (!link.connected) hardwareSent = false; panel.render(); };
 panel = new Panel(state, onChange);
 panel.link = link;
 syncRuntime();

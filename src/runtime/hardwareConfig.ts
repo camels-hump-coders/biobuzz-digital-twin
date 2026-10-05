@@ -61,8 +61,17 @@ export function camelsHumpHardwareConfig(): HardwareConfig {
   };
 }
 
+/** Every preset's devices by name: lets the host give auto-created devices the port/role a known robot uses. */
+export function deviceHints(): Record<string, DeviceConfig> {
+  const out: Record<string, DeviceConfig> = {};
+  for (const cfg of [camelsHumpHardwareConfig(), defaultHardwareConfig()]) for (const d of cfg.devices) if (!out[d.name]) out[d.name] = d;
+  return out;
+}
+
 /** Guess kind and role for a device TeamCode asked for by name and SDK type, so it can be added automatically. */
 export function inferDevice(name: string, requestedType: string, existing: DeviceConfig[]): DeviceConfig {
+  const hint = deviceHints()[name];
+  if (hint) return { ...hint };
   const n = name.toLowerCase();
   const t = requestedType;
   let kind: DeviceKind = "motor";
