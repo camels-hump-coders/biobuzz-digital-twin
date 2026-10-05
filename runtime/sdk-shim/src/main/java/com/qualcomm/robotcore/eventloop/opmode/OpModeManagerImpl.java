@@ -25,8 +25,8 @@ public class OpModeManagerImpl implements OpModeManager, OpModeManagerNotifier {
     public static void setDelegate(Delegate d) { delegate = d; }
     public static int listenerCount() { return listeners.size(); }
     public static void firePreInit(OpMode op) { active = op; if (Boolean.getBoolean("sim.debugLifecycle")) System.out.println("opmode preInit -> " + listeners.size() + " listener(s)"); for (Notifications l : listeners) try { l.onOpModePreInit(op); } catch (Throwable t) { warn(t); } }
-    public static void firePreStart(OpMode op) { for (Notifications l : listeners) try { l.onOpModePreStart(op); } catch (Throwable t) { warn(t); } }
-    public static void firePostStop(OpMode op) { for (Notifications l : listeners) try { l.onOpModePostStop(op); } catch (Throwable t) { warn(t); } active = null; }
+    public static void firePreStart(OpMode op) { if (Boolean.getBoolean("sim.debugLifecycle")) System.out.println("opmode preStart -> " + listeners.size()); for (Notifications l : listeners) try { l.onOpModePreStart(op); } catch (Throwable t) { warn(t); } }
+    public static void firePostStop(OpMode op) { if (Boolean.getBoolean("sim.debugLifecycle")) System.out.println("opmode postStop -> " + listeners.size()); for (Notifications l : listeners) try { l.onOpModePostStop(op); } catch (Throwable t) { warn(t); } active = null; }
     private static void warn(Throwable t) { System.err.println("dashboard listener threw: " + t); }
 
     @Override public OpMode registerListener(Notifications listener) { if (!listeners.contains(listener)) listeners.add(listener); return active; }

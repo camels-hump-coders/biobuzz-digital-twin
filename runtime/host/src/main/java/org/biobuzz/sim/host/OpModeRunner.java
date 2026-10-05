@@ -33,8 +33,9 @@ public class OpModeRunner {
             op.hardwareMap = map; op.gamepad1 = gp1; op.gamepad2 = gp2; op.telemetry = new SimTelemetry(telemetrySink);
             op.resetRuntime();
             current = op; currentName = entry.name; startRequested = false; stopRequested = false; error = "";
+            status = Status.INIT; // dashboards read the active OpMode name during the notification, so the state comes first
             OpModeManagerImpl.firePreInit(op); // dashboards (Panels) hook telemetry/field/camera here, like on the robot
-            status = Status.INIT; statusSink.accept("INIT");
+            statusSink.accept("INIT");
             thread = new Thread(() -> run(op), "opmode-" + entry.name);
             thread.setDaemon(true);
             thread.start();
@@ -47,8 +48,9 @@ public class OpModeRunner {
         if (op instanceof LinearOpMode) ((LinearOpMode) op).internalStop();
         if (op != null) op.requestOpModeStop();
         if (th != null) { th.interrupt(); try { th.join(1500); } catch (InterruptedException ignored) {} }
-        if (op != null) OpModeManagerImpl.firePostStop(op);
         current = null; thread = null;
+        if (status != Status.ERROR) status = Status.STOPPED;
+        if (op != null) OpModeManagerImpl.firePostStop(op); // after the state flips so dashboards see "stopped"
         // zero every actuator so the sim robot stops
         for (JsonObject o : state.actuators.values()) { if (o.has("power")) o.addProperty("power", 0); if (o.has("targetVel")) o.addProperty("targetVel", 0); }
         if (status != Status.ERROR) { status = Status.STOPPED; statusSink.accept("STOPPED"); }
