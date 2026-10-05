@@ -85,7 +85,11 @@ export function stepActuators(
   }
   // forward kinematics
   let vFwd = 0, vLeft = 0, omega = 0;
-  if (drivetrain === "mecanum") {
+  // the hardware map may describe a tank bot (roles left/right) while the chassis preset is mecanum, or the other way
+  // round; use whichever wheel roles actually carry commands rather than silently standing still
+  const corner = ["frontLeft", "frontRight", "backLeft", "backRight"].some((k) => wheel[k] !== undefined);
+  const sides = wheel.left !== undefined || wheel.right !== undefined;
+  if (drivetrain === "mecanum" && (corner || !sides)) {
     const fl = wheel.frontLeft ?? 0, fr = wheel.frontRight ?? 0, bl = wheel.backLeft ?? 0, br = wheel.backRight ?? 0;
     vFwd = (fl + fr + bl + br) / 4;
     vLeft = (-fl + fr + bl - br) / 4; // standard mecanum: strafe left when FL/BR reverse and FR/BL forward

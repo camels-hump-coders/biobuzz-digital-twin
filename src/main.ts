@@ -419,6 +419,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   (ball as any).owner = "player";
   shotsFired++;
 }
+let roleWarning: string | undefined;
 let launchBlockedUntil = 0;
 let launchBlockedMsg = "";
 
@@ -462,6 +463,9 @@ function frame(now: number) {
     const act = stepActuators(actuatorModel, state.hardware, link.actuators, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
     vel = act.vel;
     playerAgent.intakeActive = Math.abs(act.intakePower) > 0.2;
+    // motors your code is powering that the sim does not know what to do with (no role): say so instead of standing still
+    const unroled = state.hardware.devices.filter((d) => d.kind === "motor" && (!d.role || d.role === "other") && Math.abs(link.actuators[d.name]?.power ?? 0) > 0.05).map((d) => d.name);
+    roleWarning = unroled.length ? `⚠ powered motor${unroled.length > 1 ? "s" : ""} without a role in the Hardware map: ${unroled.join(", ")} — set the role (left/right/frontLeft… flywheel, intake) or load a names preset` : undefined;
     const l = state.robot.launcher;
     l.rpm = clamp(act.flywheelRpm, 0, l.maxRpm);
     if (act.hoodPos !== undefined && l.elevationMinDeg !== l.elevationMaxDeg) l.elevationDeg = l.elevationMinDeg + act.hoodPos * (l.elevationMaxDeg - l.elevationMinDeg);
@@ -654,7 +658,7 @@ function frame(now: number) {
     tips: match.hives[state.alliance].tips,
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})${runtimeActive && !playerAgent.intakeActive ? " · intake OFF (your code must power the intake motor to collect; balls get pushed instead)" : ""}`,
-    launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
+    launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : roleWarning,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
     match: state.matchPhase === "running" ? `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left` : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`,
