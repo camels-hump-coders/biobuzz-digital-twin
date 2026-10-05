@@ -37,11 +37,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #hud { position: absolute; left: 12px; top: 12px; width: 440px; box-sizing: border-box; padding: 10px 12px; background: rgba(14,17,22,.82); border: 1px solid #2a313a; border-radius: 8px; pointer-events: none; font-variant-numeric: tabular-nums; }
 #hud h2 { font-size: 12px; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 #hud table { border-collapse: collapse; width: 100%; }
-#hud td { padding: 1px 6px 1px 0; line-height: 18px; vertical-align: top; }
+#hud td { padding: 0 6px 0 0; line-height: 17px; vertical-align: top; }
 #hud td:first-child { width: 128px; white-space: nowrap; color: var(--muted); }
 #hud td:last-child { text-align: right; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 /* rows whose text can grow keep two lines reserved so the HUD never changes height */
-#hud td.two { height: 36px; }
+#hud td.two { height: 34px; }
+#hud td.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 #hud td.quiet { color: #4a5360; font-weight: 400; }
 #hud .ok { color: var(--ok); } #hud .bad { color: var(--bad); } #hud .warn { color: var(--accent); }
 #hud .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
