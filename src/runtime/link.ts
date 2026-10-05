@@ -33,6 +33,8 @@ export class RuntimeLink {
   status: RunStatus = "DISCONNECTED";
   statusError = "";
   currentOpMode = "";
+  /** when the current status began (performance.now ms) */
+  statusSince = performance.now();
   opModes: OpModeInfo[] = [];
   telemetry: string[] = [];
   /** latest actuator commands by device name */
@@ -53,8 +55,8 @@ export class RuntimeLink {
   connect() {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
     try { this.ws = new WebSocket(this.url); } catch { this.scheduleRetry(); return; }
-    this.ws.onopen = () => { this.connected = true; this.status = "IDLE"; this.onChange(); };
-    this.ws.onclose = () => { this.connected = false; this.status = "DISCONNECTED"; this.opModes = []; this.actuators = {}; this.onChange(); this.scheduleRetry(); };
+    this.ws.onopen = () => { this.connected = true; this.status = "IDLE"; this.statusSince = performance.now(); this.onChange(); };
+    this.ws.onclose = () => { this.connected = false; this.status = "DISCONNECTED"; this.statusSince = performance.now(); this.opModes = []; this.actuators = {}; this.onChange(); this.scheduleRetry(); };
     this.ws.onerror = () => { /* onclose follows */ };
     this.ws.onmessage = (ev) => this.handle(JSON.parse(ev.data));
   }
@@ -78,7 +80,7 @@ export class RuntimeLink {
         break;
       }
       case "opmodes": this.opModes = msg.opModes ?? []; this.onChange(); break;
-      case "status": this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; this.onChange(); break;
+      case "status": { const prev = this.status; this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; if (prev !== this.status) this.statusSince = performance.now(); this.onChange(); break; }
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
     }

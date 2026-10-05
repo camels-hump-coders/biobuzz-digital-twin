@@ -16,7 +16,20 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel input[type=checkbox] { justify-self: start; }
 #panel button { background: #22272e; color: var(--fg); border: 1px solid #2a313a; border-radius: 4px; padding: 5px 8px; cursor: pointer; font: inherit; }
 #panel button:hover { background: #2d333b; }
-#panel button:disabled { opacity: .4; cursor: not-allowed; }
+#panel button:disabled { opacity: .35; cursor: not-allowed; }
+.rt-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-weight: 700; letter-spacing: .04em; border: 1px solid #2a313a; background: #22272e; color: var(--fg); grid-column: 1 / -1; }
+.rt-pill .dot { width: 10px; height: 10px; border-radius: 50%; background: #8b949e; }
+.rt-pill.disconnected { color: var(--muted); }
+.rt-pill.idle .dot, .rt-pill.stopped .dot { background: #8b949e; }
+.rt-pill.init { background: #3b3200; border-color: #8a7400; } .rt-pill.init .dot { background: var(--accent); animation: rtblink 1s infinite; }
+.rt-pill.running { background: #0f3d26; border-color: #1f7a4a; } .rt-pill.running .dot { background: var(--ok); }
+.rt-pill.error { background: #4a1414; border-color: #a33; } .rt-pill.error .dot { background: var(--bad); }
+.rt-pill .time { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 400; color: var(--muted); }
+.rt-pill .sub { font-weight: 400; color: var(--muted); }
+@keyframes rtblink { 50% { opacity: .3; } }
+#panel button.start { background: #1f7a4a; border-color: #2a9a5e; color: #fff; font-weight: 700; }
+#panel button.stop { background: #a33; border-color: #c44; color: #fff; font-weight: 700; }
+#panel button.init { background: #8a7400; border-color: #b39700; color: #fff; font-weight: 700; }
 #panel button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
 #panel .row { display: flex; gap: 6px; }
 #panel .sub { grid-column: 1 / -1; border-top: 1px dashed #2a313a; margin-top: 4px; padding-top: 6px; font-weight: 600; color: var(--fg); }

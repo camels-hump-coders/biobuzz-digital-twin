@@ -59,6 +59,7 @@ export class Panel {
   private onChange: Change;
   link?: RuntimeLink;
   private telemetryEl?: HTMLElement;
+  private pillEl?: HTMLElement;
   constructor(state: AppState, onChange: Change) {
     this.state = state;
     this.onChange = onChange;
@@ -72,6 +73,12 @@ export class Panel {
   updateTelemetry(lines: string[], status: string) {
     if (this.telemetryEl) { const t = lines.join("\n") || "(telemetry)"; if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t; }
     const s = this.root.querySelector("#rt-status"); if (s && !s.textContent!.endsWith(status)) s.textContent = `Status: ${status}`;
+    if (this.pillEl && this.link) {
+      const t = this.pillEl.querySelector(".time");
+      const secs = Math.max(0, (performance.now() - this.link.statusSince) / 1000);
+      const txt = this.link.status === "RUNNING" || this.link.status === "INIT" ? `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, "0")}` : "";
+      if (t && t.textContent !== txt) t.textContent = txt;
+    }
   }
 
   render() {
@@ -110,18 +117,31 @@ export class Panel {
     urlInput.onchange = () => { st.runtimeUrl = urlInput.value; change("runtime"); };
     rtRows.push([el("label", {}, "Host URL"), urlInput]);
     const statusTxt = link ? (link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}` : "not connected — run ./gradlew :host:run in runtime/") : "off";
-    rtRows.push(el("div", { class: "note", id: "rt-status" }, `Status: ${statusTxt}`));
+    // Driver-Station style status pill, refreshed live by updateTelemetry()
+    const pillState = !st.runtimeEnabled ? "off" : !link?.connected ? "disconnected" : link.status.toLowerCase();
+    const pillLabel: Record<string, string> = { off: "RUNTIME OFF", disconnected: "WAITING FOR HOST", idle: "READY — pick an OpMode", init: "INITIALISED", running: "RUNNING", stopped: "STOPPED", error: "ERROR" };
+    this.pillEl = el("div", { class: `rt-pill ${pillState}`, id: "rt-pill" }, el("span", { class: "dot" }), el("span", { class: "label" }, pillLabel[pillState] ?? pillState.toUpperCase()), el("span", { class: "sub" }, link?.currentOpMode ?? ""), el("span", { class: "time" }, ""));
+    rtRows.push(this.pillEl);
+    rtRows.push(el("div", { class: "note", id: "rt-status", style: "display:none" }, `Status: ${statusTxt}`));
+    if (st.runtimeEnabled && !link?.connected) rtRows.push(el("div", { class: "note" }, "Start the host: pnpm sim (or ./gradlew :host:run in runtime/). This panel connects automatically."));
     if (link?.connected) {
       const names = link.opModes.map((o) => ({ value: o.name, label: `[${o.flavor}] ${o.name}` }));
       if (!names.length) rtRows.push(el("div", { class: "note" }, "No OpModes found on the host classpath."));
       else {
         if (!names.some((n) => n.value === this.selectedOpMode)) this.selectedOpMode = names[0].value;
-        rtRows.push(sel("OpMode", names, () => this.selectedOpMode, (v) => { this.selectedOpMode = v; }));
+        const s = link.status;
+        const canInit = s === "IDLE" || s === "STOPPED" || s === "ERROR";
+        const canStart = s === "INIT";
+        const canStop = s === "INIT" || s === "RUNNING";
+        const selRow = sel("OpMode", names, () => this.selectedOpMode, (v) => { this.selectedOpMode = v; });
+        if (!canInit) (selRow[1] as HTMLSelectElement).disabled = true;
+        rtRows.push(selRow);
         rtRows.push(el("div", { class: "row full" },
-          el("button", { class: "primary", onclick: () => link.init(this.selectedOpMode) }, "INIT"),
-          el("button", { class: "primary", onclick: () => link.start() }, "▶ START"),
-          el("button", { onclick: () => link.stop() }, "■ STOP"),
+          el("button", { class: "init", ...(canInit ? {} : { disabled: "" }), title: canInit ? "Load the OpMode and run its init()" : "Stop the current OpMode first", onclick: () => link.init(this.selectedOpMode) }, "INIT"),
+          el("button", { class: "start", ...(canStart ? {} : { disabled: "" }), title: canStart ? "Start the match loop" : "INIT an OpMode first", onclick: () => link.start() }, "▶ START"),
+          el("button", { class: "stop", ...(canStop ? {} : { disabled: "" }), title: canStop ? "Stop and cut all motor power" : "Nothing is running", onclick: () => link.stop() }, "■ STOP"),
         ));
+        rtRows.push(el("div", { class: "note" }, s === "IDLE" || s === "STOPPED" ? "Pick an OpMode and press INIT." : s === "INIT" ? "init() ran. Press START to begin, or STOP to abort." : s === "RUNNING" ? "Running. Keyboard is gamepad1 while the 3D view has focus. STOP cuts all power." : s === "ERROR" ? "The OpMode threw; see the message below, fix and INIT again." : ""));
       }
       if (link.statusError) rtRows.push(el("pre", { class: "note full", style: "white-space:pre-wrap;color:#ff8888" }, link.statusError));
       for (const n of link.notes) rtRows.push(el("div", { class: "note full", style: "color:#f2c200" }, n));
