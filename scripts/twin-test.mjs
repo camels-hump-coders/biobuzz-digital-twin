@@ -37,7 +37,7 @@ try { playwright = await import("playwright"); } catch {
 }
 
 // ---- 1. host + twin
-const simArgs = [resolve(root, "scripts/sim.mjs"), "--no-browser", "--no-watch", "--port", port, "--host-port", hostPort];
+const simArgs = [resolve(root, "scripts/sim.mjs"), "--no-browser", "--no-watch", "--no-panels", "--port", port, "--host-port", hostPort]; // no Panels: its fixed ports belong to the human's session
 if (team) simArgs.push("--team", team);
 console.log(`twin-test: starting host and twin (${simArgs.slice(1).join(" ")})`);
 const sim = spawn(process.execPath, simArgs, { cwd: root, detached: true, stdio: ["ignore", "pipe", "pipe"] });

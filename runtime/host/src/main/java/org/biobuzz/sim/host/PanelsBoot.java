@@ -30,6 +30,11 @@ public final class PanelsBoot {
         try {
             Class.forName("com.bylazar.panels.Panels");
         } catch (ClassNotFoundException e) { System.out.println("Panels: library not on the classpath, dashboard disabled"); return false; }
+        // Panels binds fixed ports; a second host (another pnpm sim, a twin-test run) must not fight the first one for them
+        for (int port : new int[] { 8001, 8002 }) {
+            try (java.net.ServerSocket probe = new java.net.ServerSocket()) { probe.setReuseAddress(true); probe.bind(new java.net.InetSocketAddress(port)); }
+            catch (java.io.IOException busy) { System.out.println("Panels: port " + port + " is in use (another host has the dashboard), skipping Panels in this host"); return false; }
+        }
         try {
             List<OpModeMeta> metas = new ArrayList<>();
             for (OpModeScanner.Entry e : opModes) metas.add(new OpModeMeta.Builder().setName(e.name).setGroup(e.group == null ? "" : e.group).setFlavor("Autonomous".equals(e.flavor) ? OpModeMeta.Flavor.AUTONOMOUS : OpModeMeta.Flavor.TELEOP).setSource(OpModeMeta.Source.ANDROID_STUDIO).build());

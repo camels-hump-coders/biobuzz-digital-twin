@@ -5,7 +5,7 @@
  *   pnpm sim --team ~/dev/FtcRobotController          # first time: remembers the path
  *   pnpm sim                                           # afterwards
  *   pnpm sim --team <path> --exclude "**\/roadrunner/**,**\/Old*.java"
- *   pnpm sim --no-watch --no-browser --port 5173 --host-port 8765
+ *   pnpm sim --no-watch --no-browser --no-panels --port 5173 --host-port 8765
  *
  * --team accepts either the FtcRobotController project root (TeamCode/src/main/java is appended),
  * the TeamCode module folder, or the java source folder itself.
@@ -29,6 +29,7 @@ const port = flag("--port", "5173");
 const hostPort = flag("--host-port", "8765");
 const watch = !has("--no-watch");
 const openBrowser = !has("--no-browser");
+const panels = !has("--no-panels"); // the real FTC Panels dashboard on 8001/8002; off for secondary hosts such as twin-test
 
 function resolveTeam(p) {
   if (!p) return undefined;
@@ -118,6 +119,7 @@ if (team) gradleArgs.push(`-PteamCode=${team}`);
 if (allExcludes.length) gradleArgs.push(`-PteamExclude=${allExcludes.join(",")}`);
 if (simDir && existsSync(simDir)) gradleArgs.push(`-PteamSim=${simDir}`);
 if (assetsDir && existsSync(assetsDir)) gradleArgs.push(`-PsimAssets=${assetsDir}`);
+if (!panels) gradleArgs.push("-PsimPanels=false");
 const bindingsFile = team ? join(resolve(team, "../../.."), "twin-bindings.json") : undefined;
 if (bindingsFile && existsSync(bindingsFile)) gradleArgs.push(`-PsimBindings=${bindingsFile}`);
 if (watch) gradleArgs.push("--continuous");
