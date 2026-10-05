@@ -242,6 +242,7 @@ link.onMissingDevice = (name, requested) => {
   const chDrive = ["Left Drive", "Right Drive"];
   if (chDrive.includes(name) && !state.hardware.devices.some((d) => chDrive.includes(d.name))) {
     state.hardware = ch;
+    if (state.robotPresetId !== "starterbot6wd") { state.robotPresetId = "starterbot6wd"; state.robot = clonePreset("starterbot6wd"); state.selectedCameraId = state.robot.cameras[0]?.id ?? ""; applyRobotSpec(); }
     if (state.robot.drivetrain !== "tank") state.robot.drivetrain = "tank";
     link.notes.push(`Your code asked for "${name}": loaded the Camels Hump tank bot hardware preset (names, ports, right side mirrored) and set the drivetrain to tank.`);
     if (link.notes.length > 6) link.notes.shift();

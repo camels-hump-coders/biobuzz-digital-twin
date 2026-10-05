@@ -313,7 +313,7 @@ export class Panel {
       el("button", { onclick: () => addDev("motor") }, "+ motor"), el("button", { onclick: () => addDev("servo") }, "+ servo"), el("button", { onclick: () => addDev("crservo") }, "+ CR servo"),
       el("button", { onclick: () => addDev("distance") }, "+ distance"), el("button", { onclick: () => addDev("webcam") }, "+ webcam"),
     )));
-    hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "StarterBot names"), el("button", { onclick: () => { st.hardware = camelsHumpHardwareConfig(); st.robot.drivetrain = "tank"; change("hardware"); change("robot"); } }, "Camels Hump tank bot names")));
+    hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "StarterBot names"), el("button", { title: "Hardware names/ports/polarity of the Camels Hump StarterBot, and the 6WD chassis preset (96 mm wheels, tank drive)", onclick: () => { st.hardware = camelsHumpHardwareConfig(); if (st.robotPresetId !== "starterbot6wd") { st.robotPresetId = "starterbot6wd"; st.robot = clonePreset("starterbot6wd"); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; } st.robot.drivetrain = "tank"; change("hardware"); change("robot"); } }, "Camels Hump tank bot names")));
     hwRows.push(adv(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 })));
     this.root.append(section("Hardware map", open("Hardware map", false), ...hwRows));
 
