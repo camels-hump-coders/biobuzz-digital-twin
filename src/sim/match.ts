@@ -192,10 +192,22 @@ export class Match {
           h.upCell = h.upCell === "audience" ? "scoring" : "audience";
           this.hiveState[a] = h.upCell;
           this.field.setHiveState({ alliance: a, upCell: h.upCell });
-          for (const f of this.flying) if ((f as any).cellOf === a) { f.inCell = false; }
+          for (const f of this.flying) if ((f as any).cellOf === a) { f.inCell = false; f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1; f.carried = true; }
         }
       } else if (this.autoTip() && this.cellLoad(a).massKg >= this.tipMassKg() - 1e-6) {
         this.startTip(a);
+      }
+    }
+    // --- nothing rests in a lowered cell: its floor slopes toward the opening, so wake anything that settled there
+    for (const a of ["red", "blue"] as Alliance[]) {
+      if (this.hives[a].tipping) continue;
+      const down = cellFrames({ alliance: a, upCell: this.hives[a].upCell }).find((c) => !c.isUp)!;
+      for (const f of this.flying) {
+        if (!f.settled || f.inCell) continue;
+        if (!insideCell(down, f.pos, 0.03)) continue;
+        f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1; f.carried = true;
+        // a nudge toward the opening so it does not just re-wedge against the back skin
+        f.vel.addScaledVector(new THREE.Vector3(down.normal.x, down.normal.y, down.normal.z), 0.4);
       }
     }
     // --- pickup

@@ -88,13 +88,13 @@ public class AprilTagProcessor implements VisionProcessor {
             c.rawPose = new AprilTagPoseRaw(); c.rawPose.x = distanceUnit.fromMeters(xm); c.rawPose.y = -distanceUnit.fromMeters(zm); c.rawPose.z = distanceUnit.fromMeters(ym); c.rawPose.R = c.tagsDetected.get(0).rawPose.R;
             c.id = c.metadata.tagIds[0];
         }
-        lastFreshNanos = SimHooks.lastSensorNanos();
         return out;
     }
     /** Returns null when no new frame has arrived since the last call. */
     public ArrayList<AprilTagDetection> getFreshDetections() {
         long n = SimHooks.lastSensorNanos();
-        if (n == lastFreshNanos) return null;
+        if (n == lastFreshNanos) return null; // no new sensor frame since the last *fresh* read (getDetections() does not consume frames)
+        lastFreshNanos = n;
         return getDetections();
     }
     public int getPerTagAvgPoseSolveTime() { return 1; }
