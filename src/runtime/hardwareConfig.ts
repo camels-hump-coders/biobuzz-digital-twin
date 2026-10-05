@@ -43,10 +43,12 @@ export function defaultHardwareConfig(): HardwareConfig {
   };
 }
 
-/** A tank-drive bot with Driver-Station names matching the Camels Hump Coders TeamCode (RobotConfig.java + controller-profile.json). */
+/** A tank-drive bot with Driver-Station names matching the Camels Hump Coders TeamCode (RobotConfig.java + controller-profile.json).
+ * Their drive code sends negative power to both motors for forward with the left motor REVERSEd, which means the
+ * right-hand motor is the physically mirrored one on that robot. */
 export function camelsHumpHardwareConfig(): HardwareConfig {
   return {
-    mirroredSide: "left",
+    mirroredSide: "right",
     devices: [
       { name: "Left Drive", kind: "motor", role: "left", ticksPerRev: 537.7, freeRpm: 312, port: 1 },
       { name: "Right Drive", kind: "motor", role: "right", ticksPerRev: 537.7, freeRpm: 312, port: 0 },

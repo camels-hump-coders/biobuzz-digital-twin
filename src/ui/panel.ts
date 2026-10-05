@@ -209,7 +209,11 @@ export class Panel {
           st.pose = { ...st.pose, heading: st.pose.heading + Math.PI };
           change("robot");
         } }, "Flip forward direction (180°)"),
-        el("span", { class: "note" }, "Makes the other end of the robot the forward arrow (drive code's +forward). Cameras and launcher come along, so a shooter-forward robot is one click."),
+        el("span", { class: "note" }, "Makes the other end of the robot the forward arrow. Cameras and launcher come along. This does NOT change which way the wheels spin."),
+      ),
+      el("div", { class: "row full" },
+        el("button", { title: "If your code drives the robot backwards (and left/right come out swapped), your motors are mounted the other way round from the sim's assumption. This flips that assumption.", onclick: () => { st.hardware.mirroredSide = st.hardware.mirroredSide === "left" ? "right" : st.hardware.mirroredSide === "right" ? "none" : "left"; change("hardware"); } }, `Drive polarity: ${st.hardware.mirroredSide ?? "left"} side mirrored`),
+        el("span", { class: "note" }, "Under TeamCode, if W drives backwards and A turns right, cycle this until it matches the real robot (left → right → none)."),
       ),
     ));
 
