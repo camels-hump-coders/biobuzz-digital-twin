@@ -46,6 +46,7 @@ public class SimState implements SimHooks.TagSource {
                 ob.yaw = o.get("yaw").getAsDouble(); ob.pitch = o.get("pitch").getAsDouble(); ob.roll = o.get("roll").getAsDouble();
                 ob.range = o.get("range").getAsDouble(); ob.bearing = o.get("bearing").getAsDouble(); ob.elevation = o.get("elevation").getAsDouble();
                 ob.robotX = o.get("robotX").getAsDouble(); ob.robotY = o.get("robotY").getAsDouble(); ob.robotYaw = o.get("robotYaw").getAsDouble();
+                if (o.has("R") && o.get("R").isJsonArray() && o.getAsJsonArray("R").size() == 9) { ob.R = new double[9]; for (int k = 0; k < 9; k++) ob.R[k] = o.getAsJsonArray("R").get(k).getAsDouble(); }
                 ob.nanos = s.nanos;
                 list.add(ob);
             }

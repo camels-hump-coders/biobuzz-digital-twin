@@ -24,10 +24,10 @@ public final class AprilTagGameDatabase {
     public static AprilTagLibrary getSampleTagLibrary() { return getBiobuzzTagLibrary(); }
 
     private static final AprilTagClusterMetadata[] CLUSTERS = {
-        new AprilTagClusterMetadata("RedScoring", new int[] {33, 32, 31, 30}, new VectorF(-12.75f, 12.36f, 35.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
-        new AprilTagClusterMetadata("RedAudience", new int[] {34, 35, 36, 37}, new VectorF(-12.75f, -12.36f, 49.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
-        new AprilTagClusterMetadata("BlueAudience", new int[] {38, 39, 40, 41}, new VectorF(12.75f, -12.36f, 35.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
-        new AprilTagClusterMetadata("BlueScoring", new int[] {45, 44, 43, 42}, new VectorF(12.75f, 12.36f, 49.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
+        new AprilTagClusterMetadata("RED SCORING", new int[] {33, 32, 31, 30}, new VectorF(-12.75f, 12.36f, 35.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
+        new AprilTagClusterMetadata("RED AUDIENCE", new int[] {34, 35, 36, 37}, new VectorF(-12.75f, -12.36f, 49.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
+        new AprilTagClusterMetadata("BLUE AUDIENCE", new int[] {38, 39, 40, 41}, new VectorF(12.75f, -12.36f, 35.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
+        new AprilTagClusterMetadata("BLUE SCORING", new int[] {45, 44, 43, 42}, new VectorF(12.75f, 12.36f, 49.7f), DistanceUnit.INCH, Quaternion.identityQuaternion()),
     };
     /** The four BIOBUZZ clusters (SDK 12). */
     public static AprilTagClusterMetadata[] getBiobuzzClusters() { return CLUSTERS.clone(); }

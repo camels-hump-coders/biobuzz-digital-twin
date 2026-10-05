@@ -11,7 +11,13 @@ public class AssetManager {
         String p = System.getProperty("sim.assets", "");
         for (String s : p.split(",")) if (!s.isBlank()) roots.add(new File(s.trim()));
     }
+    /** Sim override: when `foo.json` is requested and `foo.sim.json` exists next to it, serve the .sim.json instead.
+     * Lets a team keep competition settings in assets while the simulator uses relaxed ones. */
     public InputStream open(String path) throws IOException {
+        if (path.endsWith(".json")) {
+            String alt = path.substring(0, path.length() - 5) + ".sim.json";
+            for (File r : roots) { File f = new File(r, alt); if (f.isFile()) return new FileInputStream(f); }
+        }
         for (File r : roots) { File f = new File(r, path); if (f.isFile()) return new FileInputStream(f); }
         throw new FileNotFoundException("asset not found: " + path + " (searched " + roots + "; set sim.assets or run via pnpm sim)");
     }

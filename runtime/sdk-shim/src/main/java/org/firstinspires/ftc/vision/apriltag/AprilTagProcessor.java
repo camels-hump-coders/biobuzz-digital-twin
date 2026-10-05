@@ -61,7 +61,8 @@ public class AprilTagProcessor implements VisionProcessor {
             // raw pose: OpenCV camera frame (x right, y down, z forward) in the chosen distance unit, with the tag's
             // rotation built from the reported yaw/pitch so height/tilt maths downstream gets a sensible matrix
             d.rawPose = new AprilTagPoseRaw(); d.rawPose.x = o.x * k; d.rawPose.y = -o.z * k; d.rawPose.z = o.y * k;
-            d.rawPose.R = rotationFor(Math.toRadians(o.yaw), Math.toRadians(o.pitch), Math.toRadians(o.roll));
+            if (o.R != null) { d.rawPose.R = new org.firstinspires.ftc.robotcore.external.matrices.MatrixF(3, 3); for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) d.rawPose.R.put(r, c, (float) o.R[r * 3 + c]); }
+            else d.rawPose.R = rotationFor(Math.toRadians(o.yaw), Math.toRadians(o.pitch), Math.toRadians(o.roll));
             d.robotPose = new Pose3D(new Position(distanceUnit, o.robotX * k, o.robotY * k, 0, now), new YawPitchRollAngles(angleUnit, o.robotYaw * a, 0, 0, now));
             d.frameAcquisitionNanoTime = o.nanos;
             singles.add(d);

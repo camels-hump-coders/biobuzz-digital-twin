@@ -13,6 +13,8 @@ public final class SimHooks {
         public double x, y, z; public double yaw, pitch, roll; public double range, bearing, elevation;
         /** robot pose on the field (inches, degrees) implied by this tag */
         public double robotX, robotY, robotYaw; public long nanos;
+        /** optional exact tag->camera rotation, row-major 3x3 in OpenCV camera axes */
+        public double[] R;
     }
     public interface TagSource { List<TagObservation> tags(String cameraName); long lastSensorNanos(); }
 

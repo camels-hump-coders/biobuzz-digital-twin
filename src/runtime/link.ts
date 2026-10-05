@@ -13,6 +13,8 @@ export interface TagPacket {
   id: number; cx: number; cy: number;
   x: number; y: number; z: number; yaw: number; pitch: number; roll: number; range: number; bearing: number; elevation: number;
   robotX: number; robotY: number; robotYaw: number;
+  /** tag->camera rotation, row-major 3x3, OpenCV camera axes (x right, y down, z forward); tag z points into the tag */
+  R: number[];
 }
 
 export interface SensorPacket {

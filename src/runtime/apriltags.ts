@@ -37,11 +37,21 @@ export function buildDetections(cam: THREE.Camera, intr: Intrinsics, vis: TagVis
     const yaw = rad2deg(Math.atan2(ln.x, ln.z)); // 0 when the tag faces the camera squarely
     const pitch = rad2deg(Math.asin(Math.max(-1, Math.min(1, -ln.y))));
     const roll = 0;
+    // Exact rotation for rawPose: tag axes (x right along the tag, y down the tag, z into the tag) expressed in the
+    // OpenCV camera frame (x right, y down, z forward). three.js camera space is x right, y up, z backward.
+    const q = mesh.getWorldQuaternion(new THREE.Quaternion());
+    const tagX = new THREE.Vector3(1, 0, 0).applyQuaternion(q).transformDirection(inv);
+    const tagYdown = new THREE.Vector3(0, -1, 0).applyQuaternion(q).transformDirection(inv);
+    const tagZinto = new THREE.Vector3(0, 0, -1).applyQuaternion(q).transformDirection(inv); // plane normal faces viewers; into the tag is -normal
+    const cv = (v: THREE.Vector3) => [v.x, -v.y, -v.z];
+    const cx3 = cv(tagX), cy3 = cv(tagYdown), cz3 = cv(tagZinto);
+    const Rm = [cx3[0], cy3[0], cz3[0], cx3[1], cy3[1], cz3[1], cx3[2], cy3[2], cz3[2]]; // columns are the tag axes
     // image coordinates from the normalised frustum coords
     const cx = ((v.u + 1) / 2) * intr.width, cy = ((1 - v.v) / 2) * intr.height;
     out.push({
       id: v.id, cx, cy, x, y, z, yaw, pitch, roll, range, bearing, elevation,
       robotX: pose.x / IN, robotY: -pose.z / IN, robotYaw: rad2deg(pose.heading),
+      R: Rm,
     });
   }
   return out;
