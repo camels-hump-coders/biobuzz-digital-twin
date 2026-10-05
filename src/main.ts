@@ -562,6 +562,7 @@ function frame(now: number) {
   playerAgent.pose = state.pose;
   playerAgent.footprint = { lengthM: state.robot.lengthM, widthM: state.robot.widthM };
   playerAgent.intakeGeom = state.robot.intake;
+  robot.setIntakeActive(playerAgent.intakeActive);
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
   perf.mark("robots");
   match.update(dt, state.opponents ? allAgents : [playerAgent]);

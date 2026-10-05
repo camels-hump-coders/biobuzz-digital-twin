@@ -75,6 +75,15 @@ export class RobotObject {
     this.group.add(bar);
   }
 
+  /** Green bar = intake running (balls on that side are collected); red = off (they get pushed). */
+  setIntakeActive(active: boolean) {
+    const bar = this.group.getObjectByName("intakeMarker") as THREE.Mesh | undefined;
+    if (!bar) return;
+    const mat = bar.material as THREE.MeshBasicMaterial;
+    const want = active ? 0x00ff88 : 0xff4444;
+    if (mat.color.getHex() !== want) mat.color.setHex(want);
+  }
+
   applySpec(spec: RobotSpec) {
     this.syncIntakeMarker(spec);
     this.spec = spec;
