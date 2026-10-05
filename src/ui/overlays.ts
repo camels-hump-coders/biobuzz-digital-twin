@@ -5,6 +5,7 @@ import type { ShotResult } from "../ballistics/solver";
 import type { CameraPose, Intrinsics } from "../camera/cameraMath";
 import { groundFootprint, cornerRays } from "../camera/cameraMath";
 import type { ReachMap } from "../ballistics/reachability";
+import type { HitMap } from "../ballistics/hitmap";
 
 function lineFrom(points: Vec3[], color: number, opacity = 1, dashed = false): THREE.Line {
   const geo = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
@@ -26,10 +27,38 @@ export class Overlays {
   private reach = new THREE.Group();
   private actual = new THREE.Group();
   private cloud = new THREE.Group();
-  show = { trajectory: true, actualArc: true, dispersion: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false };
+  private hit = new THREE.Group();
+  show = { trajectory: true, actualArc: true, dispersion: true, fan: true, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false };
 
   constructor() {
-    this.group.add(this.trajectory, this.fan, this.fov, this.target, this.aim, this.reach, this.actual, this.cloud);
+    this.group.add(this.trajectory, this.fan, this.fov, this.target, this.aim, this.reach, this.actual, this.cloud, this.hit);
+  }
+
+  private hitMesh?: THREE.InstancedMesh;
+  /** Hit-probability map: red (0) -> green (1) per square; squares the selected camera cannot aim from are dimmed; not yet computed = dark. */
+  setHitMap(map?: HitMap) {
+    this.hit.visible = this.show.hitmap;
+    if (!map) { this.hit.clear(); this.hitMesh = undefined; return; }
+    if (!this.hitMesh || this.hitMesh.count !== map.cells.length) {
+      this.hit.clear();
+      const geo = new THREE.PlaneGeometry(map.stepM * 0.96, map.stepM * 0.96);
+      geo.rotateX(-Math.PI / 2);
+      this.hitMesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), map.cells.length);
+      const mtx = new THREE.Matrix4();
+      map.cells.forEach((c, i) => { mtx.makeTranslation(c.x, 0.004, c.z); this.hitMesh!.setMatrixAt(i, mtx); });
+      this.hitMesh.instanceMatrix.needsUpdate = true;
+      this.hit.add(this.hitMesh);
+    }
+    const col = new THREE.Color();
+    map.cells.forEach((c, i) => {
+      if (c.pHit === undefined) col.setRGB(0.12, 0.13, 0.15);
+      else {
+        col.setHSL(c.pHit * 0.33, 0.9, 0.45);
+        if (c.visible === false) col.multiplyScalar(0.3); // aim needs the camera to see the cell's tags
+      }
+      this.hitMesh!.setColorAt(i, col);
+    });
+    this.hitMesh.instanceColor!.needsUpdate = true;
   }
 
   /** Arc the launcher would produce right now, along the direction it actually points. Orange. */

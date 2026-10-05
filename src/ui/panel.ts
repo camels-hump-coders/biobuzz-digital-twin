@@ -410,6 +410,9 @@ export class Panel {
       chk("Aim line", () => o.aim, (v) => { o.aim = v; change("overlays"); }),
       chk("Reachability map (RPM by position)", () => o.reach, (v) => { o.reach = v; change("overlays"); }),
       el("div", { class: "note" }, "Reachability colours the mat by the flywheel RPM needed to hit the target cell from each 6 in square with the current launcher (green = low, red = near max, dark = cannot reach). Recomputed when launcher or target change."),
+      chk("Hit-probability map (aimed from each square)", () => o.hitmap, (v) => { o.hitmap = v; change("overlays"); }),
+      el("div", { class: "note" }, "For every 6 in square: aim at the target cell, use the hood/RPM the launcher would need from there, and fire 40 simulated shots with the configured shot variability. Green = always in, red = never. Squares are dimmed where the selected camera would not see any of the target cell's AprilTags, so auto-aim could not lock on. Fills in over a few seconds and recomputes as you change the launcher, variability, hood, cameras or target."),
+      chk("Performance stats", () => st.showPerf, (v) => { st.showPerf = v; change("view"); }),
       el("div", { class: "note" }, "Export, import and reset live in the Session section at the top."),
     ));
   }

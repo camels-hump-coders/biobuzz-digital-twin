@@ -27,7 +27,9 @@ export interface AppState {
   aimRequest?: boolean;
   /** transient: put every game piece back to match start */
   resetMatchRequest?: boolean;
-  overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean };
+  overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean; hitmap: boolean };
+  /** show per-frame timing of the main loop sections */
+  showPerf: boolean;
   noise: NoiseConfig;
   monteCarloN: number;
   /** virtual runtime (TeamCode) */
@@ -66,7 +68,8 @@ export function defaultState(): AppState {
     pauseOpponents: false,
     view: "orbit",
     pip: true,
-    overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false },
+    overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false },
+    showPerf: false,
     noise: { ...DEFAULT_NOISE },
     monteCarloN: 150,
     autoTip: true,

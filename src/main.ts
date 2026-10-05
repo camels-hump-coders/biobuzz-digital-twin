@@ -1,11 +1,14 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
-import { aimPoint, upCellFrame, type Alliance, type CellFrame, type Vec3 } from "./field/hive";
+import { aimPoint, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
+import { HitMapJob } from "./ballistics/hitmap";
+import { Perf } from "./ui/perf";
+import { setupUpdates } from "./pwa";
 import { BALL, FIELD, m } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
-import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, type DriveParams, type Obstacle } from "./sim/drive";
+import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, type DriveParams, type Obstacle, type Pose } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
@@ -340,6 +343,8 @@ function activeCamera(): THREE.Camera { return currentCamera; }
 
 // ---------- main loop
 let last = performance.now();
+const perf = new Perf();
+setupUpdates();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
 let analysisTick = 0;
 
@@ -396,6 +401,7 @@ function frame(now: number) {
   last = now;
 
   // input & drive
+  perf.begin();
   const { cmd, actions } = input.poll();
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
   if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; match.resetHive(state.alliance); panel.render(); }
@@ -421,6 +427,7 @@ function frame(now: number) {
   const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
   state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...fieldObstacles(), ...others]);
   robot.setPose(state.pose);
+  perf.mark("drive");
 
   // aim after the collision push-out so a teleport into the frame still ends up pointed at the target
   if (actions.aim || state.aimRequest) {
@@ -450,7 +457,9 @@ function frame(now: number) {
       ag.pose = s.pose;
       ag.footprint = s.footprint;
       if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) { /* fired */ } } else ag.intakeActive = false;
-      stepScripted(s, dt, [me]);
+      // other scripted robots are obstacles too, so they route around and push off each other instead of overlapping
+      const peers: Obstacle[] = scripted.filter((o) => o !== s).map((o) => ({ xMin: o.pose.x - o.footprint.widthM / 2, xMax: o.pose.x + o.footprint.widthM / 2, zMin: o.pose.z - o.footprint.lengthM / 2, zMax: o.pose.z + o.footprint.lengthM / 2 }));
+      stepScripted(s, dt, [me, ...peers]);
     });
   }
   scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
@@ -459,7 +468,9 @@ function frame(now: number) {
   playerAgent.footprint = { lengthM: state.robot.lengthM, widthM: state.robot.widthM };
   playerAgent.intakeGeom = state.robot.intake;
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
+  perf.mark("robots");
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
+  perf.mark("match");
 
   // shot analysis
   const tf = targetFrame();
@@ -484,10 +495,15 @@ function frame(now: number) {
   robot.launcherMarker.rotation.y = (l.yawOffsetDeg * Math.PI) / 180 + turretYaw; // local +Y rotation = yaw left
   if (actions.launch && !runtimeActive) launch(exit, fireDir);
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
+  perf.mark("shot");
   updateFlying(dt);
+  perf.mark("balls");
 
   // overlays
+  perf.mark("analysis");
   updateReachMap(tf);
+  updateHitMap(tf);
+  perf.mark("hitmap");
   overlays.setTrajectory(shot, ballProps().diameterM / 2, turretOk);
   overlays.setActualTrajectory(actualShot, ballProps().diameterM / 2);
   overlays.setDispersion(mc?.points);
@@ -495,6 +511,7 @@ function frame(now: number) {
   overlays.setTarget(tf, target);
   overlays.setAim(exit, target, turretOk);
 
+  perf.mark("overlays");
   // cameras analysis (throttled)
   analysisTick++;
   const camInfos = state.robot.cameras.map((c) => {
@@ -525,6 +542,7 @@ function frame(now: number) {
     panel.updateTelemetry(link.telemetry, `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}`);
   }
 
+  perf.mark("tags+link");
   // HUD
   const speed = Math.hypot(vel.vx, vel.vz);
   const apex = shot ? Math.max(...shot.samples.map((s) => s.pos.y)) : undefined;
@@ -568,6 +586,7 @@ function frame(now: number) {
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""} · keyboard = gamepad${input.keyboardPad}` : ""),
   });
 
+  perf.mark("hud");
   // render main view
   let cam: THREE.Camera = orbitCam;
   controls.enabled = state.view === "orbit" && !dragCam;
@@ -586,6 +605,7 @@ function frame(now: number) {
   robot.launcherMarker.visible = showGizmos;
   for (const a of allAgents) a.carryGroup.visible = showGizmos;
   renderer.render(scene, cam);
+  perf.mark("render");
 
   // PiP: every enabled camera gets an inset (except the one filling the main view)
   const pipCams = state.pip ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
@@ -597,6 +617,9 @@ function frame(now: number) {
     p.camId = c.mount.id;
     p.el.classList.toggle("selected", c.selected);
     if (p.el.clientWidth && (p.canvas.width !== p.el.clientWidth || p.canvas.height !== p.el.clientHeight)) p.renderer.setSize(p.el.clientWidth, p.el.clientHeight, false);
+    // two insets: refresh each on alternate frames; the scene is rendered three times per frame otherwise and the
+    // GPU, not the JS, is what limits the frame rate with the CAD loaded
+    if (pipCams.length > 1 && (analysisTick + i) % 2 === 1) return;
     robot.cameraGizmos.visible = false;
     robot.launcherMarker.visible = false;
     for (const a of allAgents) a.carryGroup.visible = false;
@@ -608,11 +631,13 @@ function frame(now: number) {
     p.label.textContent = `${c.mount.name} · ${c.intr.width}x${c.intr.height} · ${(c.intr.hfov * 180 / Math.PI).toFixed(0)}°x${(c.intr.vfov * 180 / Math.PI).toFixed(0)}°`;
   });
 
+  perf.mark("insets");
+  perf.end(state.showPerf);
   if (analysisTick % 120 === 0) saveState(state);
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }) };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };
@@ -659,6 +684,43 @@ function computeMonteCarlo(exit: Vec3, frame: CellFrame, dir: { x: number; z: nu
   mcCache = { key, mc, at: now };
   return mc;
 }
+// ---- hit-probability map: incremental job, re-created whenever anything it depends on changes
+let hitKey = "";
+let hitJob: HitMapJob | undefined;
+let hitLastDraw = 0;
+/** Would the selected camera see one of the target cell's tags if the robot stood at (x,z) aimed at the target? */
+function cellCameraVisibility(x: number, z: number, frameSide: CellSide): boolean {
+  const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
+  if (!camMount || !camMount.enabled) return true; // no camera to check against: do not dim
+  const l = state.robot.launcher;
+  const ap = aimPoint(targetFrame(), 0.05);
+  const mid = (l.turretMinDeg + l.turretMaxDeg) / 2;
+  let pose: Pose = { x, z, heading: 0 };
+  for (let i = 0; i < 3; i++) {
+    const e = robotToWorld(pose, l.exitForwardM, l.exitLeftM);
+    pose = { ...pose, heading: headingToward(e, ap) - ((mid + l.yawOffsetDeg) * Math.PI) / 180 };
+  }
+  robot.setPose(pose);
+  const cam = robot.worldCamera(camMount.id);
+  if (!cam) return true;
+  const vis = analyseTags(cam, intrinsicsFor(camMount), field.tagMeshes, field.occluders);
+  return vis.some((t) => t.visible && t.alliance === state.alliance && t.side === frameSide);
+}
+function updateHitMap(frame: CellFrame) {
+  if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; hitJob = undefined; overlays.setHitMap(undefined); } return; }
+  const l = state.robot.launcher;
+  const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
+  const key = JSON.stringify([l, state.ballKind, state.drag, state.alliance, state.hive, state.noise, camMount, state.robot.lengthM, state.robot.widthM, state.robot.modelYawDeg]);
+  if (key !== hitKey) { hitKey = key; hitJob = new HitMapJob(frame, l, ballProps(), state.noise, 6, 40); overlays.setHitMap(hitJob); }
+  if (!hitJob || hitJob.done) return;
+  const side = state.hive[state.alliance];
+  const saved = state.pose;
+  const k = hitJob.step(5, (x, z) => cellCameraVisibility(x, z, side));
+  robot.setPose(saved); // visibility probing moved the robot object around
+  const now = performance.now();
+  if (k && (hitJob.done || now - hitLastDraw > 150)) { hitLastDraw = now; overlays.setHitMap(hitJob); }
+}
+
 let reachKey = "";
 let reachMap: ReachMap | undefined;
 function updateReachMap(frame: CellFrame) {

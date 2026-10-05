@@ -136,14 +136,20 @@ export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obs
   const { hx, hz } = worldHalfExtents(fp, heading);
   x = clamp(x, -half + hx, half - hx);
   z = clamp(z, -half + hz, half - hz);
-  for (const o of obstacles) {
-    // expanded obstacle vs robot centre; push out along the axis of least penetration
-    const ex0 = o.xMin - hx, ex1 = o.xMax + hx, ez0 = o.zMin - hz, ez1 = o.zMax + hz;
-    if (x > ex0 && x < ex1 && z > ez0 && z < ez1) {
-      const dxl = x - ex0, dxr = ex1 - x, dzl = z - ez0, dzr = ez1 - z;
-      const mn = Math.min(dxl, dxr, dzl, dzr);
-      if (mn === dxl) x = ex0; else if (mn === dxr) x = ex1; else if (mn === dzl) z = ez0; else z = ez1;
+  // two passes: a push-out can land in another obstacle; the wall always wins (a robot can be pushed against the
+  // perimeter by another robot, never through it)
+  for (let pass = 0; pass < 2; pass++) {
+    for (const o of obstacles) {
+      // expanded obstacle vs robot centre; push out along the axis of least penetration
+      const ex0 = o.xMin - hx, ex1 = o.xMax + hx, ez0 = o.zMin - hz, ez1 = o.zMax + hz;
+      if (x > ex0 && x < ex1 && z > ez0 && z < ez1) {
+        const dxl = x - ex0, dxr = ex1 - x, dzl = z - ez0, dzr = ez1 - z;
+        const mn = Math.min(dxl, dxr, dzl, dzr);
+        if (mn === dxl) x = ex0; else if (mn === dxr) x = ex1; else if (mn === dzl) z = ez0; else z = ez1;
+      }
     }
+    x = clamp(x, -half + hx, half - hx);
+    z = clamp(z, -half + hz, half - hz);
   }
   return { x, z, heading };
 }

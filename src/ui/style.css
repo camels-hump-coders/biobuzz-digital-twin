@@ -75,3 +75,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .assets details.afile > summary .badge { background: var(--accent); color: #111; border-radius: 10px; padding: 0 7px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 #panel .assets details.afile > summary button { padding: 2px 8px; font-size: 11px; }
 #panel .assets .abody { padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 4px; }
+
+#perf { position: absolute; right: 12px; bottom: 44px; margin: 0; padding: 8px 10px; background: rgba(14,17,22,.88); border: 1px solid #2a313a; border-radius: 6px; font: 11px ui-monospace, Menlo, monospace; color: var(--fg); pointer-events: none; z-index: 5; }
+#panel:not(.hidden) ~ #perf { right: 372px; }
+#update-toast { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #1c2230; border: 1px solid var(--accent); border-radius: 8px; color: var(--fg); font-size: 13px; z-index: 10; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+#update-toast button { background: var(--accent); color: #111; border: none; border-radius: 4px; padding: 4px 10px; font: inherit; font-weight: 600; cursor: pointer; }
+#update-toast button:last-child { background: transparent; color: var(--muted); padding: 0 4px; font-size: 16px; }

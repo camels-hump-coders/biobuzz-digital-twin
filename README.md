@@ -15,6 +15,29 @@ See `docs/superpowers/specs/2026-10-04-biobuzz-digital-twin-design.md` for the n
 <https://camels-hump-coders.github.io/biobuzz-digital-twin/> (see [Hosting](#hosting-github-pages)). Driving, cameras, launcher
 analysis and the match simulation all run in the page; only running your Java TeamCode needs the local host below.
 
+## Set up
+
+You need Node 22, pnpm 12 and, only for the virtual runtime, a JDK (17 or newer). The repo carries a [flox](https://flox.dev) environment that provides all of them (plus Gradle and Python 3), so the quickest path is:
+
+```bash
+git clone git@github.com:camels-hump-coders/biobuzz-digital-twin.git
+cd biobuzz-digital-twin
+flox activate          # drops you into a shell with node, pnpm, java and gradle on PATH
+pnpm install
+```
+
+Without flox, install Node 22 and pnpm yourself (`corepack enable && corepack prepare pnpm@latest --activate`), and point `JAVA_HOME` at a JDK 17+ if you want to run TeamCode (Android Studio's bundled JDK is picked up automatically when `JAVA_HOME` is unset).
+
+## Run the twin
+
+```bash
+pnpm dev          # http://localhost:5173
+pnpm test         # unit tests for geometry, ballistics, kinematics, camera math
+pnpm build        # static site in dist/ (also deployed to GitHub Pages, see Hosting)
+```
+
+The side panel on the right holds every setting; the HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; export them from the **Session** section to share.
+
 ## Gallery
 
 | | |
@@ -23,8 +46,10 @@ analysis and the match simulation all run in the page; only running your Java Te
 | **Shot analysis.** Hood angle, exit speed and flywheel RPM to reach the raised CELL from where the robot stands, the Monte-Carlo dispersion cloud and the hit probability; partner and opponents on the field. | **Robot camera.** Press 4 to see exactly what the configured webcam sees (preset lens, mount position, pitch); the HUD lists which AprilTags are in frame and which are occluded. |
 | ![Top view with camera footprints and the planned trajectory](docs/screenshots/top-view.png) | ![Red hive mid-tip after eight POLLEN, balls rolling out](docs/screenshots/hive-tipping.png) |
 | **Top view.** Camera ground footprint, FOV frustum, the launch line and the start/loading zones; shift-click anywhere to teleport and auto-aim. | **Hive physics.** Balls fly, bounce and settle in the cell; the hive tips at the calibrated load and pours the pieces out as it swings. |
-| ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and telemetry](docs/screenshots/runtime-teamcode.png) | ![Browser editor for the TeamCode JSON assets](docs/screenshots/teamcode-settings.png) |
-| **Virtual runtime.** The team's unmodified Java OpMode (here: tag-based auto aim) running on a desktop JVM, driving the simulated robot from the browser with INIT / START / STOP and live telemetry. | **TeamCode settings.** The OpModes' JSON assets as a searchable form; edits are simulator-only overrides merged at INIT, the repo files stay untouched. |
+| ![Hit-probability map: where on the field an aimed shot lands in the raised cell](docs/screenshots/hit-probability-map.png) | ![Browser editor for the TeamCode JSON assets](docs/screenshots/teamcode-settings.png) |
+| **Hit-probability map.** From every 6 in square, aim and fire 40 simulated shots with your shot variability: green always scores, red never; dimmed where the selected camera cannot see the target cell's AprilTags. Watch it change as you tweak hood angle, RPM limits, variability or camera mounts. | **TeamCode settings.** The OpModes' JSON assets as a searchable form; edits are simulator-only overrides merged at INIT, the repo files stay untouched. |
+| ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and telemetry](docs/screenshots/runtime-teamcode.png) | |
+| **Virtual runtime.** The team's unmodified Java OpMode (here: tag-based auto aim) running on a desktop JVM, driving the simulated robot from the browser with INIT / START / STOP and live telemetry. | |
 
 ## Run your TeamCode against the twin (virtual runtime)
 
@@ -40,18 +65,6 @@ pnpm sim                                      # later runs reuse the remembered 
 Then pick an OpMode in the **Runtime** panel → INIT → START. Edit your Java in Android Studio and save: the host recompiles and restarts within a few seconds and the browser reconnects, so you never leave the twin. Options: `--exclude "**/roadrunner/**,**/Old*.java"` to skip files that use SDK classes the shim lacks, `--no-watch`, `--no-browser`, `--port`, `--host-port`. The JDK is taken from `JAVA_HOME`, or Android Studio's bundled one if that is missing.
 
 See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Two sample OpModes (a mecanum TeleOp and an AprilTag auto-aim autonomous) ship with it.
-
-## Run it
-
-The repo carries a [flox](https://flox.dev) environment with everything needed: Node 22, pnpm, JDK 21, Gradle and Python 3.
-
-```bash
-flox activate     # or `flox activate -- pnpm sim` to run a single command inside it
-pnpm install
-pnpm dev          # http://localhost:5173
-pnpm test         # unit tests for geometry, ballistics, kinematics, camera math
-pnpm build        # static site in dist/
-```
 
 ## Saving, sharing and resetting
 
@@ -78,6 +91,15 @@ Everything in the side panel is kept in the browser's localStorage. The **Sessio
 | Shift+click or double-click on the mat | teleport the robot there and aim at the target cell |
 
 Gamepad: left stick drive, right stick rotate, A launch, B aim at target, Y flip target, X field-centric, right trigger boost.
+
+## Mat overlays
+
+Two field-wide maps live in **View & overlays**:
+
+- **Reachability map**: the flywheel RPM needed to hit the target cell from each 6 in square (green low, red near the maximum, dark unreachable).
+- **Hit-probability map**: from each square, aim at the target, take the hood/RPM the launcher would need from there and fire 40 simulated shots with the configured shot variability; the square is coloured by the fraction that land in the cell. Squares are dimmed where the selected camera would not see any of the target cell's AprilTags, since auto-aim could not lock on from there. The map fills in over a few seconds and recomputes as you change the launcher, variability, hood angle, cameras or target, so you can watch a camera FOV or mount change open up or close off parts of the field.
+
+**Performance stats** (same section) shows how long each part of the frame takes.
 
 ## What the HUD tells you
 
@@ -137,7 +159,7 @@ What works on the hosted page: everything except running Java TeamCode. The virt
 
 - The *predicted* HIT/MISS and the hit probability are geometric: the arc must cross the opening plane inside the pentagon (shrunk by the ball radius plus the 12 mm lip tube) while moving into the cell. *Fired* balls are simulated live with drag, gravity and bounces off the hive cells, frame, flowers, walls, robots and floor (restitution about 0.45, foam floor 0.5), and a shot only counts as a hit in the Fired / hit tally when the ball comes to rest inside the target cell (low-speed contacts are treated as resting, so balls settle on the sloped floor). Tipping is a timed swing driven by the load, not a rigid-body simulation of the bi-stable hive.
 - AprilTags are real tag36h11 codes (IDs 30–45) at the manual's cluster geometry (centres at ±2.75 and ±6.5 in, 7.19 in behind the opening), so a vision pipeline looking at the camera inset sees genuine tags. The runtime still hands detections to TeamCode synthetically rather than decoding pixels.
-- Other robots follow fixed waypoint loops and do not score or avoid each other.
+- Partner and opponent robots are scripted: they collect from FLOWERS and loose balls, drive to a launch spot in front of their alliance's raised cell routing around the hive legs, flowers and other robots, and score with a 55° shot. They push loose balls and bump chassis-to-chassis like the real thing, but have no defence strategy and only re-route when they get stuck for a few seconds.
 - Driving: the two triangular frame legs and the four FLOWER cages block the robot; the space under the cells between the legs is open, as on the real field.
 - Camera images are ideal pinhole renders: no lens distortion, exposure or motion blur.
 
