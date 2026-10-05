@@ -319,6 +319,13 @@ function frame(now: number) {
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
   if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; field.setHiveState({ alliance: state.alliance, upCell: state.hive[state.alliance] }); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
+  const dp = driveParams();
+  const vel = commandToVelocity(cmd, state.pose, dp);
+  const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
+  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
+  robot.setPose(state.pose);
+
+  // aim after the collision push-out so a teleport into the frame still ends up pointed at the target
   if (actions.aim || state.aimRequest) {
     state.aimRequest = false;
     const ex = robot.exitPoint();
@@ -327,18 +334,15 @@ function frame(now: number) {
     // heading such that the launcher (at its turret centre) points at the target
     const mid = (state.robot.launcher.turretMinDeg + state.robot.launcher.turretMaxDeg) / 2;
     // the exit point moves when the robot turns, so iterate a few times
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const e = robot.exitPoint();
       state.pose = { ...state.pose, heading: headingToward({ x: e.x, z: e.z }, ap) - (mid * Math.PI) / 180 };
+      // the rotated footprint may now overlap a frame leg; push out and aim again
+      state.pose = stepPose(state.pose, { vx: 0, vz: 0, yawRate: 0 }, 0.001, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
       robot.setPose(state.pose);
     }
     void ex;
   }
-  const dp = driveParams();
-  const vel = commandToVelocity(cmd, state.pose, dp);
-  const others: Obstacle[] = state.opponents ? scripted.map((s) => ({ xMin: s.pose.x - s.footprint.widthM / 2, xMax: s.pose.x + s.footprint.widthM / 2, zMin: s.pose.z - s.footprint.lengthM / 2, zMax: s.pose.z + s.footprint.lengthM / 2 })) : [];
-  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...hiveFrameObstacles(), ...others]);
-  robot.setPose(state.pose);
 
   // scripted robots
   if (state.opponents && !state.pauseOpponents) {
