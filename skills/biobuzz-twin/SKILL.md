@@ -92,5 +92,8 @@ and hit, carried game pieces, hive loads/tips, fouls, and `pageErrors`/`hostLogT
    mechanical jams).
 4. Commit the scenario next to the code so it runs again later.
 
+The host also serves the real FTC Panels dashboard at http://localhost:8001 (socket 8002) while it runs, fed by the
+team's own Panels calls; a quick way to see what the code publishes is to open it in a browser or read the socket.
+
 Humans can open the same thing interactively: `pnpm sim --team <path>` in the twin directory (browser opens, INIT/START
 /STOP from the Runtime panel; INIT parks all robots at their start positions, START releases the match).

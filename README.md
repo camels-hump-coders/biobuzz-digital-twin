@@ -64,6 +64,8 @@ pnpm sim                                      # later runs reuse the remembered 
 
 Then pick an OpMode in the **Runtime** panel → INIT → START. Edit your Java in Android Studio and save: the host recompiles and restarts within a few seconds and the browser reconnects, so you never leave the twin. Options: `--exclude "**/roadrunner/**,**/Old*.java"` to skip files that use SDK classes the shim lacks, `--no-watch`, `--no-browser`, `--port`, `--host-port`. The JDK is taken from `JAVA_HOME`, or Android Studio's bundled one if that is missing.
 
+The host also runs the **real FTC Panels dashboard** (com.bylazar, the same library your code uses on the robot): open http://localhost:8001 from the *Open Panels dashboard* link in the Runtime panel. Telemetry, graphs, field drawings, configurables, OpMode control and the camera stream all come from your code's own Panels calls, fed by the simulated robot and webcam, so what Panels shows for the twin is what it would show for the robot.
+
 See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Two sample OpModes (a mecanum TeleOp and an AprilTag auto-aim autonomous) ship with it.
 
 ## Test bed for coding agents (and CI)
