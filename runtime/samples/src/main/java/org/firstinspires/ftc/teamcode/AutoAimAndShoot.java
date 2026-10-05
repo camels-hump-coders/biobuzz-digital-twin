@@ -45,7 +45,8 @@ public class AutoAimAndShoot extends LinearOpMode {
             double turn;
             if (target == null) turn = 0.25; else turn = Math.max(-0.35, Math.min(0.35, target.ftcPose.bearing * 0.02));
             if (target != null && Math.abs(target.ftcPose.bearing) < 1.0) break;
-            fl.setPower(turn); bl.setPower(turn); fr.setPower(-turn); br.setPower(-turn);
+            // FTC convention: positive bearing = tag to the left, so positive turn must rotate CCW (left wheels back)
+            fl.setPower(-turn); bl.setPower(-turn); fr.setPower(turn); br.setPower(turn);
             telemetry.addData("state", target == null ? "searching" : "aligning");
             if (target != null) telemetry.addData("bearing", "%.1f deg  range %.1f in", target.ftcPose.bearing, target.ftcPose.range);
             telemetry.update();
