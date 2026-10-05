@@ -10,6 +10,12 @@ servos, encoders, IMU, AprilTag detections and gamepads are simulated; the robot
 partner/opponent robots, hives that tip, pollen/nectar and the real game rules for pinning. Use it to check a code
 change before anyone loads it on the robot.
 
+## 0. Keeping this skill current
+
+Installed with `npx skills add camels-hump-coders/biobuzz-digital-twin --skill biobuzz-twin` (or `pnpm skill:install`
+from a twin checkout). `npx skills update` refreshes it; the twin itself updates with `git pull` in its checkout followed
+by `pnpm install`.
+
 ## 1. Locate the twin and check it is set up
 
 1. Read `.biobuzz-twin.json` in the team repo root; `twinPath` is the twin checkout. If the file is missing, look for a

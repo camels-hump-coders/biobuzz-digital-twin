@@ -77,13 +77,20 @@ pnpm twin-test --team ~/dev/FtcRobotController --scenario scenarios/example-tele
 
 Scenarios (`scenarios/scenario.schema.json`) choose the OpMode, alliance, robot and hardware presets, asset overrides, start pose, inputs and `expect` checks (`noErrors`, `shotsFired ">=1"`, `telemetryIncludes`, `movedAtLeastIn`, …). It uses ports 5190/8790 so a running `pnpm sim` is not disturbed.
 
-**Agent skill.** `skills/biobuzz-twin/SKILL.md` teaches a coding agent (Claude Code and compatible tools) to find the twin, check it is installed, run the team's code through it and read the report. Install it into a team repo with:
+**Agent skill.** `skills/biobuzz-twin/SKILL.md` teaches a coding agent (Claude Code, Codex, Cursor and the other agents the [skills](https://skills.sh) CLI supports) to find the twin, check it is installed, run the team's code through it and read the report. Two ways to install it into a team repo:
 
 ```bash
+# 1. straight from this GitHub repo with the skills CLI (run inside the team repo)
+npx skills add camels-hump-coders/biobuzz-digital-twin --skill biobuzz-twin            # prompts for the agents to install to
+npx skills add camels-hump-coders/biobuzz-digital-twin --skill biobuzz-twin -a claude-code -y   # no prompts
+npx skills add camels-hump-coders/biobuzz-digital-twin --skill biobuzz-twin -g         # user-wide instead of this project
+npx skills update                                                                       # later, pull the newest version
+
+# 2. from a local checkout of this repo
 pnpm skill:install ~/dev/FtcRobotController     # copies to <team>/.claude/skills/biobuzz-twin and writes .biobuzz-twin.json
 ```
 
-Commit both files in the team repo; from then on "run this through the twin" is something their agent knows how to do.
+`npx skills add ... --list` shows what the repo offers. The CLI install does not know where your twin checkout is; the skill then looks for a sibling `biobuzz-digital-twin` directory or clones one, so optionally add `.biobuzz-twin.json` (`{ "twinPath": "/path/to/twin" }`) to the team repo root to point it somewhere else. Commit the skill files; from then on "run this through the twin" is something every teammate's agent knows how to do.
 
 ## Match flow
 
