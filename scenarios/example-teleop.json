@@ -1,6 +1,6 @@
 {
   "name": "Sample TeleOp drives forward and turns (template)",
-  "opMode": "Sim StarterBot TeleOp",
+  "opMode": "Sim: StarterBot TeleOp",
   "alliance": "red",
   "robotPreset": "starterbotMecanum",
   "hardwarePreset": "starterbot",
