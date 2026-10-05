@@ -19,8 +19,12 @@ export class Input {
   constructor() {
     window.addEventListener("keydown", (e) => {
       const t = e.target as HTMLElement | null;
-      this.typing = !!t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA");
+      // Only real text entry swallows keys. A focused <select>, checkbox or button (which is where focus ends up
+      // after using the panel) must not disable driving; drop focus from it so Space does not re-click it either.
+      const textEntry = !!t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "range"].includes((t as HTMLInputElement).type)));
+      this.typing = textEntry;
       if (this.typing) return;
+      if (t && (t.tagName === "SELECT" || t.tagName === "BUTTON" || t.tagName === "INPUT")) { t.blur(); e.preventDefault(); }
       if (!this.keys.has(e.code)) this.edges.add(e.code);
       this.keys.add(e.code);
       if (e.code === "Tab") { e.preventDefault(); this.keyboardPad = this.keyboardPad === 1 ? 2 : 1; }

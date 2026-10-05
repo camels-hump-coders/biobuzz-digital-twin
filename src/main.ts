@@ -214,9 +214,11 @@ syncRuntime();
 Object.assign(overlays.show, state.overlays);
 window.addEventListener("keydown", (e) => {
   const t = e.target as HTMLElement | null;
-  if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+  if (t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "range"].includes((t as HTMLInputElement).type)))) return;
   if (e.code === "KeyH") panel.toggle();
 });
+// clicking anything in the panel should not leave the keyboard captured by a form control
+document.getElementById("panel")!.addEventListener("click", (e) => { const t = e.target as HTMLElement; if (t.tagName === "BUTTON") setTimeout(() => t.blur(), 0); });
 
 // ---------- helpers
 function ballProps() {
