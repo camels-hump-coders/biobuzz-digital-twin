@@ -87,8 +87,9 @@ export function stepActuators(
   let vFwd = 0, vLeft = 0, omega = 0;
   // the hardware map may describe a tank bot (roles left/right) while the chassis preset is mecanum, or the other way
   // round; use whichever wheel roles actually carry commands rather than silently standing still
-  const corner = ["frontLeft", "frontRight", "backLeft", "backRight"].some((k) => wheel[k] !== undefined);
-  const sides = wheel.left !== undefined || wheel.right !== undefined;
+  const moving = (k: string) => Math.abs(wheel[k] ?? 0) > 1e-6;
+  const corner = ["frontLeft", "frontRight", "backLeft", "backRight"].some(moving);
+  const sides = moving("left") || moving("right");
   if (drivetrain === "mecanum" && (corner || !sides)) {
     const fl = wheel.frontLeft ?? 0, fr = wheel.frontRight ?? 0, bl = wheel.backLeft ?? 0, br = wheel.backRight ?? 0;
     vFwd = (fl + fr + bl + br) / 4;
