@@ -134,7 +134,11 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
   const wedged = recent.some((c1) => recent.some((c2) => c1.n.dot(c2.n) < 0.7));
   if ((moved < 0.15 && b.vel.lengthSq() < 0.8 * 0.8) || (wedged && b.vel.lengthSq() < 1.0)) b.restFor += dt * (wedged ? 3 : 1); else b.restFor = 0;
   if (carried) b.restFor = 0;
-  if (b.restFor > 0.4 || (b.age > 8 && !carried)) { b.settled = true; b.vel.set(0, 0, 0); }
+  // long-lived jitter guard: an old ball that is slow and touching something (floor or a recent surface contact) is
+  // declared at rest. It must never apply to a ball in the air, e.g. one just thrown out of a tipping cell.
+  const touching = b.pos.y <= b.radius + 0.01 || (b.contacts ?? []).some((c) => b.age - c.at < 0.3) || b.contactAge < 0.3;
+  const oldAndSlow = b.age > 8 && !carried && touching && b.vel.lengthSq() < 0.6 * 0.6;
+  if (b.restFor > 0.4 || oldAndSlow) { b.settled = true; b.vel.set(0, 0, 0); }
   b.mesh.position.copy(b.pos);
 }
 

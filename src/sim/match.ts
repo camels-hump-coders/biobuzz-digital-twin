@@ -180,7 +180,7 @@ export class Match {
       if (!f.settled || f.counted) continue;
       for (const a of ["red", "blue"] as Alliance[]) {
         if (this.hives[a].tipping) continue;
-        if (insideCell(frames[a], f.pos, 0.02)) { f.counted = true; f.inCell = true; (f as any).cellOf = a; f.scored = true; break; }
+        if (insideCell(frames[a], f.pos, 0.06)) { f.counted = true; f.inCell = true; (f as any).cellOf = a; f.scored = true; break; }
       }
     }
     // --- tipping
@@ -200,7 +200,15 @@ export class Match {
           h.upCell = h.upCell === "audience" ? "scoring" : "audience";
           this.hiveState[a] = h.upCell;
           this.field.setHiveState({ alliance: a, upCell: h.upCell });
-          for (const f of this.flying) if ((f as any).cellOf === a) { f.inCell = false; f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1; f.carried = true; }
+          const cells = cellFrames({ alliance: a, upCell: h.upCell });
+          const px = hivePivot(a).x;
+          for (const f of this.flying) {
+            const riding = (f as any).cellOf === a || cells.some((c) => insideCell(c, f.pos, 0.1));
+            // anything settled up in this hive's volume lost its support when the cells swung: let it fall (or re-settle
+            // on the structure it is actually touching)
+            const aloft = f.settled && !f.inCell && f.pos.y > f.radius + 0.02 && Math.abs(f.pos.x - px) < 0.5 && Math.abs(f.pos.z) < 1.0;
+            if (riding || aloft) { f.inCell = false; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; f.carried = riding; }
+          }
         }
       } else if (this.autoTip() && this.cellLoad(a).massKg >= this.tipMassKg() - 1e-6) {
         this.startTip(a);
@@ -210,12 +218,24 @@ export class Match {
     for (const a of ["red", "blue"] as Alliance[]) {
       if (this.hives[a].tipping) continue;
       const down = cellFrames({ alliance: a, upCell: this.hives[a].upCell }).find((c) => !c.isUp)!;
+      const up = this.upFrame(a);
+      const pivot = hivePivot(a);
       for (const f of this.flying) {
         if (!f.settled || f.inCell) continue;
-        if (!insideCell(down, f.pos, 0.03)) continue;
-        f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1; f.carried = true;
-        // a nudge toward the opening so it does not just re-wedge against the back skin
-        f.vel.addScaledVector(new THREE.Vector3(down.normal.x, down.normal.y, down.normal.z), 0.4);
+        if (insideCell(down, f.pos, 0.03)) {
+          f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1; f.carried = true;
+          // a nudge toward the opening so it does not just re-wedge against the back skin
+          f.vel.addScaledVector(new THREE.Vector3(down.normal.x, down.normal.y, down.normal.z), 0.4);
+          continue;
+        }
+        // the V between the two cells' back skins (around the pivot) is open framework on the real hive, not a shelf:
+        // a ball wedged there slides off the end of the hive
+        const rx = f.pos.x - pivot.x, ry = f.pos.y - pivot.y, rz = f.pos.z - pivot.z;
+        const along = ry * up.normal.y + rz * up.normal.z, u = ry * up.up.y + rz * up.up.z;
+        if (Math.abs(along) < 0.3 && u > -0.25 && u < 0.35 && Math.abs(rx) < 0.32) {
+          f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1;
+          f.vel.set((rx >= 0 ? 1 : -1) * 0.6, 0, 0);
+        }
       }
     }
     // --- chassis vs loose balls: intake side collects, every other side (or a full robot) pushes
@@ -235,8 +255,7 @@ export class Match {
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -dAngle); // field.setHiveTilt uses rotation.x = -tilt
     const bothCells = cellFrames({ alliance, upCell: this.hives[alliance].upCell });
     for (const f of this.flying) {
-      if (f.settled && !((f as any).cellOf === alliance)) continue;
-      // inside either cell of this hive (generous margin: the cell is moving)
+      // inside either cell of this hive (generous margin: the cell is moving); settled balls ride along too
       const inside = (f as any).cellOf === alliance || bothCells.some((c) => insideCell(c, f.pos, 0.06));
       if (!inside) continue;
       const rel = f.pos.clone().sub(pv);
