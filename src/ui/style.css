@@ -52,3 +52,26 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .pip.hidden { display: none; }
 #help { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); color: var(--muted); font-size: 11px; background: rgba(14,17,22,.7); padding: 4px 10px; border-radius: 6px; pointer-events: none; white-space: nowrap; }
 .crosshair { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px; border: 1px solid rgba(255,255,255,.6); border-radius: 50%; pointer-events: none; }
+
+/* TeamCode settings (assets) */
+#panel .assets { display: flex; flex-direction: column; gap: 6px; }
+#panel .assets .arow { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+#panel .assets .arow label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-size: 12px; }
+#panel .assets .arow input[type=number] { flex: 0 0 110px; width: 110px; }
+#panel .assets .arow input[type=text].atext { flex: 0 0 170px; width: 170px; }
+#panel .assets .arow input[type=checkbox] { flex: 0 0 auto; width: 16px; height: 16px; margin: 0 4px; }
+#panel .assets .arow textarea.ajson { flex: 0 0 100%; width: 100%; background: #0b0e13; color: var(--fg); border: 1px solid #2a313a; border-radius: 4px; padding: 4px 6px; font: 11px ui-monospace, Menlo, monospace; resize: vertical; }
+#panel .assets .arow textarea.ajson.bad { border-color: var(--bad); }
+#panel .assets .arow:has(textarea) { flex-wrap: wrap; }
+#panel .assets .arow.over { border-left: 2px solid var(--accent); margin-left: -8px; padding-left: 6px !important; }
+#panel .assets .arow.over label { color: var(--accent); }
+#panel .assets .arow .reset { flex: 0 0 auto; padding: 2px 7px; }
+#panel .assets .ahint { color: var(--muted); font-size: 10px; margin-top: -4px; }
+#panel .assets .agroup { color: var(--muted); font-size: 11px; font-weight: 600; margin-top: 8px; }
+#panel .assets .tools input[type=text] { flex: 1 1 auto; }
+#panel .assets details.afile { margin: 0; background: #0e1217; }
+#panel .assets details.afile > summary { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+#panel .assets details.afile > summary .name { flex: 1 1 auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+#panel .assets details.afile > summary .badge { background: var(--accent); color: #111; border-radius: 10px; padding: 0 7px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+#panel .assets details.afile > summary button { padding: 2px 8px; font-size: 11px; }
+#panel .assets .abody { padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 4px; }

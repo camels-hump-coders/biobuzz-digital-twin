@@ -69,6 +69,9 @@ export class Panel {
 
   toggle() { this.root.classList.toggle("hidden"); }
   selectedOpMode = "";
+  /** TeamCode settings panel: search text and which files are expanded */
+  private assetFilter = "";
+  private assetOpen = new Map<string, boolean>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
   updateTelemetry(lines: string[], status: string) {
     if (this.telemetryEl) { const t = lines.join("\n") || "(telemetry)"; if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t; }
@@ -154,46 +157,83 @@ export class Panel {
 
     // --- TeamCode settings: JSON assets the OpModes read (robot-profile.json, ...), editable here as sim-only overrides
     if (link?.connected && link.assets.length) {
-      const rows: (HTMLElement | HTMLElement[])[] = [];
-      rows.push(el("div", { class: "note full" }, "Your TeamCode's JSON assets. Edits here are simulator-only overrides (kept in this browser, exported with the session) merged into the file when the OpMode INITs. The files in your repo are not touched. Re-INIT after changing."));
-      const flatten = (v: unknown, prefix: string, out: [string, unknown][]) => {
-        if (v && typeof v === "object" && !Array.isArray(v)) for (const [k, x] of Object.entries(v as Record<string, unknown>)) flatten(x, prefix ? `${prefix}.${k}` : k, out);
-        else out.push([prefix, v]);
+      const total = Object.values(st.assetOverrides).reduce((n, o) => n + Object.keys(o).length, 0);
+      const box = el("div", { class: "assets full" });
+      const filter = el("input", { type: "text", placeholder: "Filter settings… e.g. autoShoot", value: this.assetFilter }) as HTMLInputElement;
+      filter.oninput = () => { this.assetFilter = filter.value; renderFiles(); };
+      const list = el("div", {});
+      box.append(
+        el("div", { class: "note" }, "Your TeamCode reads these JSON files from assets. Changes here are simulator-only overrides: kept in this browser (and in exported sessions), merged into the file when an OpMode INITs. Your repo files are never modified. Re-INIT after changing."),
+        el("div", { class: "arow tools" }, filter, el("button", { ...(total ? {} : { disabled: "" }), title: "Forget every override in every file", onclick: () => { st.assetOverrides = {}; change("assets"); } }, `Clear all${total ? ` (${total})` : ""}`)),
+        list,
+      );
+      const setOv = (path: string, key: string, value: unknown, original: unknown) => {
+        const cur = st.assetOverrides[path] ?? (st.assetOverrides[path] = {});
+        if (JSON.stringify(value) === JSON.stringify(original)) delete cur[key]; else cur[key] = value;
+        if (!Object.keys(cur).length) delete st.assetOverrides[path];
+        change("assets");
       };
-      for (const file of link.assets) {
-        let json: unknown;
-        try { json = JSON.parse(file.text); } catch { rows.push(el("div", { class: "note full" }, `${file.path}: not valid JSON`)); continue; }
-        const ov = st.assetOverrides[file.path] ?? {};
-        const n = Object.keys(ov).length;
-        rows.push(el("div", { class: "row full", style: "align-items:center;gap:8px" },
-          el("span", { class: "sub", style: "flex:1" }, `${file.path}${n ? ` · ${n} override${n > 1 ? "s" : ""}` : ""}`),
-          el("button", { ...(n ? {} : { disabled: "" }), onclick: () => { delete st.assetOverrides[file.path]; change("assets"); } }, "Clear overrides"),
-        ));
-        const leaves: [string, unknown][] = [];
-        flatten(json, "", leaves);
-        const setOv = (key: string, value: unknown, original: unknown) => {
-          const cur = st.assetOverrides[file.path] ?? (st.assetOverrides[file.path] = {});
-          if (JSON.stringify(value) === JSON.stringify(original)) delete cur[key]; else cur[key] = value;
-          if (!Object.keys(cur).length) delete st.assetOverrides[file.path];
-          change("assets");
-        };
-        for (const [key, original] of leaves) {
-          const has = key in ov;
-          const value = has ? ov[key] : original;
-          const label = (has ? "● " : "") + key;
-          const title = has ? `overridden (file has ${JSON.stringify(original)})` : "";
-          if (typeof value === "boolean") { const row = chk(label, () => value, (v) => setOv(key, v, original)); row[0].title = title; rows.push(row); }
-          else if (typeof value === "number" || (value === null && typeof original === "number")) { const row = num(label, () => value as number, (v) => setOv(key, v, original), { step: 0.01 }); row[0].title = title; rows.push(row); }
-          else {
-            // strings, nulls, arrays: edit as JSON text (plain text is accepted for strings)
-            const input = el("input", { type: "text", value: typeof value === "string" ? value : JSON.stringify(value), title: title || "JSON value: numbers, true/false, null, [arrays] or text" }) as HTMLInputElement;
-            input.onchange = () => { let v: unknown = input.value; try { v = JSON.parse(input.value); } catch { /* keep text */ } setOv(key, v, original); };
-            const lab = el("label", { title }, label);
-            rows.push([lab, input]);
-          }
+      const fmt = (v: unknown) => (typeof v === "string" ? `"${v}"` : JSON.stringify(v));
+      const renderFiles = () => {
+        list.replaceChildren();
+        const q = this.assetFilter.trim().toLowerCase();
+        for (const file of link.assets) {
+          let json: unknown;
+          try { json = JSON.parse(file.text); } catch { list.append(el("div", { class: "note" }, `${file.path}: not valid JSON`)); continue; }
+          const ov = st.assetOverrides[file.path] ?? {};
+          const n = Object.keys(ov).length;
+          const body = el("div", { class: "abody" });
+          let shown = 0;
+          // walk the tree: objects become indented group headings, everything else a row
+          const walk = (v: unknown, key: string, name: string, depth: number) => {
+            if (v && typeof v === "object" && !Array.isArray(v)) {
+              const entries = Object.entries(v as Record<string, unknown>);
+              const head = key ? el("div", { class: "agroup", style: `padding-left:${depth * 10}px` }, name) : null;
+              const before = shown;
+              if (head) body.append(head);
+              for (const [k, x] of entries) walk(x, key ? `${key}.${k}` : k, k, key ? depth + 1 : depth);
+              if (head && shown === before) head.remove(); // nothing matched the filter in this group
+              return;
+            }
+            if (q && !key.toLowerCase().includes(q)) return;
+            shown++;
+            const has = key in ov;
+            const value = has ? ov[key] : v;
+            const label = el("label", { title: key }, name);
+            const row = el("div", { class: `arow${has ? " over" : ""}`, style: `padding-left:${depth * 10}px` }, label);
+            let control: HTMLElement;
+            if (typeof value === "boolean") {
+              const c = el("input", { type: "checkbox" }) as HTMLInputElement; c.checked = value; c.onchange = () => setOv(file.path, key, c.checked, v); control = c;
+            } else if (typeof value === "number" || (value === null && typeof v === "number")) {
+              const i = el("input", { type: "number", step: "any", value: value === null ? "" : String(value), placeholder: "null" }) as HTMLInputElement;
+              i.onchange = () => { const x = parseFloat(i.value); setOv(file.path, key, Number.isNaN(x) ? null : x, v); }; control = i;
+            } else if (typeof value === "string" || value === null) {
+              const i = el("input", { type: "text", value: value ?? "", placeholder: value === null ? "null — type a number, true/false or text" : "", class: "atext" }) as HTMLInputElement;
+              i.onchange = () => { const t = i.value; let x: unknown = t; if (t === "") x = null; else if (t === "true" || t === "false") x = t === "true"; else if (/^-?\d+(\.\d+)?$/.test(t)) x = parseFloat(t); setOv(file.path, key, x, v); }; control = i;
+            } else {
+              // arrays and other structures: raw JSON
+              const ta = el("textarea", { rows: "2", class: "ajson", spellcheck: "false" }) as HTMLTextAreaElement; ta.value = JSON.stringify(value);
+              ta.onchange = () => { try { setOv(file.path, key, JSON.parse(ta.value), v); } catch { ta.classList.add("bad"); } }; control = ta;
+            }
+            row.append(control);
+            if (has) row.append(el("button", { class: "reset", title: `Back to the file's value: ${fmt(v)}`, onclick: () => setOv(file.path, key, v, v) }, "↺"));
+            body.append(row);
+            if (has) body.append(el("div", { class: "ahint", style: `padding-left:${depth * 10}px` }, `file: ${fmt(v)}`));
+          };
+          walk(json, "", "", 0);
+          if (q && !shown) continue;
+          const openIt = q ? true : (this.assetOpen.get(file.path) ?? n > 0);
+          const det = el("details", { class: "afile", ...(openIt ? { open: "" } : {}) },
+            el("summary", {}, el("span", { class: "name" }, file.path), n ? el("span", { class: "badge" }, `${n} override${n > 1 ? "s" : ""}`) : "",
+              el("button", { ...(n ? {} : { disabled: "" }), onclick: (e: Event) => { e.preventDefault(); e.stopPropagation(); delete st.assetOverrides[file.path]; change("assets"); } }, "Clear")),
+            body);
+          det.addEventListener("toggle", () => { if (!q) this.assetOpen.set(file.path, det.open); });
+          list.append(det);
         }
-      }
-      this.root.append(section("TeamCode settings (assets)", open("TeamCode settings (assets)", false), ...rows));
+        if (q && !list.childElementCount) list.append(el("div", { class: "note" }, "No setting matches."));
+      };
+      renderFiles();
+      this.root.append(section("TeamCode settings (assets)", open("TeamCode settings (assets)", false), box));
     }
 
     // --- Hardware map
