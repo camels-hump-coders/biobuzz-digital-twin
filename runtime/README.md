@@ -55,6 +55,8 @@ Press **Tab** to switch the keyboard between gamepad1 and gamepad2 (the HUD show
 
 **Sim-only asset overrides:** the browser panel *TeamCode settings (assets)* lists every JSON file in your `assets` folder with its values as checkboxes and fields. Anything you change there is stored in the browser (and in the exported session), sent to the host and merged into the file the next time an OpMode INITs; your repo files are never modified, and *Clear overrides* returns to them. Use it for settings that are safety-gated on the real robot (verified servo modes, auto-shoot enabled, shot ranges). File-based alternative: a `something.sim.json` next to `something.json` is served instead of the original.
 
+**After pulling a new version of this repo, restart `pnpm sim`** so the host picks up the rebuilt shim; a host started before an update can fail at INIT with `NoClassDefFoundError` for a class that was added since.
+
 Already covered without any changes on your side: `org.json` (the reference implementation), `android.content.Context` from `hardwareMap.appContext` with `getAssets()` reading `TeamCode/src/main/assets` and `getSharedPreferences()` persisting under `runtime/.sim-prefs`, `android.util.Size`, Panels `JoinedTelemetry` / `PanelsTelemetry` / `TelemetryManager` (telemetry is accepted, there is no dashboard), `DcMotor.getPortNumber()` and `getController()` (configure ports in the Hardware map panel; every device reports the one simulated Control Hub), SDK 12 `AprilTagSingleDetection` / `AprilTagClusterDetection` with `percentClusterFound`, `metadata.name` (`RED SCORING`, `RED AUDIENCE`, `BLUE AUDIENCE`, `BLUE SCORING`, as in the SDK), `ftcPose`, `rawPose` (OpenCV frame, `R` as `MatrixF`) and `robotPose`.
 
 ## What the shim supports

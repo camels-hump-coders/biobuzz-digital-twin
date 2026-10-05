@@ -317,9 +317,20 @@ export class Match {
   // ---------------- scripted robots: pick up, drive to a launch spot, shoot their own hive
   /** Decide the scripted robot's target and actions. Returns true if it fired this frame (ball spawned). */
   driveScripted(r: ScriptedRobot, ag: Agent, dt: number): boolean {
-    const brain = ((r as any).brain ??= { mode: "seek", timer: 0, shots: 0, launchSpot: undefined as { x: number; z: number } | undefined });
+    const brain = ((r as any).brain ??= { mode: "seek", timer: 0, shots: 0, launchSpot: undefined as { x: number; z: number } | undefined, spotAlt: 0, progress: undefined as { d: number; t: number } | undefined, avoid: [] as { x: number; z: number; until: number }[] });
     const held = ag.inventory.pollen + ag.inventory.nectar;
     brain.timer += dt;
+    // watchdog: no progress toward the current target for 3 s means we are wedged against something or someone
+    if (r.target && (brain.mode === "seek" || brain.mode === "travel")) {
+      const d = Math.hypot(r.target.x - r.pose.x, r.target.z - r.pose.z);
+      if (!brain.progress || d < brain.progress.d - 0.05) brain.progress = { d, t: this.time };
+      else if (this.time - brain.progress.t > 3) {
+        brain.progress = undefined;
+        if (brain.mode === "travel") { brain.spotAlt++; brain.launchSpot = undefined; }
+        else brain.avoid.push({ x: r.target.x, z: r.target.z, until: this.time + 10 });
+      }
+    } else brain.progress = undefined;
+    brain.avoid = brain.avoid.filter((a: { until: number }) => a.until > this.time);
     if (brain.mode === "seek") {
       ag.intakeActive = true;
       if (held >= ag.caps.capacity) { brain.mode = "travel"; brain.launchSpot = undefined; return false; }
@@ -333,6 +344,7 @@ export class Match {
       for (const b of this.flying) {
         if (b.inCell || b.pos.y > 0.25 || !b.settled) continue;
         if (b.kind === "nectar" && b.alliance !== ag.alliance) continue;
+        if (brain.avoid.some((a: { x: number; z: number }) => Math.hypot(a.x - b.pos.x, a.z - b.pos.z) < 0.15)) continue; // could not reach it last time
         const d = Math.hypot(b.pos.x - r.pose.x, b.pos.z - r.pose.z);
         if (d < bestD) { bestD = d; best = { x: b.pos.x, z: b.pos.z }; }
       }
@@ -344,7 +356,7 @@ export class Match {
     }
     if (brain.mode === "travel") {
       ag.intakeActive = false;
-      if (!brain.launchSpot) brain.launchSpot = this.launchSpotFor(ag.alliance, r);
+      if (!brain.launchSpot) brain.launchSpot = this.launchSpotFor(ag.alliance, r, brain.spotAlt);
       r.target = brain.launchSpot;
       if (Math.hypot(brain.launchSpot.x - r.pose.x, brain.launchSpot.z - r.pose.z) < m(8)) { brain.mode = "aim"; brain.timer = 0; }
       return false;
@@ -384,13 +396,14 @@ export class Match {
   }
 
   /** A spot in front of the alliance's raised cell, about 60 in out, nudged sideways per robot so partners do not stack. */
-  private launchSpotFor(alliance: Alliance, r: ScriptedRobot): { x: number; z: number } {
+  private launchSpotFor(alliance: Alliance, r: ScriptedRobot, alt = 0): { x: number; z: number } {
     const up = this.hives[alliance].upCell;
     const sideZ = up === "audience" ? 1 : -1;
     const hx = (alliance === "red" ? -1 : 1) * m(HIVE.hiveSpacingIn / 2);
-    const lateral = (r.name.endsWith("2") ? 1 : -1) * m(14) * (alliance === "red" ? -1 : 1);
+    // alternatives when the usual spot is blocked: swap sides, then step further out
+    const lateral = (r.name.endsWith("2") ? 1 : -1) * (alt % 2 ? -1 : 1) * m(14 + 10 * Math.floor(alt / 2)) * (alliance === "red" ? -1 : 1);
     const half = m(FIELD.sizeIn) / 2 - m(12);
-    return { x: clamp(hx + lateral, -half, half), z: clamp(sideZ * m(62), -half, half) };
+    return { x: clamp(hx + lateral, -half, half), z: clamp(sideZ * m(62 + 6 * Math.floor(alt / 2)), -half, half) };
   }
 
   /** Visual: carried balls stacked above the chassis. Hidden from camera renders by the caller. */
