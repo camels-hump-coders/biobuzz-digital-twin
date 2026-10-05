@@ -75,6 +75,13 @@ npx @gltf-transform/cli optimize public/models/starterbot-mecanum.glb public/mod
 
 If a GLB is missing the app falls back to a procedural box with the same footprint and says so in the HUD.
 
+## Known simplifications
+
+- The shot test is geometric: the arc must cross the opening plane inside the pentagon (shrunk by the ball radius) while moving into the cell. There is no collision check against the hive frame, the other hive, or the lip, and no tipping physics.
+- AprilTags are labelled placeholders at the correct size and pose, not real 36h11 codes.
+- Other robots follow fixed waypoint loops and do not score or avoid each other.
+- Camera images are ideal pinhole renders: no lens distortion, exposure or motion blur.
+
 ## Coordinate system
 
 Metres internally, inches in the UI. Origin at field centre on the tile surface, X toward the blue alliance, Y up, +Z toward the audience. Heading 0 means the robot faces the scoring side.
