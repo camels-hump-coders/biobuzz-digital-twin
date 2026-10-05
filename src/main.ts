@@ -163,8 +163,11 @@ function parkScripted() {
   for (const s of scripted) { s.pose = startPose(state.starts, startKeyOf(s), state.alliance, state.hive); s.prevPose = { ...s.pose }; s.target = undefined; (s as any).brain = undefined; s.backoff = undefined; s.index = 0; s.dwellLeft = 0; }
   scriptedObjs.forEach((o, i) => o.setPose(scripted[i].pose));
 }
-/** Everything back to match start: pieces, inventories, hives, fouls, and every robot on its starting mark. */
+/** Everything back to match start as the rules set the field (Event Field Setup Guide §11.1): red hive with its
+ * audience cell up, blue hive with its scoring cell up, 3 NECTAR staged in each raised cell, flowers and gardens full,
+ * 4 POLLEN preloaded, every robot on its starting mark, clock at 2:30, fouls cleared. */
 function resetBoard() {
+  state.hive.red = "audience"; state.hive.blue = "scoring"; // mutate in place: the Match holds this object
   match.reset(allAgents);
   shotsFired = 0; shotsHit = 0;
   pins.reset();

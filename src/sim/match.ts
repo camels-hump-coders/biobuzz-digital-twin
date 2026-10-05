@@ -95,10 +95,10 @@ export class Match {
     this.field.setHiveState({ alliance, upCell: h.upCell });
   }
 
+  /** The 4 POLLEN staged in each GARDEN become live balls at their staged positions (every reset, not only the first). */
   private convertGardenPollen() {
     for (const g of this.field.gardenPollen) {
-      if (!g.parent) continue;
-      g.removeFromParent();
+      if (g.parent) g.removeFromParent(); // the static stand-in mesh; its position is the staging spot
       this.spawnBall("pollen", undefined, g.position.clone(), new THREE.Vector3(), true);
     }
   }

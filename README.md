@@ -113,7 +113,7 @@ Expressions use knob names, numbers, `+ - * / ( )` and `round abs min max upper 
 
 ## Match flow
 
-The field loads in **setup**: every robot parked on its starting mark (Field & target → *Starting positions*, mirrored when you play blue; by default you start on the half of the field our hive's raised cell faces and the partner on the other), pieces at match start, the other robots idle. **Start match** releases the 2:30 clock and the scripted robots; **Stop** freezes them; **Reset to start** parks everything again. With TeamCode connected the Driver-Station buttons do the same for the whole field: INIT resets the board, START starts your OpMode and the match together, STOP ends both.
+The field loads in **setup**: every robot parked on its starting mark (Field & target → *Starting positions*, mirrored when you play blue; by default you start on the half of the field our hive's raised cell faces and the partner on the other), pieces at match start, the other robots idle. **Start match** releases the 2:30 clock and the scripted robots; **Stop** freezes them; **Reset to start** parks everything again and puts the field back exactly as the rules set it up: red hive audience cell up, blue hive scoring cell up, 3 NECTAR staged in each raised cell, flowers and gardens full, 4 POLLEN preloaded (the T key and the hive selectors are for practising other states and are overridden by a reset). With TeamCode connected the Driver-Station buttons do the same for the whole field: INIT resets the board, START starts your OpMode and the match together, STOP ends both.
 
 ## Saving, sharing and resetting
 
