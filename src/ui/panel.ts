@@ -119,12 +119,16 @@ export class Panel {
       ));
     });
     const addCam = (name: string, yaw: number, fwdIn: number) => { const id = `cam${Date.now() % 100000}`; const c = defaultCamera(id); c.name = name; c.yawDeg = yaw; c.forwardM = fwdIn * IN; r.cameras.push(c); st.selectedCameraId = id; change("cameras"); };
+    const MAX_CAMERAS = 2; // FTC allows at most two cameras on the robot
+    const full = r.cameras.length >= MAX_CAMERAS;
+    const dis = full ? { disabled: "" } : {};
     camRows.push(el("div", { class: "row full" },
-      el("button", { class: "primary", onclick: () => addCam(`Camera ${r.cameras.length + 1}`, 0, 7) }, "+ Front camera"),
-      el("button", { class: "primary", onclick: () => addCam("Rear camera", 180, -7) }, "+ Rear camera"),
-      el("button", { onclick: () => addCam("Left camera", 90, 0) }, "+ Left"),
-      el("button", { onclick: () => addCam("Right camera", -90, 0) }, "+ Right"),
+      el("button", { class: "primary", ...dis, onclick: () => addCam(`Camera ${r.cameras.length + 1}`, 0, 7) }, "+ Front camera"),
+      el("button", { class: "primary", ...dis, onclick: () => addCam("Rear camera", 180, -7) }, "+ Rear camera"),
+      el("button", { ...dis, onclick: () => addCam("Left camera", 90, 0) }, "+ Left"),
+      el("button", { ...dis, onclick: () => addCam("Right camera", -90, 0) }, "+ Right"),
     ));
+    if (full) camRows.push(el("div", { class: "note" }, "FTC rules allow a maximum of two cameras; remove one to add another."));
     camRows.push(el("div", { class: "note" }, "Drag a camera's green body on the robot to move it (orbit view). Hold Alt while dragging to change height. Then fine-tune the numbers above."));
     this.root.append(section("Cameras", open("Cameras", true), ...camRows));
 
@@ -172,7 +176,7 @@ export class Panel {
     const o = st.overlays;
     this.root.append(section("View & overlays", open("View & overlays", false),
       sel("Main view", [{ value: "orbit", label: "Orbit (1)" }, { value: "top", label: "Top-down (2)" }, { value: "chase", label: "Chase (3)" }, { value: "robot", label: "Robot camera (4)" }], () => st.view, (v) => { st.view = v as any; change("view"); }),
-      chk("Robot camera inset", () => st.pip, (v) => { st.pip = v; change("view"); }),
+      chk("Camera insets (all cameras)", () => st.pip, (v) => { st.pip = v; change("view"); }),
       chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
       chk("Arc as launcher points now (orange)", () => o.actualArc, (v) => { o.actualArc = v; change("overlays"); }),
       chk("Dispersion cloud", () => o.dispersion, (v) => { o.dispersion = v; change("overlays"); }),

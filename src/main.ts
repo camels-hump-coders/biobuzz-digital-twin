@@ -15,7 +15,8 @@ import { evaluateShot, evaluateVelocity, scanElevations, solveSpeedForElevation,
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { computeReachability, type ReachMap } from "./ballistics/reachability";
 import { monteCarlo, perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
-import { simulate, velocityFrom } from "./ballistics/projectile";
+import { stepBall, insideCell, type LiveBall } from "./sim/ballPhysics";
+import { velocityFrom } from "./ballistics/projectile";
 import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
 import { clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
 import { clonePreset } from "./robot/presets";
@@ -31,12 +32,25 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setScissorTest(false);
 
-const pipCanvas = document.getElementById("pipcanvas") as HTMLCanvasElement;
-const pipRenderer = new THREE.WebGLRenderer({ canvas: pipCanvas, antialias: true });
-pipRenderer.setPixelRatio(1);
-pipRenderer.outputColorSpace = THREE.SRGBColorSpace;
-const pipEl = document.getElementById("pip")!;
-const pipLabel = document.getElementById("piplabel")!;
+// Picture-in-picture insets, one per camera (FTC allows at most two cameras).
+const pipsEl = document.getElementById("pips")!;
+interface Pip { el: HTMLElement; canvas: HTMLCanvasElement; label: HTMLElement; renderer: THREE.WebGLRenderer; camId?: string }
+const pips: Pip[] = [];
+function ensurePips(n: number) {
+  while (pips.length < n) {
+    const el = document.createElement("div"); el.className = "pip";
+    const canvas = document.createElement("canvas");
+    const label = document.createElement("div"); label.className = "label";
+    el.append(canvas, label);
+    pipsEl.append(el);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    const pip: Pip = { el, canvas, label, renderer };
+    el.addEventListener("click", () => { if (pip.camId) { state.selectedCameraId = pip.camId; panel.render(); } });
+    pips.push(pip);
+  }
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1f27);
@@ -96,8 +110,7 @@ topCam.lookAt(0, 0, 0);
 const chaseCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
 
 // ---------- flying balls
-interface FlyingBall { mesh: THREE.Mesh; samples: ReturnType<typeof simulate>; t0: number; hit: boolean; }
-const flying: FlyingBall[] = [];
+const flying: LiveBall[] = [];
 let shotsFired = 0, shotsHit = 0;
 
 // ---------- UI
@@ -146,8 +159,7 @@ function resize() {
   if (asp >= 1) { topCam.left = -half * asp; topCam.right = half * asp; topCam.top = half; topCam.bottom = -half; }
   else { topCam.left = -half; topCam.right = half; topCam.top = half / asp; topCam.bottom = -half / asp; }
   topCam.updateProjectionMatrix();
-  const pw = pipEl.clientWidth, ph = pipEl.clientHeight;
-  pipRenderer.setSize(pw, ph, false);
+  for (const p of pips) p.renderer.setSize(p.el.clientWidth, p.el.clientHeight, false);
 }
 window.addEventListener("resize", resize);
 resize();
@@ -166,6 +178,7 @@ function teleportAt(ev: MouseEvent) {
   if (Math.abs(hit.x) > half || Math.abs(hit.z) > half) return;
   state.pose = { ...state.pose, x: hit.x, z: hit.z };
   robot.setPose(state.pose);
+  state.aimRequest = true; // face the target from the new spot
 }
 // ---- camera mount dragging (orbit view): drag the green body to move it on the robot; Alt-drag changes height.
 let dragCam: { id: string; alt: boolean; plane: THREE.Plane } | undefined;
@@ -262,35 +275,38 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
   const vel = draw.vel;
   const bp = ballProps();
-  const samples = simulate(bp, { pos: exit, vel, spin: draw.spin }, { maxTime: 4 });
-  const frame = targetFrame();
-  const r = evaluateVelocity({ ball: bp, launchPos: exit, target: aimPoint(frame), frame, spin: draw.spin }, vel);
   const color = state.ballKind === "pollen" ? BALL.pollen.color : state.alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color;
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(bp.diameterM / 2, 20, 14), new THREE.MeshStandardMaterial({ color, roughness: 0.45 }));
   mesh.castShadow = true;
+  mesh.position.set(exit.x, exit.y, exit.z);
   scene.add(mesh);
-  // stop the ball at the opening plane if it hits, so it visibly lands in the cell
-  let cut = samples;
-  if (r.hit && r.crossing) {
-    const idx = samples.findIndex((s) => { const d = (s.pos.x - frame.openingCenter.x) * frame.normal.x + (s.pos.y - frame.openingCenter.y) * frame.normal.y + (s.pos.z - frame.openingCenter.z) * frame.normal.z; return d <= 0; });
-    if (idx > 0) cut = samples.slice(0, idx + 1);
-  }
-  flying.push({ mesh, samples: cut, t0: performance.now() / 1000, hit: r.hit });
+  flying.push({ mesh, pos: new THREE.Vector3(exit.x, exit.y, exit.z), vel: new THREE.Vector3(vel.x, vel.y, vel.z), spin: draw.spin, radius: bp.diameterM / 2, age: 0, restFor: 0, bounces: 0 });
   shotsFired++;
-  if (r.hit) shotsHit++;
 }
 
-function updateFlying() {
-  const now = performance.now() / 1000;
+function ballColliders(): THREE.Object3D[] {
+  const list: THREE.Object3D[] = [...field.occluders];
+  for (const o of scriptedObjs) if (o.group.visible) list.push(o.chassis);
+  list.push(robot.chassis);
+  return list;
+}
+function updateFlying(dt: number) {
+  if (!flying.length) return;
+  const colliders = ballColliders();
+  const bp = ballProps();
+  const tf = targetFrame();
   for (let i = flying.length - 1; i >= 0; i--) {
     const f = flying[i];
-    const t = Math.max(0, now - f.t0);
-    const last = f.samples[f.samples.length - 1];
-    if (t > last.t + 2.5) { f.mesh.removeFromParent(); flying.splice(i, 1); continue; }
-    const idx = Math.min(f.samples.length - 1, Math.floor(t / 0.002));
-    const s = f.samples[idx];
-    f.mesh.position.set(s.pos.x, s.pos.y, s.pos.z);
-    if (idx === f.samples.length - 1 && !f.hit) f.mesh.position.y = Math.max(f.mesh.position.y, (f.mesh.geometry as THREE.SphereGeometry).parameters.radius);
+    if (!f.settled) {
+      stepBall(f, dt, bp, colliders);
+      if (f.settled) {
+        f.scored = insideCell(tf, f.pos, 0.02);
+        if (f.scored) shotsHit++;
+      }
+    } else if ((f.age += dt) > 12) {
+      f.mesh.removeFromParent();
+      flying.splice(i, 1);
+    }
   }
 }
 
@@ -351,7 +367,7 @@ function frame(now: number) {
   const { shot, scan, required } = computeShot(exit, tf);
   robot.launcherMarker.rotation.y = -turretYaw * 0 + turretYaw; // local +Y rotation = yaw left
   if (actions.launch) launch(exit, fireDir);
-  updateFlying();
+  updateFlying(dt);
 
   // overlays
   updateReachMap(tf);
@@ -430,22 +446,28 @@ function frame(now: number) {
   robot.cameraGizmos.visible = showGizmos;
   renderer.render(scene, cam);
 
-  // PiP
-  const showPip = state.pip && !!selected && state.view !== "robot";
-  pipEl.classList.toggle("hidden", !showPip);
-  if (showPip && selected) {
+  // PiP: every enabled camera gets an inset (except the one filling the main view)
+  const pipCams = state.pip ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
+  ensurePips(pipCams.length);
+  pips.forEach((p, i) => {
+    const c = pipCams[i];
+    p.el.classList.toggle("hidden", !c);
+    if (!c) { p.camId = undefined; return; }
+    p.camId = c.mount.id;
+    p.el.classList.toggle("selected", c.selected);
+    if (p.el.clientWidth && (p.canvas.width !== p.el.clientWidth || p.canvas.height !== p.el.clientHeight)) p.renderer.setSize(p.el.clientWidth, p.el.clientHeight, false);
     robot.cameraGizmos.visible = false;
     overlays.group.visible = false;
-    pipRenderer.render(scene, selected.cam);
+    p.renderer.render(scene, c.cam);
     overlays.group.visible = true;
-    pipLabel.textContent = `${selected.mount.name} · ${selected.intr.width}x${selected.intr.height} · ${(selected.intr.hfov * 180 / Math.PI).toFixed(0)}°x${(selected.intr.vfov * 180 / Math.PI).toFixed(0)}°`;
-  }
+    p.label.textContent = `${c.mount.name} · ${c.intr.width}x${c.intr.height} · ${(c.intr.hfov * 180 / Math.PI).toFixed(0)}°x${(c.intr.vfov * 180 / Math.PI).toFixed(0)}°`;
+  });
 
   if (analysisTick % 120 === 0) saveState(state);
   requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, stats: () => ({ shotsFired, shotsHit }) };
 let lastTags: HudData["tags"] = [];
 let actualCache: { key: string; shot?: ShotResult } = { key: "" };
 function computeActual(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): ShotResult | undefined {
