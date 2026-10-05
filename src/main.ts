@@ -278,7 +278,12 @@ function syncBindings() {
   const json = JSON.stringify(link.bound.overrides);
   if (json !== lastBoundJson) { lastBoundJson = json; if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); panel.render(); }
 }
-link.onLog = (level, text, millis) => recorder.event(millis, level === "err" ? "error" : "log", text);
+link.onLog = (level, text, millis) => {
+  // stack-trace continuation lines belong to the exception line before them
+  const last = recorder.events[recorder.events.length - 1];
+  if (last && /^\s+at |^Caused by: |^\s*\.\.\. \d+ more/.test(text)) { if (last.text.length < 2000) last.text += "\n" + text.trim(); return; }
+  recorder.event(millis, level === "err" || /Exception|Error:/.test(text) ? "error" : "log", text);
+};
 let lastLinkStatus = link.status;
 link.onChange = () => {
   if (link.statusError && link.status === "ERROR") recorder.event(Date.now(), "error", link.statusError.split("\n")[0]);

@@ -25,15 +25,26 @@ public final class PanelsBoot {
     private static OpModeManagerImpl manager; private static FtcEventLoop eventLoop; private static Context context;
     private PanelsBoot() {}
 
+    /** Panels not running: install never-started servers so the team's PanelsTelemetry/Field/CameraStream calls send to
+     * nobody instead of throwing (on the robot the library is always up, so the code never expects it to be missing). */
+    private static void inert() {
+        try {
+            Class.forName("com.bylazar.panels.Panels");
+            context = new Context();
+            com.bylazar.panels.Panels.INSTANCE.setServer(new com.bylazar.panels.server.StaticServer(context, 8001, "web"));
+            com.bylazar.panels.Panels.INSTANCE.setSocket(new com.bylazar.panels.server.Socket(8002));
+        } catch (Throwable ignored) {}
+    }
+
     public static boolean start(OpModeRunner runner, List<OpModeScanner.Entry> opModes, Supplier<HardwareMap> hardwareMap) {
-        if (!Boolean.parseBoolean(System.getProperty("sim.panels", "true"))) return false;
+        if (!Boolean.parseBoolean(System.getProperty("sim.panels", "true"))) { inert(); return false; }
         try {
             Class.forName("com.bylazar.panels.Panels");
         } catch (ClassNotFoundException e) { System.out.println("Panels: library not on the classpath, dashboard disabled"); return false; }
         // Panels binds fixed ports; a second host (another pnpm sim, a twin-test run) must not fight the first one for them
         for (int port : new int[] { 8001, 8002 }) {
             try (java.net.ServerSocket probe = new java.net.ServerSocket()) { probe.setReuseAddress(true); probe.bind(new java.net.InetSocketAddress(port)); }
-            catch (java.io.IOException busy) { System.out.println("Panels: port " + port + " is in use (another host has the dashboard), skipping Panels in this host"); return false; }
+            catch (java.io.IOException busy) { System.out.println("Panels: port " + port + " is in use (another host has the dashboard), skipping Panels in this host"); inert(); return false; }
         }
         try {
             List<OpModeMeta> metas = new ArrayList<>();

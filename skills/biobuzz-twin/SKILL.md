@@ -67,6 +67,13 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
 - `expect`: `noErrors`, `shotsFired`/`shotsHit`/`fouls` comparisons like `">=1"`, `telemetryIncludes` (regexes that
   must match some telemetry line during the run), `telemetryFinalIncludes`, `movedAtLeastIn`, `poseNear`.
 
+## 2b. Debugging from a human's session
+
+If the user ran the twin interactively, ask for a snapshot instead of screenshots: *Timeline & logs → Copy last 30 s*
+(or 2 min) in the twin's panel produces Markdown with the OpMode, presets, overrides, bound values, every event (button
+presses, status changes, exceptions with stack traces, shots, fouls) and the telemetry at each change. The *Download
+full log* JSON has the same at 10 Hz. Read the Context block first, then the events, then the telemetry around them.
+
 ## 3. Read the report
 
 The JSON report has `start`, `final` and per-second `samples` with telemetry lines, pose (inches, degrees), shots fired

@@ -140,8 +140,8 @@ export class Panel {
       const key = recent.map((e) => e.t + e.text).join("|");
       if ((list as any).__key !== key) {
         (list as any).__key = key;
-        list.replaceChildren(...recent.map((e) => el("div", { class: `tl-ev ${e.kind}`, title: new Date(e.t).toLocaleTimeString(), onclick: () => { rec.cursor = e.t; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } },
-          el("span", { class: "tl-t" }, end !== undefined ? `-${((end - e.t) / 1000).toFixed(1)}s` : ""), el("span", { class: "tl-k" }, e.kind), e.text)));
+        list.replaceChildren(...recent.map((e) => el("div", { class: `tl-ev ${e.kind}`, title: new Date(e.t).toLocaleTimeString() + (e.text.includes("\n") ? "\n" + e.text : ""), onclick: () => { rec.cursor = e.t; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } },
+          el("span", { class: "tl-t" }, end !== undefined ? `-${((end - e.t) / 1000).toFixed(1)}s` : ""), el("span", { class: "tl-k" }, e.kind), e.text.split("\n")[0] + (e.text.includes("\n") ? ` (+${e.text.split("\n").length - 1} lines)` : ""))));
         if (!recent.length) list.append(el("div", { class: "note" }, "Events (status changes, button presses, shots, host log lines, errors, fouls) appear here as they happen. Click one to jump to it."));
       }
     }
