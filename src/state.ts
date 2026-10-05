@@ -97,7 +97,9 @@ export function loadState(): AppState {
         const c = s.robot.cameras?.[0];
         if (sb && c && Math.abs(c.forwardM - 0.0381) < 1e-3 && c.yawDeg === 0 && s.robot.cameras.length === 1) { c.name = "Shooter camera"; c.forwardM = -6 * 0.0254; c.heightM = 13 * 0.0254; c.yawDeg = 180; }
       }
-      if (s.tipMassG === 199) s.tipMassG = 195; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
+      if (s.tipMassG === 199) s.tipMassG = 195;
+      // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
+      if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
       return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig() };
     }
   } catch { /* ignore */ }

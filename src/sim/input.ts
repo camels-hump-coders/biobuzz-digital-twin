@@ -23,6 +23,7 @@ export class Input {
       if (this.typing) return;
       if (!this.keys.has(e.code)) this.edges.add(e.code);
       this.keys.add(e.code);
+      if (e.code === "Tab") { e.preventDefault(); this.keyboardPad = this.keyboardPad === 1 ? 2 : 1; }
       if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -36,6 +37,8 @@ export class Input {
   }
 
   private prevButtons = new Set<number>();
+  /** which gamepad the keyboard emulates; Tab toggles */
+  keyboardPad: 1 | 2 = 1;
 
   /** gamepad1/gamepad2 packets for the runtime. With no physical gamepad, the keyboard emulates gamepad1:
    * WASD = left stick, Q/E = right stick X, Space = A, Shift = right trigger, B/X/Y keys = buttons, arrows = dpad. */
@@ -60,8 +63,10 @@ export class Input {
       guide: k.has("KeyG"), start: k.has("Enter"), back: k.has("Backspace"), ls: k.has("KeyV"), rs: k.has("KeyN"),
       du: k.has("ArrowUp"), dd: k.has("ArrowDown"), dl: k.has("ArrowLeft"), dr: k.has("ArrowRight"),
     };
-    const g1 = pads[0] ? fromPad(pads[0]) : kb;
-    const g2 = pads[1] ? fromPad(pads[1]) : emptyGamepad();
+    // physical pads take their slots; the keyboard fills whichever slot it is assigned to (Tab toggles) if free
+    let g1 = pads[0] ? fromPad(pads[0]) : emptyGamepad();
+    let g2 = pads[1] ? fromPad(pads[1]) : emptyGamepad();
+    if (this.keyboardPad === 1 && !pads[0]) g1 = kb; else if (this.keyboardPad === 2 && !pads[1]) g2 = kb; else if (!pads[0]) g1 = kb;
     return { g1, g2 };
   }
 

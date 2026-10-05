@@ -346,10 +346,10 @@ function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: 
   if (key === shotCache.key) return shotCache;
   const req = { ball: ballProps(), launchPos: exit, target, frame, spin: spinRate(l) };
   const scan = scanElevations(req, Math.min(l.elevationMinDeg, l.elevationMaxDeg), Math.max(l.elevationMinDeg, l.elevationMaxDeg), 2.5, exitSpeed(l, l.maxRpm));
-  if (state.autoHood && scan.best) l.elevationDeg = rad2deg(scan.best.elevationRad);
+  if (state.autoHood && scan.best && !link.running) l.elevationDeg = rad2deg(scan.best.elevationRad);
   const fixed = solveSpeedForElevation(req, (l.elevationDeg * Math.PI) / 180, exitSpeed(l, l.maxRpm) * 1.5);
   const required = fixed?.speed;
-  if (state.autoRpm && required !== undefined) l.rpm = clamp(rpmForExitSpeed(l, required), 0, l.maxRpm);
+  if (state.autoRpm && required !== undefined && !link.running) l.rpm = clamp(rpmForExitSpeed(l, required), 0, l.maxRpm);
   const shot = evaluateShot(req, (l.elevationDeg * Math.PI) / 180, exitSpeed(l));
   shotCache = { key, shot, scan, required };
   return shotCache;
@@ -363,11 +363,13 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
   const vel = draw.vel;
   const ball = match.launch(playerAgent, state.ballKind, new THREE.Vector3(exit.x, exit.y, exit.z), new THREE.Vector3(vel.x, vel.y, vel.z), draw.spin, robot.group);
-  if (!ball) { launchBlockedUntil = performance.now() + 1500; return; }
+  if (!ball) { launchBlockedUntil = performance.now() + 1500; launchBlockedMsg = "nothing to launch — pick up balls"; return; }
+  if (nominal.speed < 1.5) { launchBlockedUntil = performance.now() + 3000; launchBlockedMsg = `flywheel at ${Math.round(l.rpm)} RPM — ball just dropped out (${link.running ? "your code must spin the flywheel first" : "turn on Auto-RPM or set a commanded RPM"})`; }
   (ball as any).owner = "player";
   shotsFired++;
 }
 let launchBlockedUntil = 0;
+let launchBlockedMsg = "";
 
 function ballColliders(): THREE.Object3D[] {
   const list: THREE.Object3D[] = [...field.occluders];
@@ -404,7 +406,6 @@ function frame(now: number) {
     const l = state.robot.launcher;
     l.rpm = clamp(act.flywheelRpm, 0, l.maxRpm);
     if (act.hoodPos !== undefined && l.elevationMinDeg !== l.elevationMaxDeg) l.elevationDeg = l.elevationMinDeg + act.hoodPos * (l.elevationMaxDeg - l.elevationMinDeg);
-    state.autoRpm = false;
     pendingFires += feederFires(state.hardware, link.takeServoTransitions());
     void 0;
   } else {
@@ -554,12 +555,12 @@ function frame(now: number) {
     tips: match.hives[state.alliance].tips,
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
-    launchBlocked: performance.now() < launchBlockedUntil ? "nothing to launch — pick up balls" : undefined,
+    launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
-    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""}` : ""),
+    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""} · keyboard = gamepad${input.keyboardPad}` : ""),
   });
 
   // render main view

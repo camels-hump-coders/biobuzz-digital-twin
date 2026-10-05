@@ -37,7 +37,7 @@ Telemetry appears in the panel. With no gamepad plugged in, the keyboard is game
 | V / N | left / right stick click |
 | arrows | d-pad |
 
-A physical gamepad (Xbox or PS layout, standard mapping, including the goBILDA kit controller) is used automatically when connected; a second one becomes gamepad2. The kit controller's Home button arrives as `guide` (button 16 in the browser's standard mapping).
+Press **Tab** to switch the keyboard between gamepad1 and gamepad2 (the HUD shows which), so two-driver OpModes can be exercised by one person. A physical gamepad (Xbox or PS layout, standard mapping, including the goBILDA kit controller) is used automatically when connected; a second one becomes gamepad2. The kit controller's Home button arrives as `guide` (button 16 in the browser's standard mapping).
 
 ## Running your own TeamCode
 
