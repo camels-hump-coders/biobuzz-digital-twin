@@ -75,7 +75,7 @@ const seed = {
 };
 if (scenario.starts) seed.starts = scenario.starts;
 await page.addInitScript((s) => { localStorage.setItem("biobuzz-twin", JSON.stringify(s)); }, seed);
-await page.goto(`http://localhost:${port}/`, { waitUntil: "networkidle" });
+await page.goto(`http://localhost:${port}/?ci=1`, { waitUntil: "networkidle" }); // ci=1: light rendering so the sim runs at full rate under software GL
 await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus !== "loading", null, { timeout: 60_000 });
 await page.waitForFunction(() => window.__twin.link.connected && window.__twin.link.opModes.length > 0, null, { timeout: 30_000 }).catch(() => {});
 const opModes = await page.evaluate(() => window.__twin.link.opModes.map((o) => o.name));

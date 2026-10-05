@@ -44,7 +44,11 @@ if (new URLSearchParams(location.search).get("runtime") === "1") state.runtimeEn
 // ---------- renderer & scenes
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// ?ci=1: headless test-bed mode (pnpm twin-test). Software GL renders a frame in ~200 ms, which would starve the
+// simulation loop; render the view only every few ticks at low resolution and drive the loop with a timer so the
+// physics, sensors and the OpMode see the same cadence as on a real display.
+const ciMode = new URLSearchParams(location.search).get("ci") === "1";
+renderer.setPixelRatio(ciMode ? 0.5 : Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -737,11 +741,12 @@ function frame(now: number) {
   robot.cameraGizmos.visible = showGizmos;
   robot.launcherMarker.visible = showGizmos;
   for (const a of allAgents) a.carryGroup.visible = showGizmos;
-  renderer.render(scene, cam);
+  const renderThisFrame = !ciMode || analysisTick % 6 === 0;
+  if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
 
   // PiP: every enabled camera gets an inset (except the one filling the main view)
-  const pipCams = state.pip ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
+  const pipCams = state.pip && renderThisFrame ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
   ensurePips(pipCams.length);
   pips.forEach((p, i) => {
     const c = pipCams[i];
@@ -767,7 +772,7 @@ function frame(now: number) {
   perf.mark("insets");
   perf.end(state.showPerf, fps);
   if (analysisTick % 120 === 0) saveState(state);
-  requestAnimationFrame(frame);
+  if (ciMode) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
 (window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
