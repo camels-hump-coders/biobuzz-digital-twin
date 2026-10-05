@@ -114,8 +114,30 @@ function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Age
   return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, intake: { x: 0, z: 0 }, lastPick: 0, carryGroup };
 }
 const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar });
-const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, s.name.toLowerCase().includes("red") ? "red" : "blue", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }));
+const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }));
 const allAgents = [playerAgent, ...scriptedAgents];
+/** Partner is on our alliance, the two opponents on the other; colours and starting corners follow. */
+function assignAlliances() {
+  const ours: Alliance = state.alliance, theirs: Alliance = ours === "red" ? "blue" : "red";
+  scripted.forEach((s, i) => {
+    const a: Alliance = s.name === "Partner" ? ours : theirs;
+    scriptedAgents[i].alliance = a;
+    const spec = scriptedObjs[i].spec;
+    const color = a === "red" ? (s.name === "Partner" ? 0xd44a4a : 0xc83a3a) : s.name === "Partner" ? 0x4a6ad4 : 0x6a8ae8;
+    if (spec.color !== color) { spec.color = color; scriptedObjs[i].applySpec({ ...spec, color }); }
+  });
+  // when we play blue, the field is mirrored for the scripted robots: start corners and patrol loops flip
+  if (ours !== scriptedSide) {
+    scriptedSide = ours;
+    for (const s of scripted) {
+      s.pose = { x: -s.pose.x, z: -s.pose.z, heading: s.pose.heading + Math.PI };
+      s.waypoints = s.waypoints.map((w) => ({ x: -w.x, z: -w.z }));
+      s.target = undefined; (s as any).brain = undefined;
+    }
+  }
+}
+let scriptedSide: Alliance = "red";
+assignAlliances();
 
 // ---------- cameras
 const orbitCam = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
@@ -143,13 +165,14 @@ function applyRobotSpec() {
   if (!state.robot.cameras.some((c) => c.id === state.selectedCameraId)) state.selectedCameraId = state.robot.cameras[0]?.id ?? "";
 }
 function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
-  if (what === "reset") { applyRobotSpec(); }
+  if (what === "reset") { applyRobotSpec(); if (link.connected) link.sendHardware(hardwareDevices(), hardwareHints()); playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }; }
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
   if (what === "sim") {
     for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
     playerAgent.alliance = state.alliance;
+    assignAlliances();
     playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar };
     if (state.resetMatchRequest) { state.resetMatchRequest = false; match.reset(allAgents); shotsFired = 0; shotsHit = 0; }
     robot.setPose(state.pose);

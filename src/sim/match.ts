@@ -335,7 +335,7 @@ export class Match {
     const up = this.hives[alliance].upCell;
     const sideZ = up === "audience" ? 1 : -1;
     const hx = (alliance === "red" ? -1 : 1) * m(HIVE.hiveSpacingIn / 2);
-    const lateral = (r.name.includes("2") ? 1 : -1) * m(14) * (alliance === "red" ? -1 : 1);
+    const lateral = (r.name.endsWith("2") ? 1 : -1) * m(14) * (alliance === "red" ? -1 : 1);
     const half = m(FIELD.sizeIn) / 2 - m(12);
     return { x: clamp(hx + lateral, -half, half), z: clamp(sideZ * m(62), -half, half) };
   }

@@ -28,12 +28,12 @@ export function defaultScriptedRobots(): ScriptedRobot[] {
     name, color, pose: start, waypoints: wps.map(([x, z]) => ({ x: m(x), z: m(z) })), index: 0, speed: 0.9, footprint: fp, dwell: 1.5, dwellLeft: 0,
   });
   return [
-    // red partner: between red loading zone (west wall, scoring side) and a launch spot on the audience side
-    mk("Red partner", 0xd44a4a, [[-60, -36], [-40, 40], [-20, 55], [-62, 0]], { x: m(-60), z: m(-36), heading: 0 }),
-    // blue 1: patrols the east side
-    mk("Blue 1", 0x4a6ad4, [[60, 36], [40, -40], [20, -55], [62, 0]], { x: m(60), z: m(36), heading: Math.PI }),
-    // blue 2: wanders the scoring side and north flower
-    mk("Blue 2", 0x6a8ae8, [[-20, -58], [30, -30], [50, 10], [10, -40]], { x: m(-20), z: m(-58), heading: Math.PI }),
+    // partner: starts by our loading zone (west wall, scoring side) and patrols our half
+    mk("Partner", 0xd44a4a, [[-60, -36], [-40, 40], [-20, 55], [-62, 0]], { x: m(-60), z: m(-36), heading: 0 }),
+    // opponent 1: patrols the east side
+    mk("Opponent 1", 0x4a6ad4, [[60, 36], [40, -40], [20, -55], [62, 0]], { x: m(60), z: m(36), heading: Math.PI }),
+    // opponent 2: wanders the scoring side and north flower
+    mk("Opponent 2", 0x6a8ae8, [[-20, -58], [30, -30], [50, 10], [10, -40]], { x: m(-20), z: m(-58), heading: Math.PI }),
   ];
 }
 
