@@ -732,8 +732,8 @@ function frame(now: number) {
     cellLoad: (() => { const c = match.cellLoad(state.alliance); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
     tips: match.hives[state.alliance].tips,
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
-    carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})${runtimeActive && !playerAgent.intakeActive ? " · intake OFF (your code must power the intake motor to collect; balls get pushed instead)" : ""}`,
-    launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : roleWarning,
+    carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
+    launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
     match: state.matchPhase === "running" ? `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left` : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`,
@@ -741,7 +741,10 @@ function frame(now: number) {
     contact: contactText, contactBad,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
-    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus] + (link.connected ? ` · runtime ${link.status}${link.currentOpMode ? " " + link.currentOpMode : ""}${link.status === "INIT" ? " (press START to drive)" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " ⚠ (Tab switches back to gamepad1)" : ""}` : "") + (fps < 20 ? ` · ⚠ ${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""} — turn off camera insets or the hit map` : ""),
+    modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus],
+    runtime: link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}${link.status === "INIT" ? " · press START to drive" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " ⚠ (Tab switches back)" : ""}` : "not connected",
+    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, runtimeActive && !playerAgent.intakeActive ? "intake OFF: your code must power the intake motor to collect; balls get pushed instead" : undefined, fps < 20 ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: turn off camera insets or the hit map` : undefined].filter(Boolean).join(" · ") || undefined,
+    noticeBad: performance.now() < launchBlockedUntil || !!roleWarning,
   });
 
   perf.mark("hud");

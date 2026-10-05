@@ -48,6 +48,11 @@ export interface HudData {
   tags: TagVisibility[];
   cameraName: string;
   modelStatus: string;
+  /** runtime link: status, OpMode, which gamepad the keyboard drives */
+  runtime: string;
+  /** transient advice (intake off, flywheel stopped, powered motor without a role, low frame rate); a 2-line slot is always reserved */
+  notice?: string;
+  noticeBad?: boolean;
 }
 
 export class Hud {
@@ -62,7 +67,9 @@ export class Hud {
         <tr><td>Position</td><td>${f(d.poseIn.x)} , ${f(d.poseIn.z)} in · ${f(d.poseIn.headingDeg, 0)}°</td></tr>
         <tr><td>Speed</td><td>${f(d.speedMps, 2)} m/s · ${d.drivetrain}${d.fieldCentric ? " · field-centric" : ""}</td></tr>
         <tr><td>Chassis</td><td>${d.modelStatus}</td></tr>
+        <tr><td>Runtime</td><td class="two">${d.runtime}</td></tr>
         <tr><td>Match</td><td class="${d.matchClass ?? ""}">${d.match}</td></tr>
+        <tr><td>Notice</td><td class="two ${d.notice ? (d.noticeBad ? "bad" : "warn") : "quiet"}">${d.notice ?? "—"}</td></tr>
       </table>
       <h2 style="margin-top:8px">Shot → ${d.target}</h2>
       <table>
@@ -77,12 +84,12 @@ export class Hud {
         <tr><td>As pointed now</td><td class="${cls(d.actualHit)}">${d.actualHit === undefined ? "–" : d.actualHit ? "HIT" : "MISS"}</td></tr>
         <tr><td>Hit probability</td><td class="${d.pHit === undefined ? "" : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad"}">${d.pHit === undefined ? "–" : `${(d.pHit * 100).toFixed(0)}% (95% CI ${(d.pLo! * 100).toFixed(0)}–${(d.pHi! * 100).toFixed(0)}, n=${d.mcN})`}${d.meanMissIn ? ` · misses by ${f(d.meanMissIn, 1)} in` : ""}</td></tr>
         <tr><td>Fired / hit</td><td>${d.shotsFired} / ${d.shotsHit}</td></tr>
-        <tr><td>Carrying</td><td class="${d.launchBlocked ? "bad" : ""}">${d.carrying}${d.launchBlocked ? " · " + d.launchBlocked : ""}</td></tr>
+        <tr><td>Carrying</td><td class="${d.launchBlocked ? "bad" : ""}">${d.carrying}</td></tr>
         <tr><td>Our up cell</td><td class="${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad}</td></tr>
         <tr><td>Our hive tips</td><td>${d.tips} (${d.tips * 20} pts)</td></tr>
         <tr><td>Their hive</td><td>${d.theirHive}</td></tr>
-        ${d.contact ? `<tr><td>Robot contact</td><td class="${d.contactBad ? "bad" : "warn"}">${d.contact}</td></tr>` : ""}
-        <tr><td>Field supply</td><td>${d.supply}</td></tr>
+        <tr><td>Robot contact</td><td class="two ${d.contact ? (d.contactBad ? "bad" : "warn") : "quiet"}">${d.contact ?? "none"}</td></tr>
+        <tr><td>Field supply</td><td class="two">${d.supply}</td></tr>
       </table>
       <h2 style="margin-top:8px">AprilTags — ${d.cameraName}</h2>
       <div class="tags">${tags || '<span class="tag">no camera</span>'}</div>
