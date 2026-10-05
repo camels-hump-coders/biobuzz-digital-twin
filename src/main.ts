@@ -30,6 +30,7 @@ import { stepBall, type LiveBall } from "./sim/ballPhysics";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
+import { parseCalLines } from "./ballistics/calibration";
 import { inferDevice, deviceHints } from "./runtime/hardwareConfig";
 import { buildDetections } from "./runtime/apriltags";
 import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
@@ -286,6 +287,16 @@ link.onLog = (level, text, millis) => {
   const last = recorder.events[recorder.events.length - 1];
   if (last && /^\s+at |^Caused by: |^\s*\.\.\. \d+ more/.test(text)) { if (last.text.length < 2000) last.text += "\n" + text.trim(); return; }
   recorder.event(millis, level === "err" || /Exception|Error:/.test(text) ? "error" : "log", text);
+  if (text.includes("CAL ")) {
+    const recs = parseCalLines(text);
+    if (recs.length) {
+      const inbox = state.calibration.inbox;
+      for (const r of recs) { const i = inbox.findIndex((x) => x.id === r.id); if (i >= 0) inbox[i] = r; else inbox.push(r); }
+      saveState(state); panel.render();
+    }
+    const d = /CAL discard shot=(\d+)/.exec(text);
+    if (d) { const i = state.calibration.inbox.findIndex((x) => x.id === +d[1]); if (i >= 0) { state.calibration.inbox.splice(i, 1); saveState(state); panel.render(); } }
+  }
 };
 let lastLinkStatus = link.status;
 link.onChange = () => {
@@ -499,6 +510,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   if (!ball) { launchBlockedUntil = performance.now() + 1500; launchBlockedMsg = "nothing to launch — pick up balls"; return; }
   if (nominal.speed < 1.5) { launchBlockedUntil = performance.now() + 3000; launchBlockedMsg = `flywheel at ${Math.round(l.rpm)} RPM — ball just dropped out (${link.running ? "your code must spin the flywheel first" : "turn on Auto-RPM or set a commanded RPM"})`; }
   (ball as any).owner = "player";
+  (ball as any).cal = { exit: { x: exit.x, y: exit.y, z: exit.z }, dir: { x: dirXZ.x / (Math.hypot(dirXZ.x, dirXZ.z) || 1), z: dirXZ.z / (Math.hypot(dirXZ.x, dirXZ.z) || 1) }, power: flywheelPowerCmd(), rpm: l.rpm };
   shotsFired++;
 }
 let roleWarning: string | undefined;
@@ -517,9 +529,55 @@ function updateFlying(dt: number) {
   const colliders = ballColliders();
   const bp = ballProps();
   for (const f of flying) {
-    if (!f.settled) stepBall(f, dt, { ...bp, diameterM: f.radius * 2, massKg: f.massKg }, colliders);
+    const props = { ...bp, diameterM: f.radius * 2, massKg: f.massKg };
+    if (!f.settled) {
+      if ((f as any).cal && !(f as any).calDone) {
+        // a calibration shot: step finely and catch the exact wall/floor crossing, whatever the frame rate
+        const n = Math.max(1, Math.ceil(dt / 0.005));
+        for (let i = 0; i < n; i++) { calPrev.copy(f.pos); stepBall(f, dt / n, props, colliders); if (noteCalibrationImpact(f, calPrev)) break; }
+      } else stepBall(f, dt, props, colliders);
+    }
     if ((f as any).owner === "player" && f.counted && !(f as any).tallied) { (f as any).tallied = true; shotsHit++; }
   }
+}
+const calPrev = new THREE.Vector3();
+/** Where our last shot first hit the perimeter wall or the floor, in the calibration wizard's terms (distance along
+ * the shot line, height, sideways offset). Lets the wizard be exercised against the sim and lets agents read it. */
+export interface SimImpact { kind: "wall" | "floor"; distanceM: number; heightM: number; lateralM: number; power: number; rpm: number; t: number }
+let lastImpact: SimImpact | undefined;
+/** The perimeter counts as an infinitely tall wall here (the real one is 12 in; a gym wall is not). Returns true once
+ * the impact has been recorded. `prev` is the position before the last sub-step, for interpolating the crossing. */
+function noteCalibrationImpact(f: LiveBall, prev: THREE.Vector3): boolean {
+  const cal = (f as any).cal as { exit: Vec3; dir: { x: number; z: number }; power: number; rpm: number } | undefined;
+  if (!cal || (f as any).calDone) return false;
+  if (f.age < 0.03) return false;
+  const half = m(FIELD.sizeIn) / 2 - f.radius - 0.02;
+  const floorY = f.radius + 0.01;
+  let s = -1, kind: "wall" | "floor" | undefined;
+  for (const c of ["x", "z"] as const) {
+    const a = Math.abs(prev[c]), b = Math.abs(f.pos[c]);
+    if (b >= half && b > a) { const t = (half - a) / (b - a); if (kind === undefined || t < s) { s = Math.max(0, Math.min(1, t)); kind = "wall"; } }
+  }
+  if (kind === undefined && f.pos.y <= floorY && f.vel.y <= 0) { s = prev.y > f.pos.y ? Math.max(0, Math.min(1, (prev.y - floorY) / (prev.y - f.pos.y))) : 1; kind = "floor"; }
+  if (kind === undefined) return false;
+  (f as any).calDone = true;
+  const px = prev.x + s * (f.pos.x - prev.x), py = prev.y + s * (f.pos.y - prev.y), pz = prev.z + s * (f.pos.z - prev.z);
+  const dx = px - cal.exit.x, dz = pz - cal.exit.z;
+  const along = dx * cal.dir.x + dz * cal.dir.z;
+  const lateral = dx * -cal.dir.z + dz * cal.dir.x; // positive = left of the shot line (Y up, right-handed)
+  lastImpact = { kind, distanceM: along, heightM: kind === "wall" ? py : 0, lateralM: lateral, power: cal.power, rpm: cal.rpm, t: Date.now() };
+  panel.renderCalibrationImpact?.(lastImpact);
+  return true;
+}
+/** The flywheel power TeamCode is commanding (0..1), or the keyboard-mode equivalent of the commanded RPM. */
+function flywheelPowerCmd(): number {
+  const dev = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
+  const c = dev ? link.actuators[dev.name] : undefined;
+  if (link.running && c) {
+    if (c.mode === "RUN_USING_ENCODER" && c.targetVel) return Math.min(1, Math.abs(c.targetVel) / ((dev!.ticksPerRev ?? 28) * (dev!.freeRpm ?? 6000) / 60));
+    return Math.abs(c.power ?? 0);
+  }
+  return dev?.freeRpm ? state.robot.launcher.rpm / dev.freeRpm : state.robot.launcher.rpm / state.robot.launcher.maxRpm;
 }
 
 let frameInterval = 1 / 60; // EMA of the real time between frames, for the frame-rate / time-dilation readout
@@ -803,7 +861,7 @@ function frame(now: number) {
   if (ciMode) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };

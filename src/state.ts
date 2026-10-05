@@ -5,6 +5,7 @@ import type { Alliance, CellSide } from "./field/hive";
 import { clonePreset } from "./robot/presets";
 import { DEFAULT_NOISE, type NoiseConfig } from "./ballistics/dispersion";
 import { defaultHardwareConfig, type HardwareConfig } from "./runtime/hardwareConfig";
+import { defaultCalibration, type CalibrationSession } from "./ballistics/calibration";
 
 export type ViewMode = "orbit" | "top" | "chase" | "robot";
 
@@ -59,6 +60,8 @@ export interface AppState {
   tagNoiseIn: number;
   /** TeamCode asset overrides edited in the browser: asset path -> dotted key -> value (sent to the host) */
   assetOverrides: Record<string, Record<string, unknown>>;
+  /** shooter calibration wizard: setup, measured shots and the OpMode's pending shot announcements */
+  calibration: CalibrationSession;
 }
 
 export function defaultState(): AppState {
@@ -96,6 +99,7 @@ export function defaultState(): AppState {
     hardware: defaultHardwareConfig(),
     tagNoiseIn: 0.3,
     assetOverrides: {},
+    calibration: defaultCalibration(robot.launcher.exitHeightM),
   };
 }
 
@@ -124,7 +128,7 @@ export function loadState(): AppState {
       for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
-      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, matchPhase: undefined, matchClock: undefined, matchRequest: undefined };
+      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), matchPhase: undefined, matchClock: undefined, matchRequest: undefined };
     }
   } catch { /* ignore */ }
   return defaultState();

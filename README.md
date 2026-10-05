@@ -48,7 +48,7 @@ The side panel on the right holds the settings. It opens in **Essential** mode, 
 | **Top view.** Camera ground footprint, FOV frustum, the launch line and the start/loading zones; shift-click anywhere to teleport and auto-aim. | **Hive physics.** Balls fly, bounce and settle in the cell; the hive tips at the calibrated load and pours the pieces out as it swings. |
 | ![Hit-probability map: where on the field an aimed shot lands in the raised cell](docs/screenshots/hit-probability-map.png) | ![Browser editor for the TeamCode JSON assets](docs/screenshots/teamcode-settings.png) |
 | **Hit-probability map.** From every 6 in square, aim and fire 40 simulated shots with your shot variability: green always scores, red never; dimmed where the selected camera cannot see the target cell's AprilTags. Watch it change as you tweak hood angle, RPM limits, variability or camera mounts. | **TeamCode settings.** The OpModes' JSON assets as a searchable form; edits are simulator-only overrides merged at INIT, the repo files stay untouched. |
-| ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and telemetry](docs/screenshots/runtime-teamcode.png) | |
+| ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and telemetry](docs/screenshots/runtime-teamcode.png) | ![Shooter calibration wizard: measured impacts, fitted arcs and the launcher fit](docs/screenshots/shooter-calibration.png) |
 | **Virtual runtime.** The team's unmodified Java OpMode (here: tag-based auto aim) running on a desktop JVM, driving the simulated robot from the browser with INIT / START / STOP and live telemetry. | |
 
 ## Run your TeamCode against the twin (virtual runtime)
@@ -66,7 +66,7 @@ Then pick an OpMode in the **Runtime** panel → INIT → START. Edit your Java 
 
 The host also runs the **real FTC Panels dashboard** (com.bylazar, the same library your code uses on the robot): open http://localhost:8001 from the *Open Panels dashboard* link in the Runtime panel. Telemetry, graphs, field drawings, configurables and OpMode control all come from your code's own Panels calls, fed by the simulated robot, so what Panels shows for the twin is what it would show for the robot. There is no camera video: the twin does not stream pixels (see *Known simplifications*), so a camera-stream widget stays blank.
 
-See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Two sample OpModes (a mecanum TeleOp and an AprilTag auto-aim autonomous) ship with it.
+See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Three sample OpModes ship with it: a mecanum TeleOp, an AprilTag auto-aim autonomous and the shooter-calibration OpMode (see *Launcher model*).
 
 ## Test bed for coding agents (and CI)
 
@@ -174,7 +174,19 @@ Pre-seeded FTC-legal UVC webcams with their published fields of view (Logitech C
 
 ## Launcher model
 
-Exit speed = *efficiency* x flywheel surface speed. Hooded single-wheel shooters measure roughly 0.30-0.45; dual opposing wheels around 0.85-0.9. Flight uses quadratic drag (Cd 0.45) and optional Magnus lift from backspin. Measure a few real shots and tune efficiency until the sim matches, then trust the RPM table.
+Exit speed = *efficiency* x flywheel surface speed. Hooded single-wheel shooters measure roughly 0.30-0.45; dual opposing wheels around 0.85-0.9. Flight uses quadratic drag (Cd 0.45) and optional Magnus lift from backspin. Use the calibration wizard below to measure efficiency and hood angle on your robot instead of guessing.
+
+### Calibrate the twin against your robot (Launcher ▸ Shooter calibration)
+
+The twin only predicts shots as well as its launcher numbers, so there is a guided way to measure them on the real robot:
+
+1. Copy `runtime/samples/.../TwinCalibration.java` into your TeamCode (edit the hardware names at the top if yours differ; it already knows the StarterBot and Camels Hump names). It runs unchanged on the robot and in the twin.
+2. Park the robot square to a wall with the shooter facing it and measure the bumper-to-wall distance and the ball exit height; type both into the wizard. The wizard proposes a plan: a few flywheel powers at two distances, two shots each (edit the lists to taste; keep `POWERS` in the OpMode equal to the wizard's list).
+3. Run the OpMode: dpad steps the power, X spins the flywheel, A fires one ball. Each shot is announced as `CAL shot=N power=P rpm=R volts=V` on telemetry and in the log. Note where the ball hit: the height on the wall, or how far out it landed if it came down first (a tape on the floor is the easy measurement; high-power shots at 55° reach a wall 10 ft up).
+4. Enter each shot in the wizard: paste the `CAL` lines (they arrive by themselves when the OpMode runs in the twin), click the side-view diagram where the ball hit, *Add shot*. The fitter runs after every shot and reports efficiency, hood angle and backspin with uncertainties, the RMS error, and what measurement would help next (the hood angle only separates from exit speed when the geometry varies: two distances, or a wall hit plus a floor landing).
+5. *Apply to twin* writes the fitted values into the Launcher (and the flywheel's free speed into the Hardware map when the OpMode reported RPM). The wizard also prints the values TeamCode's range → power model wants (`launchAngleDeg`, `exitHeightIn`, a `powerTable`) and can send the scalar ones to the TeamCode settings overrides.
+
+The session (setup and shots) is saved with the rest of the state and can be exported/imported as JSON. To try the wizard without a robot, run the calibration OpMode in the twin: the sim's own shots show up as *Sim ball* rows you can add as measurements (the perimeter counts as an infinitely tall wall for this), and the fit should land on the Launcher values you started with.
 
 Presets: goBILDA StarterBot (single 96 mm Hogback flywheel on a 6000 RPM 5203 motor, fixed 55° hood, fires out the **back** over the ramp so *Launcher yaw* is 180°), dual flywheel with adjustable hood, custom. The orange exit marker on the robot can be dragged like a camera (Alt-drag for height) and is hidden from the camera views.
 

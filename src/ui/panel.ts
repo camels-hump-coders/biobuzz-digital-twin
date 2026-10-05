@@ -9,13 +9,15 @@ import type { RuntimeLink } from "../runtime/link";
 import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/starts";
 import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
+import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
+import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
 
 const IN = 0.0254;
 
-type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset" | "runtime" | "hardware" | "assets") => void;
+export type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset" | "runtime" | "hardware" | "assets" | "calibration") => void;
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") e.className = v;
@@ -26,14 +28,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return e;
 }
 
-function num(label: string, get: () => number, set: (v: number) => void, opts: { min?: number; max?: number; step?: number; unit?: string } = {}): HTMLElement[] {
+export function num(label: string, get: () => number, set: (v: number) => void, opts: { min?: number; max?: number; step?: number; unit?: string } = {}): HTMLElement[] {
   const input = el("input", { type: "number", value: round(get()), min: opts.min, max: opts.max, step: opts.step ?? 0.1 }) as HTMLInputElement;
   input.onchange = () => { const v = parseFloat(input.value); if (!Number.isNaN(v)) set(v); };
   return [el("label", {}, opts.unit ? `${label} (${opts.unit})` : label), input];
 }
 function round(v: number): number { return Math.round(v * 100) / 100; }
 
-function sel(label: string, options: { value: string; label: string }[], get: () => string, set: (v: string) => void): HTMLElement[] {
+export function sel(label: string, options: { value: string; label: string }[], get: () => string, set: (v: string) => void): HTMLElement[] {
   const s = el("select") as HTMLSelectElement;
   for (const o of options) s.append(el("option", { value: o.value, selected: o.value === get() ? "" : undefined }, o.label));
   s.value = get();
@@ -41,7 +43,7 @@ function sel(label: string, options: { value: string; label: string }[], get: ()
   return [el("label", {}, label), s];
 }
 
-function chk(label: string, get: () => boolean, set: (v: boolean) => void): HTMLElement[] {
+export function chk(label: string, get: () => boolean, set: (v: boolean) => void): HTMLElement[] {
   const c = el("input", { type: "checkbox" }) as HTMLInputElement;
   c.checked = get();
   c.onchange = () => set(c.checked);
@@ -102,6 +104,14 @@ export class Panel {
   /** sections whose advanced rows were revealed with their "more" button (Essential mode) */
   private moreOpen = new Set<string>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
+  /** shooter calibration wizard: the shot being typed, the cached fit and the last simulated impact */
+  private calForm: CalForm | undefined;
+  private calCache: { key: string; fit: FitResult } | undefined;
+  private calImpact: SimImpactLike | undefined;
+  renderCalibrationImpact(impact: SimImpactLike) {
+    this.calImpact = impact;
+    if (this.openState.get("Shooter calibration")) this.render();
+  }
   updateTelemetry(lines: string[], status: string) {
     const rec = this.recorder;
     if (this.telemetryEl) {
@@ -511,6 +521,15 @@ export class Panel {
     ));
 
     // --- Match / target
+    const calOpen = open("Shooter calibration", false);
+    const calSec = section("Shooter calibration", calOpen, ...(calOpen ? calibrationRows({
+      state: st, link: this.link, change, rerender: () => this.render(),
+      form: this.calForm, setForm: (f) => { this.calForm = f; }, simImpact: this.calImpact, clearImpact: () => { this.calImpact = undefined; },
+      cache: this.calCache, setCache: (c) => { this.calCache = c; },
+    }) : [el("div", { class: "note" }, "Open to start.")]));
+    calSec.ontoggle = () => { if ((calSec as HTMLDetailsElement).open !== calOpen) this.render(); }; // the wizard renders only while open (it runs the fitter)
+    this.root.append(calSec);
+
     this.root.append(section("Field & target", open("Field & target", true),
       sel("Our alliance", [{ value: "red", label: "Red (left of audience)" }, { value: "blue", label: "Blue" }], () => st.alliance, (v) => { st.alliance = v as any; change("sim"); }),
       sel("Red hive up cell", [{ value: "audience", label: "Audience side (match start)" }, { value: "scoring", label: "Scoring side" }], () => st.hive.red, (v) => { st.hive.red = v as any; change("sim"); }),

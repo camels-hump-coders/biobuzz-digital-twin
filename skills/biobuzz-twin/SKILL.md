@@ -111,6 +111,25 @@ shooter direction, alliance, start pose. Rules:
 5. The committed asset values still drive the real robot. When the twin's measurement changes, copy the new value into
    the asset file too (the panel shows "file: …" next to each bound key).
 
+## 4b. Shooter calibration: make the twin shoot like the robot
+
+The twin's launcher knobs (`launcher.efficiency`, `launcher.elevationDeg`, `launcher.exitHeightIn`, backspin, the
+flywheel's `freeRpm`) are measured, not guessed, with the **Shooter calibration** wizard (Launcher section of the panel)
+and the `Twin: Shooter Calibration` OpMode (`runtime/samples/.../TwinCalibration.java`, copied into TeamCode as
+`opmodes/TwinCalibration.java`). Humans fire the robot at a wall and type/click where each ball hit; the fitter tunes
+the knobs until the twin's flight model reproduces every impact.
+
+- If a human reports shots ("power 0.6 from 48 in hit the wall 70 in up"), enter them via `window.__twin.state.calibration`
+  (`shots[]` of `{id, power, rpm?, distanceM, kind: "wall"|"floor", measuredM}`; `distanceM` is exit-to-wall, see
+  `exitToWallDistance` in `src/ballistics/calibration.ts`), then read the fit in the panel or call `fitCalibration` from
+  the module directly. Apply with the panel button or by writing the launcher fields and calling the Launcher change.
+- When the calibration OpMode runs in the twin, each shot's simulated impact is at `window.__twin.calibration.lastImpact()`;
+  adding those as shots must reproduce the current launcher values (RMS ≈ 0): that is the wizard's self-test.
+- The wizard's TeamCode block (`launchAngleDeg`, `exitHeightIn`, `targetHeightIn`, `shotRangeIn`/`shotPower`, `powerTable`)
+  is what `tagTracking` in `robot-profile.json` wants; the scalar ones are also bound (see twin-bindings.json), the
+  `powerTable` array must be pasted into the asset by hand.
+- The OpMode's `POWERS` must equal the wizard's "Powers to test" list.
+
 ## 5. Workflow for a code change
 
 1. Make the change in the team repo.

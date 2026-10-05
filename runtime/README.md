@@ -16,7 +16,7 @@ From the repo root, `pnpm sim --team /path/to/FtcRobotController` does everythin
 
 ```bash
 cd runtime
-./gradlew :host:run            # starts the host with the two sample OpModes
+./gradlew :host:run            # starts the host with the sample OpModes (StarterBot TeleOp, auto-aim, shooter calibration)
 # in another terminal, from the repo root:
 pnpm dev                        # open http://localhost:5173
 ```
