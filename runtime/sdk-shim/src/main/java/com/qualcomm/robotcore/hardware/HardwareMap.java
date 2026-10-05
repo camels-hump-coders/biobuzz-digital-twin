@@ -26,8 +26,8 @@ public class HardwareMap implements Iterable<HardwareDevice> {
     public final DeviceMapping<CRServo> crservo = new DeviceMapping<>(CRServo.class);
     public final DeviceMapping<VoltageSensor> voltageSensor = new DeviceMapping<>(VoltageSensor.class);
     public final DeviceMapping<TouchSensor> touchSensor = new DeviceMapping<>(TouchSensor.class);
-    /** Android Context on the robot; a plain Object here. */
-    public final Object appContext = new Object();
+    /** Android Context on the robot; a desktop stand-in here (assets from TeamCode/src/main/assets, file-backed SharedPreferences). */
+    public final android.content.Context appContext = new android.content.Context();
 
     public void register(String name, HardwareDevice device) {
         allDevices.put(name, device);

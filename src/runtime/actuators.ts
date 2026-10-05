@@ -100,7 +100,8 @@ export function stepActuators(
   return { vel: { vx: f.x * vFwd + lv.x * vLeft, vz: f.z * vFwd + lv.z * vLeft, yawRate: omega }, flywheelRpm, hoodPos, intakePower };
 }
 
-/** Count feeder fire events from the wire-level servo transitions (rising edge through the threshold). */
+/** Count feeder fire events from the wire-level servo transitions (rising edge through the threshold).
+ * Positional servos use position; continuous-rotation feeders use |power|. */
 export function feederFires(cfg: HardwareConfig, transitions: { name: string; from: number; to: number }[]): number {
   let n = 0;
   for (const t of transitions) {

@@ -1,7 +1,9 @@
 package org.firstinspires.ftc.vision.apriltag;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose3D;
+/** Base detection. In SDK 12 getDetections() returns AprilTagSingleDetection or AprilTagClusterDetection instances;
+ * check with instanceof. The single-tag fields stay here so pre-12 code still compiles. */
 public class AprilTagDetection {
-    public int id; public int hamming; public float decisionMargin;
+    public int id = -1; public int hamming; public float decisionMargin;
     public Point center = new Point(); public Point[] corners = { new Point(), new Point(), new Point(), new Point() };
     public AprilTagMetadata metadata; public AprilTagPoseFtc ftcPose; public AprilTagPoseRaw rawPose; public Pose3D robotPose; public long frameAcquisitionNanoTime;
     /** Minimal stand-in for org.opencv.core.Point. */

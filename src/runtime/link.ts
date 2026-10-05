@@ -64,10 +64,11 @@ export class RuntimeLink {
       case "actuators": {
         this.actuators = msg.devices ?? {};
         for (const [name, d] of Object.entries<any>(this.actuators)) {
-          if (d.kind !== "servo") continue;
+          if (d.kind !== "servo" && d.kind !== "crservo") continue;
+          const val = d.kind === "servo" ? d.position : Math.abs(d.power ?? 0);
           const prev = this.lastServo[name];
-          if (prev !== undefined && prev !== d.position) this.servoTransitions.push({ name, from: prev, to: d.position });
-          this.lastServo[name] = d.position;
+          if (prev !== undefined && prev !== val) this.servoTransitions.push({ name, from: prev, to: val });
+          this.lastServo[name] = val;
         }
         if (this.servoTransitions.length > 200) this.servoTransitions.splice(0, this.servoTransitions.length - 200);
         break;

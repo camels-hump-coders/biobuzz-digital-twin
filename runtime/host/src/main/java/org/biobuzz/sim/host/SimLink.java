@@ -73,10 +73,11 @@ public class SimLink extends WebSocketServer {
         if (devices != null) for (JsonElement el : devices) {
             JsonObject d = el.getAsJsonObject();
             String name = d.get("name").getAsString(), kind = d.get("kind").getAsString();
+            int port = d.has("port") ? d.get("port").getAsInt() : 0;
             switch (kind) {
-                case "motor": map.register(name, new Devices.SimMotor(name, state, d.has("ticksPerRev") ? d.get("ticksPerRev").getAsDouble() : 537.7)); break;
-                case "servo": map.register(name, new Devices.SimServo(name, state)); break;
-                case "crservo": map.register(name, new Devices.SimCRServo(name, state)); break;
+                case "motor": map.register(name, new Devices.SimMotor(name, state, d.has("ticksPerRev") ? d.get("ticksPerRev").getAsDouble() : 537.7, port)); break;
+                case "servo": map.register(name, new Devices.SimServo(name, state, port)); break;
+                case "crservo": map.register(name, new Devices.SimCRServo(name, state, port)); break;
                 case "imu": map.register(name, new Devices.SimImu(name, state)); break;
                 case "webcam": map.register(name, new Devices.SimWebcam(name)); break;
                 case "distance": map.register(name, new Devices.SimDistance(name, state)); break;

@@ -6,7 +6,7 @@ import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
 import { intrinsicsFor } from "../robot/robot";
 import type { RuntimeLink } from "../runtime/link";
-import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
+import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
 
 const IN = 0.0254;
 
@@ -120,13 +120,14 @@ export class Panel {
       const nameIn = el("input", { type: "text", value: d.name }) as HTMLInputElement;
       nameIn.onchange = () => { d.name = nameIn.value; change("hardware"); };
       hwRows.push([el("label", {}, d.kind), nameIn]);
+      if (d.kind === "motor" || d.kind === "servo" || d.kind === "crservo") hwRows.push(num("port", () => d.port ?? 0, (v) => { d.port = Math.round(v); change("hardware"); }, { min: 0, max: 5, step: 1 }));
       if (d.kind === "motor") {
         hwRows.push(sel("role", MOTOR_ROLES.map((r) => ({ value: r, label: r })), () => d.role ?? "other", (v) => { d.role = v as any; change("hardware"); }));
         hwRows.push(num("ticks/rev", () => d.ticksPerRev ?? 537.7, (v) => { d.ticksPerRev = v; change("hardware"); }, { min: 1, max: 10000, step: 0.1 }));
         hwRows.push(num("free RPM", () => d.freeRpm ?? 312, (v) => { d.freeRpm = v; change("hardware"); }, { min: 10, max: 12000, step: 1 }));
       } else if (d.kind === "servo" || d.kind === "crservo") {
         hwRows.push(sel("role", SERVO_ROLES.map((r) => ({ value: r, label: r })), () => d.role ?? "other", (v) => { d.role = v as any; change("hardware"); }));
-        if (d.role === "feeder") hwRows.push(num("fire at position ≥", () => d.fireThreshold ?? 0.5, (v) => { d.fireThreshold = v; change("hardware"); }, { min: 0, max: 1, step: 0.05 }));
+        if (d.role === "feeder") hwRows.push(num(d.kind === "crservo" ? "fire when |power| ≥" : "fire at position ≥", () => d.fireThreshold ?? 0.5, (v) => { d.fireThreshold = v; change("hardware"); }, { min: 0, max: 1, step: 0.05 }));
       } else if (d.kind === "webcam") {
         hwRows.push(sel("camera mount", st.robot.cameras.map((c) => ({ value: c.id, label: c.name })), () => d.cameraId ?? st.robot.cameras[0]?.id ?? "", (v) => { d.cameraId = v; change("hardware"); }));
       }
@@ -137,7 +138,7 @@ export class Panel {
       el("button", { onclick: () => addDev("motor") }, "+ motor"), el("button", { onclick: () => addDev("servo") }, "+ servo"), el("button", { onclick: () => addDev("crservo") }, "+ CR servo"),
       el("button", { onclick: () => addDev("distance") }, "+ distance"), el("button", { onclick: () => addDev("webcam") }, "+ webcam"),
     ));
-    hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "Reset to StarterBot names")));
+    hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "StarterBot names"), el("button", { onclick: () => { st.hardware = camelsHumpHardwareConfig(); st.robot.drivetrain = "tank"; change("hardware"); change("robot"); } }, "Camels Hump tank bot names")));
     hwRows.push(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 }));
     this.root.append(section("Hardware map", open("Hardware map", false), ...hwRows));
 

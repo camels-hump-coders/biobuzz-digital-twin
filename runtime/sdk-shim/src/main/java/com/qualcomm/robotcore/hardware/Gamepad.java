@@ -13,6 +13,11 @@ public class Gamepad {
     public long timestamp;
     public byte user = 1;
     public String id = "sim";
+    /** -1 when no controller is attached; the sim always reports one */
+    public int getGamepadId() { return user; }
+    public byte getUser() { return user; }
+    public void setUser(byte u) { user = u; }
+    public boolean type() { return true; }
 
     public boolean atRest() {
         return left_stick_x == 0 && left_stick_y == 0 && right_stick_x == 0 && right_stick_y == 0 && left_trigger == 0 && right_trigger == 0;

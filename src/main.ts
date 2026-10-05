@@ -161,7 +161,7 @@ const link = new RuntimeLink(state.runtimeUrl);
 const actuatorModel = createActuatorModel();
 let imuYawRef = 0; // IMU yaw is reported relative to the heading at connect time
 function hardwareDevices() {
-  return state.hardware.devices.map((d) => ({ name: d.name, kind: d.kind, ticksPerRev: d.ticksPerRev ?? 537.7 }));
+  return state.hardware.devices.map((d) => ({ name: d.name, kind: d.kind, ticksPerRev: d.ticksPerRev ?? 537.7, port: d.port ?? 0 }));
 }
 function syncRuntime() {
   if (state.runtimeEnabled) { if ((link as any).url !== state.runtimeUrl) { link.disconnect(); (link as any).url = state.runtimeUrl; } link.connect(); }

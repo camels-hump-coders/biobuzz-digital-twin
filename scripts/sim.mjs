@@ -11,7 +11,7 @@
  * the TeamCode module folder, or the java source folder itself.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,12 +92,38 @@ if (!javaOk(javaHome)) {
 const isWin = process.platform === "win32";
 const gradlew = join(root, "runtime", isWin ? "gradlew.bat" : "gradlew");
 const gradleArgs = [":host:run", "--console=plain", "-q", `--args=${hostPort}`];
+// Files that import Android-only or robot-only packages can never compile on the desktop. Skip them
+// automatically unless a sim override with the same relative path exists in <TeamCode>/src/sim/java.
+const ANDROID_ONLY = /^import (android\.(?!util\.Size)|androidx\.|org\.opencv\.|fi\.iki\.elonen|com\.qualcomm\.ftccommon|org\.firstinspires\.ftc\.ftccommon|org\.firstinspires\.ftc\.robotcore\.internal|com\.bylazar\.(camerastream|field)|com\.acmerobotics\.dashboard)/m;
+const ANDROID_ALLOWED = /^import android\.(content\.Context|content\.SharedPreferences|content\.res\.AssetManager|util\.Size);/m;
+function walk(dir, out = []) { for (const e of readdirSync(dir)) { const p = join(dir, e); if (statSync(p).isDirectory()) walk(p, out); else if (p.endsWith(".java")) out.push(p); } return out; }
+let autoExcluded = [];
+let simDir;
+let assetsDir;
+if (team) {
+  const moduleRoot = resolve(team, "../../.."); // <TeamCode>
+  simDir = join(moduleRoot, "src/sim/java");
+  assetsDir = join(moduleRoot, "src/main/assets");
+  const overrides = new Set(existsSync(simDir) ? walk(simDir).map((f) => f.slice(simDir.length + 1)) : []);
+  for (const f of walk(team)) {
+    const rel = f.slice(team.length + 1);
+    if (overrides.has(rel)) continue;
+    const src = readFileSync(f, "utf8").replace(ANDROID_ALLOWED, "");
+    if (ANDROID_ONLY.test(src)) autoExcluded.push(rel);
+  }
+}
+const allExcludes = [...(exclude ? exclude.split(",") : []), ...autoExcluded].filter(Boolean);
 if (team) gradleArgs.push(`-PteamCode=${team}`);
-if (exclude) gradleArgs.push(`-PteamExclude=${exclude}`);
+if (allExcludes.length) gradleArgs.push(`-PteamExclude=${allExcludes.join(",")}`);
+if (simDir && existsSync(simDir)) gradleArgs.push(`-PteamSim=${simDir}`);
+if (assetsDir && existsSync(assetsDir)) gradleArgs.push(`-PsimAssets=${assetsDir}`);
 if (watch) gradleArgs.push("--continuous");
 
 console.log(`sim: TeamCode  ${team ?? "(none — sample OpModes only; pass --team <path>)"}`);
 if (exclude) console.log(`sim: excluding ${exclude}`);
+if (autoExcluded.length) { console.log(`sim: skipping ${autoExcluded.length} file(s) that use Android/robot-only APIs (add a copy under TeamCode/src/sim/java to provide a sim version):`); for (const f of autoExcluded) console.log(`sim:   ${f}`); }
+if (simDir && existsSync(simDir)) console.log(`sim: overrides ${simDir}`);
+if (assetsDir && existsSync(assetsDir)) console.log(`sim: assets    ${assetsDir}`);
 console.log(`sim: JDK       ${javaHome ?? "from PATH"}`);
 console.log(`sim: host      ws://127.0.0.1:${hostPort}${watch ? "  (auto-rebuilds and restarts when your code changes)" : ""}`);
 console.log(`sim: twin      http://localhost:${port}/?runtime=1`);
@@ -109,7 +135,7 @@ const host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...
 const errFiles = new Set();
 const hostOut = (chunk) => {
   prefix("host", "33")(chunk);
-  for (const m of chunk.toString().matchAll(/^(\S+\.java):\d+: error:/gm)) errFiles.add(m[1]);
+  for (const m of chunk.toString().matchAll(/^\s*(\S+\.java):\d+: error:/gm)) errFiles.add(m[1]);
   if (/BUILD FAILED|Compilation failed/.test(chunk.toString()) && errFiles.size) {
     const rels = [...errFiles].map((f) => (team ? f.replace(team + "/", "") : f));
     console.log(`\x1b[33m[host]\x1b[0m ${rels.length} file(s) use SDK classes the shim does not have:`);

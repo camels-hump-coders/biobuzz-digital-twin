@@ -8,6 +8,12 @@ dependencies {
     runtimeOnly(project(":samples"))
     runtimeOnly(project(":team"))
 }
+tasks.named<JavaExec>("run") {
+    // TeamCode assets (hardwareMap.appContext.getAssets()) and the SharedPreferences store
+    systemProperty("sim.assets", (findProperty("simAssets") as String?) ?: "")
+    systemProperty("sim.prefs", (findProperty("simPrefs") as String?) ?: layout.projectDirectory.dir("../.sim-prefs").asFile.path)
+}
+
 application {
     mainClass.set("org.biobuzz.sim.host.Main")
     applicationDefaultJvmArgs = listOf("-Dorg.slf4j.simpleLogger.defaultLogLevel=warn")

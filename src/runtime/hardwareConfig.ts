@@ -14,6 +14,8 @@ export interface DeviceConfig {
   fireThreshold?: number;
   /** webcam: which camera mount id it maps to */
   cameraId?: string;
+  /** hub port number, reported by getPortNumber() */
+  port?: number;
 }
 
 export interface HardwareConfig {
@@ -35,6 +37,24 @@ export function defaultHardwareConfig(): HardwareConfig {
       { name: "intake", kind: "motor", role: "intake", ticksPerRev: 537.7, freeRpm: 312 },
       { name: "feeder", kind: "servo", role: "feeder", fireThreshold: 0.5 },
       { name: "hood", kind: "servo", role: "hood" },
+      { name: "imu", kind: "imu" },
+      { name: "Webcam 1", kind: "webcam", cameraId: "cam1" },
+    ],
+  };
+}
+
+/** A tank-drive bot with Driver-Station names matching the Camels Hump Coders TeamCode (RobotConfig.java + controller-profile.json). */
+export function camelsHumpHardwareConfig(): HardwareConfig {
+  return {
+    mirroredSide: "left",
+    devices: [
+      { name: "Left Drive", kind: "motor", role: "left", ticksPerRev: 537.7, freeRpm: 312, port: 1 },
+      { name: "Right Drive", kind: "motor", role: "right", ticksPerRev: 537.7, freeRpm: 312, port: 0 },
+      { name: "Intake", kind: "motor", role: "intake", ticksPerRev: 537.7, freeRpm: 312, port: 2 },
+      { name: "Firing Mechanism", kind: "motor", role: "flywheel", ticksPerRev: 28, freeRpm: 6000, port: 3 },
+      { name: "Windmill Feeder", kind: "crservo", role: "feeder", fireThreshold: 0.1, port: 0 },
+      { name: "Front Right Feeder", kind: "crservo", role: "other", port: 1 },
+      { name: "Front Left Feeder", kind: "crservo", role: "other", port: 2 },
       { name: "imu", kind: "imu" },
       { name: "Webcam 1", kind: "webcam", cameraId: "cam1" },
     ],
