@@ -9,6 +9,7 @@ import type { RuntimeLink } from "../runtime/link";
 import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/starts";
 import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
+import { applyOverrides, downloadText, exportChangedAssets } from "../runtime/assetExport";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
 import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
@@ -291,6 +292,15 @@ export class Panel {
         ...link.bound.errors.map((e) => el("div", { class: "note", style: "color:#ff8888" }, `binding error: ${e}`)),
         el("div", { class: "row full" }, el("button", { title: "Every twin knob a binding can reference, with its current value", onclick: () => { const blob = new Blob([JSON.stringify(twinKnobs(st), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "twin-knobs.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); } }, "Download twin knob catalogue")),
         el("div", { class: "arow tools" }, filter, el("button", { ...(total ? {} : { disabled: "" }), title: "Forget every override in every file", onclick: () => { st.assetOverrides = {}; change("assets"); } }, `Clear all${total ? ` (${total})` : ""}`)),
+        (() => {
+          // export: the committed files with every override and twin-bound value applied, in the file's own format
+          const changed = exportChangedAssets(link.assets, st.assetOverrides, link.bound.overrides);
+          const nKeys = changed.reduce((n, c) => n + c.changed.length, 0);
+          return el("div", { class: "arow tools" },
+            el("button", { ...(changed.length ? {} : { disabled: "" }), title: changed.map((c) => `${c.path}: ${c.changed.map((k) => k.key).join(", ")}`).join("\n") || "No file differs from what is committed", onclick: () => { for (const c of changed) downloadText(c.path.split("/").pop()!, c.text); } },
+              changed.length ? `Export ${changed.length} changed file${changed.length > 1 ? "s" : ""} (${nKeys} value${nKeys > 1 ? "s" : ""})` : "Export changed files"),
+            el("span", { class: "note" }, changed.length ? "Downloads the files with your overrides and the twin-bound values written in (original key order and indentation). Drop each into TeamCode/src/main/assets/<path> and commit." : "When settings here differ from the committed files, export them to commit back into TeamCode."));
+        })(),
         list,
       );
       const setOv = (path: string, key: string, value: unknown, original: unknown) => {
@@ -356,9 +366,15 @@ export class Panel {
           walk(json, "", "", 0);
           if (q && !shown) continue;
           const openIt = q ? true : (this.assetOpen.get(file.path) ?? n > 0);
+          let exported: ReturnType<typeof applyOverrides> | undefined;
+          try { exported = applyOverrides(file, ov, link.bound.overrides[file.path]); } catch { /* shown as invalid above */ }
+          const diff = exported?.changed.length ?? 0;
+          const stop = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
           const det = el("details", { class: "afile", ...(openIt ? { open: "" } : {}) },
             el("summary", {}, el("span", { class: "name" }, file.path), n ? el("span", { class: "badge" }, `${n} override${n > 1 ? "s" : ""}`) : "",
-              el("button", { ...(n ? {} : { disabled: "" }), onclick: (e: Event) => { e.preventDefault(); e.stopPropagation(); delete st.assetOverrides[file.path]; change("assets"); } }, "Clear")),
+              el("button", { ...(diff ? {} : { disabled: "" }), title: diff ? `Download ${file.path} with these values written in (${exported!.changed.map((c) => c.key).join(", ")}); put it at TeamCode/src/main/assets/${file.path}` : "Matches the committed file", onclick: (e: Event) => { stop(e); if (exported) downloadText(file.path.split("/").pop()!, exported.text); } }, "Export"),
+              el("button", { ...(diff ? {} : { disabled: "" }), title: "Copy the merged file to the clipboard", onclick: (e: Event) => { stop(e); if (exported) navigator.clipboard?.writeText(exported.text); } }, "Copy"),
+              el("button", { ...(n ? {} : { disabled: "" }), onclick: (e: Event) => { stop(e); delete st.assetOverrides[file.path]; change("assets"); } }, "Clear")),
             body);
           det.addEventListener("toggle", () => { if (!q) this.assetOpen.set(file.path, det.open); });
           list.append(det);
