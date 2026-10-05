@@ -43,6 +43,7 @@ console.log(`twin-test: starting host and twin (${simArgs.slice(1).join(" ")})`)
 const sim = spawn(process.execPath, simArgs, { cwd: root, detached: true, stdio: ["ignore", "pipe", "pipe"] });
 let simLog = "";
 const ready = { host: false, twin: false };
+let progressNoted = false;
 const onData = (d) => { const s = d.toString(); simLog += s; if (/listening on ws:/.test(s)) ready.host = true; if (/Local:\s+http/.test(s)) ready.twin = true; if (/error:|FAILED|Exception/.test(s)) process.stdout.write(s); };
 sim.stdout.on("data", onData); sim.stderr.on("data", onData);
 const killSim = () => { try { process.kill(-sim.pid, "SIGTERM"); } catch {} try { execSync(`lsof -nP -iTCP:${port} -iTCP:${hostPort} -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null`, { stdio: "ignore" }); } catch {} };
@@ -50,7 +51,8 @@ process.on("exit", killSim); process.on("SIGINT", () => { killSim(); process.exi
 const t0 = Date.now();
 while (!(ready.host && ready.twin)) {
   if (sim.exitCode !== null) { console.error("twin-test: the host exited before it was ready. Log tail:\n" + simLog.split("\n").slice(-40).join("\n")); process.exit(1); }
-  if (Date.now() - t0 > 15 * 60_000) { console.error("twin-test: timed out waiting for the host (first Gradle build can take minutes; see twin-test.log)"); writeFileSync("twin-test.log", simLog); process.exit(1); }
+  if (Date.now() - t0 > (parseFloat(flag("--host-timeout", "600")) * 1000)) { console.error("twin-test: timed out waiting for the host (first Gradle build can take minutes). Launcher output:\n" + simLog.split("\n").slice(-60).join("\n")); process.exit(1); }
+  if (Date.now() - t0 > 20_000 && !ready.host && !progressNoted) { progressNoted = true; console.log("twin-test: still waiting for the host (Gradle compiling TeamCode)…"); }
   await new Promise((r) => setTimeout(r, 1000));
 }
 console.log(`twin-test: host ready after ${((Date.now() - t0) / 1000).toFixed(0)} s`);
