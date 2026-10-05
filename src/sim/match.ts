@@ -109,8 +109,9 @@ export class Match {
     return ball;
   }
 
-  /** Try to launch one ball from an agent's inventory. Prefers the requested kind, falls back to the other. */
-  launch(agent: Agent, preferred: BallKind, exit: THREE.Vector3, vel: THREE.Vector3, spin: number): LiveBall | undefined {
+  /** Try to launch one ball from an agent's inventory. Prefers the requested kind, falls back to the other.
+   * `launcherObj` is the firing robot's scene object; the ball passes through it for its first half second. */
+  launch(agent: Agent, preferred: BallKind, exit: THREE.Vector3, vel: THREE.Vector3, spin: number, launcherObj?: THREE.Object3D): LiveBall | undefined {
     let kind: BallKind | undefined;
     if (preferred === "nectar" && agent.inventory.nectar > 0) kind = "nectar";
     else if (preferred === "pollen" && agent.inventory.pollen > 0) kind = "pollen";
@@ -118,7 +119,9 @@ export class Match {
     else if (agent.inventory.nectar > 0) kind = "nectar";
     if (!kind) return undefined;
     agent.inventory[kind]--;
-    return this.spawnBall(kind, kind === "nectar" ? agent.alliance : undefined, exit, vel, false, spin);
+    const b = this.spawnBall(kind, kind === "nectar" ? agent.alliance : undefined, exit, vel, false, spin);
+    b.launcher = launcherObj; b.launcherIgnoreUntil = 0.5; (b as any).launchedBy = agent.id; (b as any).launchedAt = this.time;
+    return b;
   }
 
   upFrame(alliance: Alliance): CellFrame { return upCellFrame({ alliance, upCell: this.hives[alliance].upCell }); }
@@ -231,6 +234,8 @@ export class Match {
     for (let i = 0; i < this.flying.length; i++) {
       const b = this.flying[i];
       if (b.inCell || b.pos.y > 0.25) continue;
+      if (!b.settled && b.vel.length() > 0.6) continue; // flying or rolling fast: cannot be swallowed
+      if ((b as any).launchedBy === ag.id && this.time - ((b as any).launchedAt ?? -Infinity) < 2) continue; // our own shot leaving
       if (b.kind === "pollen" && !ag.caps.pollen) continue;
       if (b.kind === "nectar" && (!ag.caps.nectar || b.alliance !== ag.alliance)) continue;
       if (Math.hypot(b.pos.x - ix, b.pos.z - iz) > INTAKE_RANGE_M) continue;
@@ -342,12 +347,13 @@ export class Match {
     group.userData.sig = want;
     group.clear();
     let i = 0;
+    // small translucent markers in a row just above the chassis: an inventory readout, not physical balls
     const add = (color: number, r: number) => {
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
-      mesh.position.set(-0.06 + (i % 2) * 0.12, heightM + 0.05 + Math.floor(i / 2) * 0.09, 0);
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 }));
+      mesh.position.set(-0.09 + i * 0.06, heightM + 0.03, 0);
       group.add(mesh); i++;
     };
-    for (let k = 0; k < inv.pollen; k++) add(BALL.pollen.color, m(BALL.pollen.diaIn) / 2 * 0.8);
-    for (let k = 0; k < inv.nectar; k++) add(alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color, m(BALL.nectarRed.diaIn) / 2 * 0.8);
+    for (let k = 0; k < inv.pollen; k++) add(BALL.pollen.color, 0.02);
+    for (let k = 0; k < inv.nectar; k++) add(alliance === "red" ? BALL.nectarRed.color : BALL.nectarBlue.color, 0.024);
   }
 }

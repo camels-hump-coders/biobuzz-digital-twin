@@ -339,7 +339,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ, spin: spinRate(l) };
   const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
   const vel = draw.vel;
-  const ball = match.launch(playerAgent, state.ballKind, new THREE.Vector3(exit.x, exit.y, exit.z), new THREE.Vector3(vel.x, vel.y, vel.z), draw.spin);
+  const ball = match.launch(playerAgent, state.ballKind, new THREE.Vector3(exit.x, exit.y, exit.z), new THREE.Vector3(vel.x, vel.y, vel.z), draw.spin, robot.group);
   if (!ball) { launchBlockedUntil = performance.now() + 1500; return; }
   (ball as any).owner = "player";
   shotsFired++;

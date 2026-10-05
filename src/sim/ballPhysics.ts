@@ -33,6 +33,9 @@ export interface LiveBall {
   contactAge: number;
   /** recent contact normals with the age at which they happened, for wedge detection */
   contacts?: { n: THREE.Vector3; at: number }[];
+  /** the robot that launched it: ignored for collisions until the ball has cleared it */
+  launcher?: THREE.Object3D;
+  launcherIgnoreUntil?: number;
 }
 
 const G = 9.80665;
@@ -76,8 +79,9 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
     raycaster.set(start, tmpD);
     raycaster.near = 0;
     raycaster.far = dist + b.radius;
+    const ignoreOwn = b.launcher && b.age < (b.launcherIgnoreUntil ?? 0);
     const hits = raycaster.intersectObjects(colliders, true);
-    const hit = hits.find((hh) => hh.face && hh.object !== b.mesh);
+    const hit = hits.find((hh) => hh.face && hh.object !== b.mesh && !(ignoreOwn && isDescendant(hh.object, b.launcher!)));
     if (hit && hit.face) {
       b.lastHit = `${hit.object.name || (hit.object as THREE.Mesh).geometry?.type} in ${hit.object.parent?.name || hit.object.parent?.type} @ (${hit.point.x.toFixed(2)},${hit.point.y.toFixed(2)},${hit.point.z.toFixed(2)}) d=${hit.distance.toFixed(3)}/${dist.toFixed(3)}`;
       tmpN.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
@@ -132,6 +136,11 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
   if (carried) b.restFor = 0;
   if (b.restFor > 0.4 || (b.age > 8 && !carried)) { b.settled = true; b.vel.set(0, 0, 0); }
   b.mesh.position.copy(b.pos);
+}
+
+function isDescendant(o: THREE.Object3D, ancestor: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === ancestor) return true;
+  return false;
 }
 
 /** Is a point inside the cell's prism (opening plane back to the back skin)? */
