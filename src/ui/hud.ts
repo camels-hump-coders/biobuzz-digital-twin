@@ -1,0 +1,63 @@
+import type { TagVisibility } from "../camera/robotCamera";
+
+export interface HudData {
+  poseIn: { x: number; z: number; headingDeg: number };
+  speedMps: number;
+  drivetrain: string;
+  fieldCentric: boolean;
+  target: string;
+  rangeIn: number;
+  bearingErrDeg: number;
+  turretOk: boolean;
+  hoodDeg: number;
+  requiredSpeed?: number;
+  requiredRpm?: number;
+  rpmOk: boolean;
+  currentRpm: number;
+  currentSpeed: number;
+  hit?: boolean;
+  aimed: boolean;
+  heightErrorIn?: number;
+  entryAngleDeg?: number;
+  bestAngleDeg?: number;
+  bestSpeed?: number;
+  bestRpm?: number;
+  flightTime?: number;
+  apexIn?: number;
+  shotsFired: number;
+  shotsHit: number;
+  tags: TagVisibility[];
+  cameraName: string;
+  modelStatus: string;
+}
+
+export class Hud {
+  private root = document.getElementById("hud")!;
+  update(d: HudData) {
+    const f = (v: number | undefined, p = 1) => (v === undefined || !Number.isFinite(v) ? "–" : v.toFixed(p));
+    const cls = (ok: boolean | undefined) => (ok === undefined ? "" : ok ? "ok" : "bad");
+    const tags = d.tags.map((t) => `<span class="tag ${t.visible ? "vis" : t.inFov && t.facing ? "occ" : ""}" title="${t.alliance} ${t.side} · ${f(t.distanceM / 0.0254, 0)} in · ${f(t.pixels, 0)} px">${t.id}</span>`).join("");
+    this.root.innerHTML = `
+      <h2>Robot</h2>
+      <table>
+        <tr><td>Position</td><td>${f(d.poseIn.x)} , ${f(d.poseIn.z)} in · ${f(d.poseIn.headingDeg, 0)}°</td></tr>
+        <tr><td>Speed</td><td>${f(d.speedMps, 2)} m/s · ${d.drivetrain}${d.fieldCentric ? " · field-centric" : ""}</td></tr>
+        <tr><td>Chassis</td><td>${d.modelStatus}</td></tr>
+      </table>
+      <h2 style="margin-top:8px">Shot → ${d.target}</h2>
+      <table>
+        <tr><td>Range (horizontal)</td><td>${f(d.rangeIn, 1)} in</td></tr>
+        <tr><td>Bearing error</td><td class="${cls(d.turretOk)}">${f(d.bearingErrDeg, 1)}° ${d.turretOk ? "(in turret range)" : "(turn robot)"}</td></tr>
+        <tr><td>Hood angle</td><td>${f(d.hoodDeg, 1)}°</td></tr>
+        <tr><td>Required exit speed</td><td class="${cls(d.rpmOk)}">${f(d.requiredSpeed, 2)} m/s → ${f(d.requiredRpm, 0)} RPM</td></tr>
+        <tr><td>Current</td><td>${f(d.currentSpeed, 2)} m/s @ ${f(d.currentRpm, 0)} RPM</td></tr>
+        <tr><td>Predicted${d.aimed ? "" : " (once aimed)"}</td><td class="${cls(d.hit)}">${d.hit === undefined ? "–" : d.hit ? "HIT" : "MISS"} · Δh ${f(d.heightErrorIn, 1)} in · entry ${f(d.entryAngleDeg, 0)}°</td></tr>
+        <tr><td>Flight</td><td>${f(d.flightTime, 2)} s · apex ${f(d.apexIn, 0)} in</td></tr>
+        <tr><td>Lowest-energy</td><td>${d.bestAngleDeg === undefined ? "no feasible angle in hood range" : `${f(d.bestAngleDeg, 1)}° @ ${f(d.bestSpeed, 2)} m/s (${f(d.bestRpm, 0)} RPM)`}</td></tr>
+        <tr><td>Fired / hit</td><td>${d.shotsFired} / ${d.shotsHit}</td></tr>
+      </table>
+      <h2 style="margin-top:8px">AprilTags — ${d.cameraName}</h2>
+      <div class="tags">${tags || '<span class="tag">no camera</span>'}</div>
+    `;
+  }
+}

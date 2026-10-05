@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BIOBUZZ Digital Twin</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view"></canvas>
+      <div id="hud"></div>
+      <div id="pip"><canvas id="pipcanvas"></canvas><div id="piplabel"></div></div>
+      <aside id="panel"></aside>
+      <div id="help">
+        <b>Drive</b> W/S fwd · A/D strafe · Q/E or ←/→ turn · Shift boost · <b>Space</b> launch · <b>T</b> target cell · <b>F</b> field-centric · <b>1</b> orbit <b>2</b> top <b>3</b> chase <b>4</b> robot cam · <b>H</b> hide panel · gamepad: sticks + A
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
