@@ -18,6 +18,15 @@ export function defaultCamera(id = "cam1"): CameraMount {
   };
 }
 
+/** Camera on the front edge of the StarterBot hood plate, looking forward over the intake. */
+export function starterBotCamera(id = "cam1"): CameraMount {
+  const c = defaultCamera(id);
+  c.forwardM = 1.5 * IN;
+  c.heightM = 12.5 * IN;
+  c.pitchDeg = -8;
+  return c;
+}
+
 export const ROBOT_PRESETS: Record<string, RobotSpec> = {
   starterbot6wd: {
     name: "goBILDA StarterBot (6WD, Gecko wheels)",
@@ -28,7 +37,8 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     wheelRpm: 312,
     wheelDiameterM: 0.096,
     model: "starterbot-6wd",
-    cameras: [defaultCamera()],
+    modelYawDeg: 90,
+    cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
     color: 0xe8e8e8,
   },
@@ -41,7 +51,8 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     wheelRpm: 312,
     wheelDiameterM: 0.104,
     model: "starterbot-mecanum",
-    cameras: [defaultCamera()],
+    modelYawDeg: 90,
+    cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
     color: 0xe8e8e8,
   },

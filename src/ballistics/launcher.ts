@@ -60,9 +60,9 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     elevationDeg: 55,
     elevationMinDeg: 55,
     elevationMaxDeg: 55,
-    exitForwardM: 0.12,
+    exitForwardM: -0.05, // ball leaves the top of the hood, just behind centre
     exitLeftM: 0,
-    exitHeightM: 0.40,
+    exitHeightM: 0.31,
     turretMinDeg: 0,
     turretMaxDeg: 0,
     spinFraction: 0.5,
