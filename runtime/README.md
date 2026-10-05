@@ -8,6 +8,10 @@ browser twin (pnpm dev)  <── ws://127.0.0.1:8765 ──>  JVM host (this fol
   gamepad / keyboard, telemetry view                   against sdk-shim, runs INIT/START/STOP
 ```
 
+## Quickest start
+
+From the repo root, `pnpm sim --team /path/to/FtcRobotController` does everything below in one go (host with auto-rebuild on save, twin, browser). The rest of this file is the manual route and the details.
+
 ## Quick start (sample OpModes)
 
 ```bash

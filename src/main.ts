@@ -26,6 +26,8 @@ import { clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
 import { clonePreset } from "./robot/presets";
 
 const state: AppState = loadState();
+// `pnpm sim` opens the page with ?runtime=1 so the twin connects to the host straight away
+if (new URLSearchParams(location.search).get("runtime") === "1") state.runtimeEnabled = true;
 
 // ---------- renderer & scenes
 const canvas = document.getElementById("view") as HTMLCanvasElement;

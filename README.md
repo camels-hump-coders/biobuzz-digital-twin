@@ -15,10 +15,14 @@ See `docs/superpowers/specs/2026-10-04-biobuzz-digital-twin-design.md` for the n
 
 Coders can test OpModes without touching the robot. `runtime/` is a desktop JVM host with an FTC SDK shim: your unmodified Java OpModes compile against it and run with INIT / START / STOP from the browser, reading encoders, IMU, AprilTag detections and gamepads from the sim and driving the simulated robot with their motor and servo commands.
 
+Your code stays in your Android Studio project; nothing is copied or moved. One command builds it against the shim, starts the host, starts the twin and opens the browser already connected:
+
 ```bash
-cd runtime && ./gradlew :host:run -PteamCode=/path/to/FtcRobotController/TeamCode/src/main/java
-# then in the browser: Runtime panel -> Connect -> pick OpMode -> INIT -> START
+pnpm sim --team ~/dev/FtcRobotController     # project root, TeamCode module, or its java folder all work
+pnpm sim                                      # later runs reuse the remembered path
 ```
+
+Then pick an OpMode in the **Runtime** panel → INIT → START. Edit your Java in Android Studio and save: the host recompiles and restarts within a few seconds and the browser reconnects, so you never leave the twin. Options: `--exclude "**/roadrunner/**,**/Old*.java"` to skip files that use SDK classes the shim lacks, `--no-watch`, `--no-browser`, `--port`, `--host-port`. The JDK is taken from `JAVA_HOME`, or Android Studio's bundled one if that is missing.
 
 See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Two sample OpModes (a mecanum TeleOp and an AprilTag auto-aim autonomous) ship with it.
 

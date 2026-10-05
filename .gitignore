@@ -4,3 +4,4 @@ dist
 .DS_Store
 runtime/.gradle
 runtime/**/build
+.biobuzz.local.json
