@@ -371,6 +371,8 @@ function frame(now: number) {
   if (analysisTick % 120 === 0) saveState(state);
   requestAnimationFrame(frame);
 }
+// debugging hook for scripts / console
+(window as any).__twin = { state, orbitCam, controls, robot, scene };
 let lastTags: HudData["tags"] = [];
 let reachKey = "";
 let reachMap: ReachMap | undefined;

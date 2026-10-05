@@ -1,12 +1,16 @@
 /** three.js representation of a robot: chassis (GLB or box), camera gizmos, launcher marker. */
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import type { RobotSpec, CameraMount } from "./robotSpec";
 import { type Intrinsics, fromDiagonal, fromHorizontal } from "../camera/cameraMath";
 import { presetById } from "../camera/cameraPresets";
 import type { Pose } from "../sim/drive";
 
 const loader = new GLTFLoader();
+const draco = new DRACOLoader();
+draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
+loader.setDRACOLoader(draco);
 const modelCache = new Map<string, Promise<THREE.Group>>();
 
 const MODEL_URLS: Record<string, string> = {
@@ -100,7 +104,11 @@ export class RobotObject {
       this.updateLoad();
       return;
     }
-    if (this.modelKey === key) return;
+    if (this.modelKey === key) {
+      const w = this.chassis.getObjectByName("cadWrapper");
+      if (w) w.rotation.y = ((spec.modelYawDeg ?? 0) * Math.PI) / 180;
+      return;
+    }
     this.modelKey = key;
     this.modelStatus = "loading";
     this.chassis.clear();
@@ -120,13 +128,16 @@ export class RobotObject {
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = maxDim > 5 ? 0.001 : 1; // mm -> m heuristic
       model.scale.setScalar(scale);
+      // goBILDA STEP exports are Z-up; bring Z up to Y up.
+      model.rotation.x = -Math.PI / 2;
       model.updateMatrixWorld(true);
       const bb2 = new THREE.Box3().setFromObject(model);
       const c = bb2.getCenter(new THREE.Vector3());
       model.position.sub(new THREE.Vector3(c.x, bb2.min.y, c.z));
       const wrapper = new THREE.Group();
       wrapper.add(model);
-      wrapper.rotation.y = (spec as any).modelYawDeg ? ((spec as any).modelYawDeg * Math.PI) / 180 : 0;
+      wrapper.name = "cadWrapper";
+      wrapper.rotation.y = ((spec.modelYawDeg ?? 0) * Math.PI) / 180;
       model.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) {
           const mesh = o as THREE.Mesh;

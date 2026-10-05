@@ -70,8 +70,10 @@ The StarterBot assemblies are published by goBILDA as STEP (about 420 MB each):
 python3 -m venv .venv && .venv/bin/pip install cadquery trimesh numpy
 .venv/bin/python scripts/step2glb.py 3200-2627-0004.step public/models/starterbot-mecanum.glb
 .venv/bin/python scripts/step2glb.py 3200-2627-0003.step public/models/starterbot-6wd.glb
-npx @gltf-transform/cli optimize public/models/starterbot-mecanum.glb public/models/starterbot-mecanum.glb --compress draco
+scripts/optimize-glb.sh starterbot-mecanum.glb public/models/starterbot-mecanum.glb   # 185 MB, 8 M triangles -> ~0.6 MB
 ```
+
+The raw tessellation is about 185 MB with 8 million triangles; the optimise step welds, simplifies to about 320 k triangles and Draco-compresses it to roughly 600 KB, which is what is committed in `public/models/`. Use the *CAD yaw* field in the Robot panel if the model's front does not match the robot's forward arrow.
 
 If a GLB is missing the app falls back to a procedural box with the same footprint and says so in the HUD.
 

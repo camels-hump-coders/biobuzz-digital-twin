@@ -34,6 +34,8 @@ export interface RobotSpec {
   wheelRpm: number;
   wheelDiameterM: number;
   model: ChassisModel;
+  /** extra yaw applied to the CAD model so its front matches robot +X forward, degrees */
+  modelYawDeg?: number;
   cameras: CameraMount[];
   launcher: LauncherConfig;
   color: number;
