@@ -255,7 +255,7 @@ of twin-bindings.json rather than writing a schema for it.
 ## 4b. Shooter calibration: make the twin shoot like the robot
 
 The twin's launcher knobs (`launcher.efficiency`, `launcher.elevationDeg`, `launcher.exitHeightIn`, backspin, the
-flywheel's `freeRpm`) are measured, not guessed, with the **Shooter calibration** wizard (Launcher section of the panel)
+flywheel's `freeRpm`) are measured, not guessed, with the **Shooter calibration** wizard (its own panel section; under *More sections* in Essential mode)
 and the `Twin: Shooter Calibration` OpMode (`runtime/samples/.../TwinCalibration.java`, copied into TeamCode as
 `opmodes/TwinCalibration.java`). Humans fire the robot at a wall and type/click where each ball hit; the fitter tunes
 the knobs until the twin's flight model reproduces every impact.

@@ -73,7 +73,7 @@ if (!hostUp) { console.log(`gallery: no host on ${hostPort}; skipping runtime, s
   await page.goto(base, { waitUntil: "networkidle" });
   await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus === "loaded" && window.__twin.link.connected && window.__twin.link.opModes.length > 0 && (window.__twinRenderCount ?? 0) >= 3, null, { timeout: 120_000 });
   const t = (fn, arg) => page.evaluate(fn, arg);
-  const openOnly = (titleStart) => t((s) => { document.querySelectorAll("#panel > details").forEach((d) => { d.open = d.querySelector("summary").textContent.startsWith(s); }); const p = document.getElementById("panel"); p.scrollTop = 0; }, titleStart);
+  const openOnly = (titleStart) => t((s) => { document.querySelectorAll("#panel details[data-title]").forEach((d) => { const t = d.dataset.title; if (t === "More sections") d.open = true; else d.open = t.startsWith(s); }); const p = document.getElementById("panel"); p.scrollTop = 0; }, titleStart);
   await t(() => { [...document.querySelectorAll("#panel button")].find((b) => b.textContent.includes("Camels Hump"))?.click(); });
   await page.waitForTimeout(600);
   const opModes = await t(() => window.__twin.link.opModes.map((o) => o.name));

@@ -62,7 +62,13 @@ function adv(...rows: Row[]): AdvGroup {
 }
 const isAdv = (r: unknown): r is AdvGroup => !!r && typeof r === "object" && !Array.isArray(r) && !(r instanceof HTMLElement) && "adv" in (r as object);
 /** Set by render() so section() knows which advanced rows to show. */
-let sectionCtx: { advanced: boolean; more: Set<string>; toggle: (title: string) => void } = { advanced: true, more: new Set(), toggle: () => {} };
+let sectionCtx: { advanced: boolean; more: Set<string>; toggle: (title: string) => void; hints: Map<string, string> } = { advanced: true, more: new Set(), toggle: () => {}, hints: new Map() };
+/** Sections a newcomer does not need on day one; in Essential mode they sit together under one collapsed "More sections" group. */
+const EXPERT_SECTIONS = ["Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "Settings & session"];
+/** A pill-shaped on/off button for the quick bar at the top of the panel. */
+function chip(label: string, title: string, get: () => boolean, set: (v: boolean) => void): HTMLElement {
+  return el("button", { class: get() ? "chip on" : "chip", title, "aria-pressed": get() ? "true" : "false", onclick: () => set(!get()) }, label);
+}
 function section(title: string, open: boolean, ...rows: (Row | AdvGroup)[]): HTMLElement {
   const body = el("div", { class: "body" });
   for (const r of rows) {
@@ -76,7 +82,8 @@ function section(title: string, open: boolean, ...rows: (Row | AdvGroup)[]): HTM
   if (nAdv && !sectionCtx.advanced) {
     body.append(el("button", { class: "more full", onclick: () => sectionCtx.toggle(title) }, expanded ? "Fewer settings" : `Show ${nAdv} more setting${nAdv > 1 ? "s" : ""}…`));
   }
-  const d = el("details", open ? { open: "" } : {}, el("summary", {}, title), body);
+  const hint = sectionCtx.hints.get(title);
+  const d = el("details", { "data-title": title, ...(open ? { open: "" } : {}) }, el("summary", {}, el("span", { class: "stitle" }, title), hint ? el("span", { class: "hint" }, hint) : ""), body);
   return d;
 }
 
@@ -242,15 +249,33 @@ export class Panel {
   private static readonly ORDER = ["Runtime — run your TeamCode", "Field & target", "Timeline & logs", "Robot", "Launcher", "Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "View & overlays", "Settings & session"];
   private renderInner() {
     // remember open/closed
-    this.root.querySelectorAll("details").forEach((d) => this.openState.set(d.querySelector("summary")!.textContent!, d.open));
+    this.root.querySelectorAll("details").forEach((d) => this.openState.set((d as HTMLElement).dataset.title ?? d.querySelector("summary")!.textContent!, d.open));
     this.root.replaceChildren();
     const sections: HTMLElement[] = [];
     const addSection = (d: HTMLElement) => { sections.push(d); };
     const st = this.state;
     const open = (t: string, def: boolean) => this.openState.get(t) ?? def;
     const change = (w: Parameters<Change>[0]) => { this.onChange(w); this.render(); };
-    sectionCtx = { advanced: st.panelAdvanced, more: this.moreOpen, toggle: (t) => { if (this.moreOpen.has(t)) this.moreOpen.delete(t); else this.moreOpen.add(t); this.render(); } };
+    const hints = new Map<string, string>();
+    sectionCtx = { advanced: st.panelAdvanced, more: this.moreOpen, toggle: (t) => { if (this.moreOpen.has(t)) this.moreOpen.delete(t); else this.moreOpen.add(t); this.render(); }, hints };
     this.root.append(el("h1", {}, "BIOBUZZ Digital Twin"));
+    // Quick bar: the handful of switches most people reach for first, visible before any section is opened
+    const ov = st.overlays;
+    this.root.append(el("div", { class: "quick" },
+      chip("Infinite ammo", "Keep a ball loaded so you can practise shots without collecting. Off = the match model counts real pieces.", () => st.infiniteAmmo, (v) => { st.infiniteAmmo = v; change("sim"); }),
+      chip("Hit map", "Colour every 6 in square of the mat by the chance of scoring from there (40 simulated shots each, aimed at the target cell). Fills in over a few seconds.", () => ov.hitmap, (v) => { ov.hitmap = v; change("overlays"); }),
+      chip("Reachability", "Colour the mat by the flywheel RPM the launcher needs from each square (green = low, red = near max, dark = cannot reach).", () => ov.reach, (v) => { ov.reach = v; change("overlays"); }),
+      chip("Other robots", "Three simulated robots on their starting marks: partner and two opponents.", () => st.opponents, (v) => { st.opponents = v; change("sim"); }),
+      chip("Camera insets", "Show what each robot camera sees in the corner of the view.", () => st.pip, (v) => { st.pip = v; change("view"); }),
+      chip("Top view", "Look straight down at the field (key 2); off = orbit camera (key 1).", () => st.view === "top", (v) => { st.view = v ? "top" : "orbit"; change("view"); }),
+    ));
+    if (!st.introSeen) {
+      this.root.append(el("div", { class: "intro" },
+        el("b", {}, "New here? "), "Drive with ", el("kbd", {}, "W A S D"), ", turn with ", el("kbd", {}, "Q E"), ", launch with ", el("kbd", {}, "Space"), ". ",
+        "The buttons above switch the most-used options; open a section below for its everyday settings, or pick ", el("b", {}, "All settings"), " to see everything. ", el("kbd", {}, "H"), " hides this panel.",
+        el("button", { class: "dismiss", title: "Hide this note", onclick: () => { st.introSeen = true; change("view"); } }, "Got it"),
+      ));
+    }
     // Essential / All settings switch: everyday controls up front, the rest behind per-section "more" buttons
     this.root.append(el("div", { class: "mode" },
       el("button", { class: st.panelAdvanced ? "" : "on", onclick: () => { st.panelAdvanced = false; this.moreOpen.clear(); change("view"); } }, "Essential"),
@@ -306,6 +331,11 @@ export class Panel {
       el("div", { class: "row full", style: "align-items:center;gap:6px" }, resetAssetsToo, el("label", { style: "color:var(--muted)" }, "Reset also clears TeamCode asset overrides (otherwise they are kept)"))),
     ));
 
+    hints.set("Robot", ROBOT_PRESETS[st.robotPresetId]?.name ?? "custom");
+    hints.set("Launcher", `${Math.round(st.robot.launcher.rpm)} rpm · hood ${st.robot.launcher.elevationDeg.toFixed(0)}°`);
+    hints.set("Cameras", `${st.robot.cameras.length} camera${st.robot.cameras.length === 1 ? "" : "s"}`);
+    hints.set("Field & target", `${st.alliance} · ${st.hive[st.alliance]} cell`);
+    hints.set("View & overlays", st.view);
     // --- Runtime (TeamCode)
     const link = this.link;
     const rtRows: (Row | AdvGroup)[] = [];
@@ -314,6 +344,7 @@ export class Panel {
     urlInput.onchange = () => { st.runtimeUrl = urlInput.value; change("runtime"); };
     rtRows.push(adv([el("label", {}, "Host URL"), urlInput]));
     const statusTxt = link ? (link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}` : "not connected — run ./gradlew :host:run in runtime/") : "off";
+    hints.set("Runtime — run your TeamCode", !st.runtimeEnabled ? "off" : link?.connected ? link.status : "not connected");
     // Driver-Station style status pill, refreshed live by updateTelemetry()
     const pillState = !st.runtimeEnabled ? "off" : !link?.connected ? "disconnected" : link.status.toLowerCase();
     const pillLabel: Record<string, string> = { off: "RUNTIME OFF", disconnected: "WAITING FOR HOST", idle: "READY — pick an OpMode", init: "INITIALISED", running: "RUNNING", stopped: "STOPPED", error: "ERROR" };
@@ -352,7 +383,7 @@ export class Panel {
     }
     if (this.recorder) rtRows.push(el("div", { class: `note full warn-note tl-replay-note${this.recorder.cursor === undefined ? " hidden" : ""}` }, "⏪ Replaying a past moment (Timeline below). INIT, START, Start match or Reset return to live automatically; so does driving."));
     rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead.")));
-    addSection(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
+    addSection(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", st.runtimeEnabled), ...rtRows));
 
     // --- Timeline & logs: scrub back through what happened, copy a snapshot for a teammate or an agent
     if (this.recorder) {
@@ -399,7 +430,7 @@ export class Panel {
         flashEl,
         el("div", { class: "tl-events" }),
       );
-      addSection(section("Timeline & logs", open("Timeline & logs", true), this.timelineEl));
+      addSection(section("Timeline & logs", open("Timeline & logs", false), this.timelineEl));
       this.refreshTimeline();
     }
 
@@ -627,7 +658,7 @@ export class Panel {
 
     // --- Robot
     const r = st.robot;
-    addSection(section("Robot", open("Robot", true),
+    addSection(section("Robot", open("Robot", false),
       sel("Preset", Object.entries(ROBOT_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => st.robotPresetId, (v) => { st.robotPresetId = v; st.robot = clonePreset(v); change("robot"); }),
       sel("Drivetrain", [{ value: "mecanum", label: "Mecanum (holonomic)" }, { value: "tank", label: "Tank / 6WD (no strafe)" }], () => r.drivetrain, (v) => { r.drivetrain = v as any; change("robot"); }),
       adv(sel("Chassis model", [{ value: "starterbot-mecanum", label: "goBILDA StarterBot mecanum CAD" }, { value: "starterbot-6wd", label: "goBILDA StarterBot 6WD CAD" }, { value: "box", label: "Simple box" }], () => r.model, (v) => { r.model = v as any; change("robot"); }),
@@ -707,7 +738,7 @@ export class Panel {
     ));
     if (full) outerCamRows.push(el("div", { class: "note" }, "FTC rules allow a maximum of two cameras; remove one to add another."));
     outerCamRows.push(el("div", { class: "note" }, "Drag a camera's green body on the robot to move it (orbit view). Hold Alt while dragging to change height. Then fine-tune the numbers above."));
-    addSection(section("Cameras", open("Cameras", true), ...outerCamRows));
+    addSection(section("Cameras", open("Cameras", false), ...outerCamRows));
 
     // --- Launcher
     const l = r.launcher;
@@ -809,9 +840,18 @@ export class Panel {
       el("div", { class: "note" }, "Export, import and reset live in Settings & session at the bottom.")),
     ));
     // lay the sections out in ORDER (anything new goes last), then refresh the bits that read the DOM
-    const title = (d: HTMLElement) => d.querySelector("summary")?.textContent ?? "";
+    const title = (d: HTMLElement) => d.dataset.title ?? "";
     sections.sort((a, b) => { const ia = Panel.ORDER.indexOf(title(a)), ib = Panel.ORDER.indexOf(title(b)); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
-    this.root.append(...sections);
+    if (st.panelAdvanced) this.root.append(...sections);
+    else {
+      // Essential: everyday sections first, the expert ones together under one collapsed group so the list stays short
+      const everyday = sections.filter((d) => !EXPERT_SECTIONS.includes(title(d))), expert = sections.filter((d) => EXPERT_SECTIONS.includes(title(d)));
+      this.root.append(...everyday);
+      const MORE = "More sections";
+      this.root.append(el("details", { class: "tier", "data-title": MORE, ...(open(MORE, false) ? { open: "" } : {}) },
+        el("summary", {}, el("span", { class: "stitle" }, MORE), el("span", { class: "hint" }, expert.map((d) => title(d).replace(/ \(assets\)$/, "")).join(" · "))),
+        el("div", { class: "tier-body" }, ...expert)));
+    }
     this.refreshTimeline();
     if (this.assetDialogOpen) this.renderAssetDialog();
   }

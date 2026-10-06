@@ -42,6 +42,8 @@ export interface AppState {
   matchRequest?: "start" | "stop";
   /** panel shows every setting (true) or only the everyday ones with per-section "more" expanders (false) */
   panelAdvanced: boolean;
+  /** the getting-started note at the top of the panel has been dismissed */
+  introSeen: boolean;
   noise: NoiseConfig;
   monteCarloN: number;
   /** virtual runtime (TeamCode) */
@@ -89,6 +91,7 @@ export function defaultState(): AppState {
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false },
     showPerf: false,
     panelAdvanced: false,
+    introSeen: false,
     starts: defaultStarts(),
     noise: { ...DEFAULT_NOISE },
     monteCarloN: 150,
