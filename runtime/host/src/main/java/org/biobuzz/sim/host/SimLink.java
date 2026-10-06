@@ -60,7 +60,9 @@ public class SimLink extends WebSocketServer {
     }
     @Override public void onClose(WebSocket conn, int code, String reason, boolean remote) { clients.remove(conn); if (clients.isEmpty()) runner.stop(); }
     @Override public void onError(WebSocket conn, Exception ex) { System.err.println("link error: " + ex); }
-    @Override public void onStart() { System.out.println("BIOBUZZ runtime listening on ws://127.0.0.1:" + getPort() + "  (" + opModes.size() + " OpModes)"); }
+    /** set once the socket is bound and accepting (Main's startup watchdog reads it) */
+    public volatile boolean started = false;
+    @Override public void onStart() { started = true; System.out.println("BIOBUZZ runtime listening on ws://127.0.0.1:" + getPort() + "  (" + opModes.size() + " OpModes)"); }
 
     @Override public void onMessage(WebSocket conn, String message) {
         JsonObject msg;

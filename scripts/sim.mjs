@@ -139,8 +139,14 @@ const prefix = (name, color) => { let buf = ""; return (chunk) => { buf += chunk
 
 const host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}) }, shell: isWin });
 const errFiles = new Set();
+let hostPid; // the host JVM itself (announced on its first stdout line), distinct from the gradlew client we spawned
+// one line buffer for the whole stream: a buffer per chunk (the old code) dropped every line split across two pipe
+// reads, which garbled the OpMode list and sometimes swallowed the "listening on ws:" line twin-test waits for
+const hostPrefix = prefix("host", "33");
 const hostOut = (chunk) => {
-  prefix("host", "33")(chunk);
+  hostPrefix(chunk);
+  const pm = /sim-host pid (\d+) port/.exec(chunk.toString());
+  if (pm) hostPid = +pm[1];
   for (const m of chunk.toString().matchAll(/^\s*(\S+\.java):\d+: error:/gm)) errFiles.add(m[1]);
   if (/BUILD FAILED|Compilation failed/.test(chunk.toString()) && errFiles.size) {
     const rels = [...errFiles].map((f) => (team ? f.replace(team + "/", "") : f));
@@ -155,14 +161,39 @@ host.stdout.on("data", hostOut);
 host.stderr.on("data", hostOut);
 children.push(host);
 
-const viteArgs = ["exec", "vite", "--port", port, "--strictPort"];
+// run Vite's own entry point rather than `pnpm exec vite`, so the pid we hold is Vite itself and a signal reaches it
+const viteBin = join(root, "node_modules", "vite", "bin", "vite.js");
+const viteArgs = [viteBin, "--port", port, "--strictPort"];
 if (openBrowser) viteArgs.push("--open", "/?runtime=1");
-const vite = spawn(isWin ? "pnpm.cmd" : "pnpm", viteArgs, { cwd: root, env: process.env, shell: isWin });
+const vite = spawn(process.execPath, viteArgs, { cwd: root, env: process.env });
 vite.stdout.on("data", prefix("twin", "36"));
 vite.stderr.on("data", prefix("twin", "36"));
 children.push(vite);
 
-const shutdown = () => { for (const c of children) try { c.kill("SIGINT"); } catch {} setTimeout(() => process.exit(0), 300); };
+/** Host JVMs for this port that are still alive: the announced pid, plus anything else whose command line ends in
+ * "org.biobuzz.sim.host.Main <port>" (e.g. an orphan of an earlier run). Unix only; Windows returns []. */
+const hostPids = () => {
+  if (isWin) return hostPid ? [hostPid] : [];
+  const out = spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" }).stdout ?? "";
+  const re = new RegExp(`org\\.biobuzz\\.sim\\.host\\.Main\\s+${hostPort}\\s*$`);
+  const found = out.split("\n").filter((l) => re.test(l)).map((l) => +l.trim().split(/\s+/)[0]).filter((n) => n > 0);
+  if (hostPid && !found.includes(hostPid)) found.push(hostPid);
+  return found;
+};
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+let shuttingDown = false;
+const shutdown = async () => {
+  if (shuttingDown) return; shuttingDown = true;
+  for (const c of children) try { c.kill("SIGINT"); } catch {}
+  // the host JVM runs under the Gradle daemon, so it must be stopped explicitly: TERM, wait, then KILL
+  const pids = hostPids().filter(alive);
+  if (vite.pid && alive(vite.pid)) pids.push(vite.pid);
+  for (const pid of pids) try { process.kill(pid, "SIGTERM"); } catch {}
+  const until = Date.now() + 4000;
+  while (Date.now() < until && pids.some(alive)) await new Promise((r) => setTimeout(r, 100));
+  for (const pid of pids.filter(alive)) { try { process.kill(pid, "SIGKILL"); } catch {} }
+  process.exit(0);
+};
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 host.on("exit", (code) => { if (code && code !== 130) console.log(`\x1b[33m[host]\x1b[0m exited with code ${code}`); });

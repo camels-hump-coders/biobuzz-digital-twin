@@ -37,6 +37,19 @@ try { playwright = await import("playwright"); } catch {
 }
 
 // ---- 1. host + twin
+// Leftover host JVMs make the next run hang: an orphan from an interrupted run (re-parented to PID 1, its ws port long
+// gone) is ended here; anything still listening on our host port belongs to someone else, so fail fast instead.
+if (process.platform !== "win32") {
+  const ps = (() => { try { return execSync("ps -axo pid=,ppid=,command=", { encoding: "utf8" }); } catch { return ""; } })();
+  for (const line of ps.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*org\.biobuzz\.sim\.host\.Main(?:\s+(\d+))?)\s*$/.exec(line);
+    if (!m) continue;
+    const [, pid, ppid, , p] = m;
+    if (ppid === "1") { console.log(`twin-test: ending orphaned host JVM pid ${pid}${p ? ` (port ${p})` : ""} left by an earlier run`); try { process.kill(+pid, "SIGTERM"); } catch {} }
+  }
+  const busy = (() => { try { return execSync(`lsof -nP -iTCP:${hostPort} -sTCP:LISTEN -t 2>/dev/null`, { encoding: "utf8" }).trim(); } catch { return ""; } })();
+  if (busy) { console.error(`twin-test: something is already listening on the host port ${hostPort} (pid ${busy.split("\n").join(", ")}). A human's pnpm sim? Pass --host-port <other> (and --port) or stop it.`); process.exit(2); }
+}
 const simArgs = [resolve(root, "scripts/sim.mjs"), "--no-browser", "--no-watch", "--no-panels", "--port", port, "--host-port", hostPort]; // no Panels: its fixed ports belong to the human's session
 if (team) simArgs.push("--team", team);
 console.log(`twin-test: starting host and twin (${simArgs.slice(1).join(" ")})`);
@@ -46,7 +59,16 @@ const ready = { host: false, twin: false };
 let progressNoted = false;
 const onData = (d) => { const s = d.toString(); simLog += s; if (/listening on ws:/.test(s)) ready.host = true; if (/Local:\s+http/.test(s)) ready.twin = true; if (/error:|FAILED|Exception/.test(s)) process.stdout.write(s); };
 sim.stdout.on("data", onData); sim.stderr.on("data", onData);
-const killSim = () => { try { process.kill(-sim.pid, "SIGTERM"); } catch {} try { execSync(`lsof -nP -iTCP:${port} -iTCP:${hostPort} -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killSim = () => {
+  try { process.kill(-sim.pid, "SIGTERM"); } catch {} // sim.mjs ends the host JVM itself (TERM, then KILL) before it exits
+  try { execSync(`lsof -nP -iTCP:${port} -iTCP:${hostPort} -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null`, { stdio: "ignore" }); } catch {}
+  // belt and braces: the host JVM for our port, whatever its parent is; wait for it so a back-to-back run cannot collide
+  if (process.platform !== "win32") {
+    const pat = `org.biobuzz.sim.host.Main ${hostPort}$`;
+    try { execSync(`pkill -TERM -f "${pat}"`, { stdio: "ignore" }); } catch {}
+    try { execSync(`for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "${pat}" >/dev/null || exit 0; sleep 0.5; done; pkill -KILL -f "${pat}"`, { stdio: "ignore", shell: "/bin/sh" }); } catch {}
+  }
+};
 process.on("exit", killSim); process.on("SIGINT", () => { killSim(); process.exit(130); });
 const t0 = Date.now();
 while (!(ready.host && ready.twin)) {
