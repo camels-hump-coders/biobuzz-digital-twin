@@ -5,3 +5,4 @@ dist
 runtime/.gradle
 runtime/**/build
 .biobuzz.local.json
+runtime/runs

@@ -113,6 +113,8 @@ export class RuntimeLink {
   sendHardware(devices: unknown[], hints?: unknown) { this.send({ type: "hardware", devices, hints }); }
   /** asset path -> dotted key -> value; the host merges these into the JSON the OpMode reads at INIT */
   sendAssetOverrides(overrides: Record<string, Record<string, unknown>>) { this.send({ type: "assetOverrides", overrides }); }
+  /** a finished run (samples + events + context) for the host to keep under runtime/runs/ */
+  sendRun(run: unknown) { this.send({ type: "run", run }); }
   sendSensors(p: SensorPacket) { const now = performance.now(); if (now - this.lastSend < 15) return; this.lastSend = now; this.send(p); }
   init(opMode: string) { this.send({ type: "init", opMode }); }
   start() { this.send({ type: "start" }); }

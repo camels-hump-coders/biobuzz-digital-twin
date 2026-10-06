@@ -62,6 +62,20 @@ public final class AgentApi {
             switch (action) {
                 case "status": reply(ex, 200, "application/json", gson.toJson(link.agentStatus())); return;
                 case "telemetry": { JsonObject o = new JsonObject(); o.add("lines", gson.toJsonTree(link.telemetry())); reply(ex, 200, "application/json", gson.toJson(o)); return; }
+                case "runs": { // saved runs on disk (server mode): list, or fetch one with ?file=
+                    java.io.File dir = link.runsDir();
+                    if (params.has("file")) {
+                        String name = params.get("file").getAsString().replace("/", "").replace("\\", "");
+                        java.io.File f = new java.io.File(dir, name);
+                        if (!f.isFile()) { reply(ex, 404, "application/json", "{\"error\":\"no such run\"}"); return; }
+                        reply(ex, 200, "application/json", java.nio.file.Files.readString(f.toPath())); return;
+                    }
+                    com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+                    java.io.File[] all = dir.listFiles((d, n) -> n.endsWith(".json"));
+                    if (all != null) { java.util.Arrays.sort(all, java.util.Comparator.comparing(java.io.File::getName)); for (java.io.File f : all) { JsonObject o = new JsonObject(); o.addProperty("file", f.getName()); o.addProperty("bytes", f.length()); o.addProperty("modified", f.lastModified()); arr.add(o); } }
+                    JsonObject o = new JsonObject(); o.addProperty("dir", dir.getAbsolutePath()); o.add("runs", arr); o.addProperty("latest", link.lastRunFile);
+                    reply(ex, 200, "application/json", gson.toJson(o)); return;
+                }
                 case "log": { int tail = params.has("tail") ? Integer.parseInt(params.get("tail").getAsString()) : 200; JsonObject o = new JsonObject(); o.add("lines", link.logTail(tail)); reply(ex, 200, "application/json", gson.toJson(o)); return; }
                 default: break;
             }
@@ -91,6 +105,10 @@ public final class AgentApi {
         e.addProperty("GET /api/state", "pose, match phase/clock, score, inventories, hive states, selected OpMode, alliance");
         e.addProperty("GET /api/knobs", "twin knob catalogue (what twin-bindings.json can reference) with values");
         e.addProperty("GET /api/overrides", "asset overrides: manual (panel) and bound (twin bindings)");
+        e.addProperty("GET /api/run", "recorded runs (INIT->STOP) in the browser session, the latest one, and the replay cursor");
+        e.addProperty("GET /api/replay?offset=12.5", "the recorded sample 12.5 s into the latest run (pose, other robots, balls, hive tilts, telemetry, sticks, score); offset<0 counts from the run's end; t=<ms> or step=<n> also work; add scrub=false to not move the human's view");
+        e.addProperty("POST /api/replay", "{\"offset\": 12.5} | {\"step\": -1} | {\"t\": 1791...} scrub the human's field to that moment (live sim pauses); {\"live\": true} resumes");
+        e.addProperty("GET /api/runs", "runs saved on disk by the host (runtime/runs/*.json); ?file=<name> returns one (context, samples, events)");
         e.addProperty("POST /api/overrides", "{\"biobuzz/robot-profile.json\": {\"matchAuto.startPosition\": \"FAR_SIDE\"}}  merge into the panel's overrides (sent to TeamCode at INIT); {\"clear\": \"<path>\"} forgets a file's overrides");
         e.addProperty("POST /api/twin", "{\"alliance\": \"red\", \"launcher.elevationDeg\": 52, \"hive.blue\": \"audience\", \"opponents\": false}  set twin settings by path (whitelisted)");
         e.addProperty("POST /api/match", "{\"action\": \"init\"|\"start\"|\"stop\"|\"reset\", \"opMode\": \"name\"}  Driver-Station flow; init selects the OpMode first");

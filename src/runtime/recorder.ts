@@ -16,7 +16,27 @@ export interface Sample {
   shots: { fired: number; hit: number };
   /** gamepad buttons held this sample (gamepad1 then gamepad2), e.g. "1:guide 2:a" */
   buttons: string;
+  /** everything needed to redraw the field at this moment (replay): other robots, balls, hive tilts, loads, score */
+  scene?: SceneSnapshot;
 }
+export interface SceneSnapshot {
+  /** scripted robots [x, z, heading] in metres/radians, in scripted order */
+  scripted: number[][];
+  /** balls, flat: x, y, z, code (0 POLLEN, 1 red NECTAR, 2 blue NECTAR) */
+  balls: number[];
+  /** hive tilt (rad): red, blue */
+  hive: [number, number];
+  /** inventories [pollen, nectar] for our robot then the scripted ones */
+  carry: number[][];
+  /** alliance totals: red, blue */
+  score: [number, number];
+  clock: number;
+  phase: string;
+  /** gamepad 1 sticks lx, ly, rx, ry */
+  sticks?: number[];
+}
+/** One INIT→STOP of an OpMode, or one Start→Stop of a keyboard match: what the run slider scrubs through. */
+export interface Run { start: number; end?: number; opMode: string }
 export interface Event { t: number; kind: "status" | "error" | "log" | "button" | "shot" | "foul" | "note" | "hardware"; text: string }
 
 export class Recorder {
@@ -28,11 +48,23 @@ export class Recorder {
   private lastButtons = "";
   private lastStatus = "";
   private lastShots = -1;
+  private lastMatch = "";
+  /** runs in order; the last one may still be open */
+  runs: Run[] = [];
   constructor(maxSamples = 6000, maxEvents = 2000) { this.maxSamples = maxSamples; this.maxEvents = maxEvents; }
 
   push(s: Sample) {
     this.samples.push(s);
-    if (this.samples.length > this.maxSamples) this.samples.splice(0, this.samples.length - this.maxSamples);
+    if (this.samples.length > this.maxSamples) { this.samples.splice(0, this.samples.length - this.maxSamples); const first = this.samples[0].t; this.runs = this.runs.filter((r) => (r.end ?? Infinity) >= first); }
+    // run boundaries: an OpMode INIT opens a run and STOP/IDLE/ERROR closes it; without an OpMode, the match clock does
+    const live = s.status === "INIT" || s.status === "RUNNING";
+    const wasLive = this.lastStatus === "INIT" || this.lastStatus === "RUNNING";
+    const matchRunning = /^running/.test(s.match), matchWas = /^running/.test(this.lastMatch);
+    const open = this.runs[this.runs.length - 1]?.end === undefined ? this.runs[this.runs.length - 1] : undefined;
+    if ((live && !wasLive) || (!live && matchRunning && !matchWas && !open)) { if (open) open.end = s.t; this.runs.push({ start: s.t, opMode: s.opMode }); }
+    else if (open && ((wasLive && !live) || (!live && matchWas && !matchRunning))) open.end = s.t;
+    if (open && !open.opMode && s.opMode) open.opMode = s.opMode;
+    this.lastMatch = s.match;
     // derived events
     if (s.status !== this.lastStatus) { if (this.lastStatus) this.event(s.t, "status", `${s.status}${s.opMode ? " · " + s.opMode : ""}`); this.lastStatus = s.status; }
     if (s.buttons !== this.lastButtons) { if (s.buttons) this.event(s.t, "button", `pressed ${s.buttons}`); this.lastButtons = s.buttons; }
@@ -42,7 +74,18 @@ export class Recorder {
     this.events.push({ t, kind, text });
     if (this.events.length > this.maxEvents) this.events.splice(0, this.events.length - this.maxEvents);
   }
-  clear() { this.samples = []; this.events = []; this.cursor = undefined; this.lastButtons = ""; this.lastStatus = ""; this.lastShots = -1; }
+  clear() { this.samples = []; this.events = []; this.runs = []; this.cursor = undefined; this.lastButtons = ""; this.lastStatus = ""; this.lastMatch = ""; this.lastShots = -1; }
+  /** the most recent run (open or closed) */
+  latestRun(): Run | undefined { return this.runs[this.runs.length - 1]; }
+  /** the run containing a wall-clock time */
+  runAt(t: number): Run | undefined { return this.runs.find((r) => t >= r.start && t <= (r.end ?? Infinity)); }
+  indexAt(t: number): number {
+    let lo = 0, hi = this.samples.length - 1, best = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (this.samples[mid].t <= t) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+    return Math.max(0, best);
+  }
+  /** the sample n steps after (or before, n < 0) the one at t */
+  step(t: number, n: number): Sample | undefined { const i = Math.max(0, Math.min(this.samples.length - 1, this.indexAt(t) + n)); return this.samples[i]; }
 
   get start(): number | undefined { return this.samples[0]?.t; }
   get end(): number | undefined { return this.samples[this.samples.length - 1]?.t; }

@@ -133,19 +133,28 @@ export class Panel {
   }
 
   /** Live refresh of the timeline section (slider range, event list) without re-rendering the whole panel. */
-  private refreshTimeline() {
+  /** which span the run slider covers */
+  tlScope: "run" | "all" = "run";
+  private tlPlay?: number;
+  refreshTimeline() {
     const rec = this.recorder, box = this.timelineEl;
     if (!rec || !box) return;
     const slider = box.querySelector("input[type=range]") as HTMLInputElement | null;
     const label = box.querySelector(".tl-pos") as HTMLElement | null;
     const list = box.querySelector(".tl-events") as HTMLElement | null;
-    const start = rec.start, end = rec.end;
+    const run = rec.latestRun();
+    const start = this.tlScope === "run" && run ? run.start : rec.start, end = this.tlScope === "run" && run && run.end !== undefined ? run.end : rec.end;
     if (slider && start !== undefined && end !== undefined) {
       slider.min = String(start); slider.max = String(end);
-      if (rec.cursor === undefined) slider.value = String(end);
+      if (rec.cursor === undefined) slider.value = String(end); else slider.value = String(Math.max(start, Math.min(end, rec.cursor)));
       const shown = rec.cursor ?? end;
-      if (label) label.textContent = rec.cursor === undefined ? `LIVE · ${((end - start) / 1000).toFixed(0)} s recorded` : `⏪ ${((end - shown) / 1000).toFixed(1)} s ago (${new Date(shown).toLocaleTimeString()})`;
+      const inRun = rec.runAt(shown);
+      if (label) label.textContent = rec.cursor === undefined
+        ? `LIVE · ${run ? `last run ${run.opMode || "keyboard match"} · ${(((run.end ?? rec.end ?? shown) - run.start) / 1000).toFixed(0)} s${run.end === undefined ? " (running)" : ""}` : `${((end - start) / 1000).toFixed(0)} s recorded, no run yet`}`
+        : `⏪ ${inRun ? `run +${((shown - inRun.start) / 1000).toFixed(1)} s · ` : ""}${(((rec.end ?? shown) - shown) / 1000).toFixed(1)} s ago (${new Date(shown).toLocaleTimeString()}) · live sim paused`;
     }
+    const scopeBtns = box.querySelectorAll(".tl-scope button");
+    scopeBtns.forEach((b) => b.classList.toggle("on", (b as HTMLElement).dataset.scope === this.tlScope));
     if (list) {
       const recent = rec.events.slice(-40).reverse();
       const key = recent.map((e) => e.t + e.text).join("|");
@@ -251,7 +260,16 @@ export class Panel {
     if (this.recorder) {
       const rec = this.recorder;
       const slider = el("input", { type: "range", min: "0", max: "1", step: "100", style: "width:100%" }) as HTMLInputElement;
-      slider.oninput = () => { rec.cursor = Number(slider.value); if (rec.end !== undefined && rec.end - rec.cursor < 300) rec.cursor = undefined; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); };
+      const scrub = (t: number | undefined) => { rec.cursor = t; if (t !== undefined && rec.end !== undefined && rec.end - t < 300) rec.cursor = undefined; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); };
+      slider.oninput = () => scrub(Number(slider.value));
+      const stepBy = (ms: number) => { const from = rec.cursor ?? rec.end ?? Date.now(); const run = rec.latestRun(); const lo = this.tlScope === "run" && run ? run.start : rec.start ?? from; const hi = this.tlScope === "run" && run && run.end !== undefined ? run.end : rec.end ?? from; scrub(Math.max(lo, Math.min(hi, from + ms))); };
+      const stopPlay = () => { if (this.tlPlay) { clearInterval(this.tlPlay); this.tlPlay = undefined; } const b = this.timelineEl?.querySelector(".tl-play") as HTMLButtonElement | null; if (b) b.textContent = "▶ Play"; };
+      const togglePlay = () => {
+        if (this.tlPlay) { stopPlay(); return; }
+        if (rec.cursor === undefined) { const run = rec.latestRun(); scrub(run ? run.start : rec.start); }
+        const b = this.timelineEl?.querySelector(".tl-play") as HTMLButtonElement | null; if (b) b.textContent = "❚❚ Pause";
+        this.tlPlay = window.setInterval(() => { if (rec.cursor === undefined) { stopPlay(); return; } stepBy(100); }, 100);
+      };
       const dl = (name: string, data: unknown) => { const blob = new Blob([typeof data === "string" ? data : JSON.stringify(data, null, 2)], { type: typeof data === "string" ? "text/markdown" : "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
       const flashEl = el("span", { class: "note" }, "");
       const flash = (m: string) => { flashEl.textContent = m; setTimeout(() => { if (flashEl.textContent === m) flashEl.textContent = ""; }, 4000); };
@@ -261,14 +279,25 @@ export class Panel {
         try { await navigator.clipboard.writeText(text); flash(`Copied ${seconds} s snapshot (${(text.length / 1024).toFixed(0)} KB)`); } catch { dl(`twin-snapshot-${Date.now()}.md`, text); flash("Clipboard unavailable: downloaded instead"); }
       };
       this.timelineEl = el("div", { class: "timeline full" },
-        el("div", { class: "note" }, "The last ~10 minutes are recorded: telemetry, status, pose, buttons, shots, host log lines, errors, fouls. Drag the slider back to read a moment (the telemetry box above shows it); release at the right end to go live. Copy a snapshot to paste into a chat or a bug report."),
+        el("div", { class: "note" }, "Everything is recorded at 10 Hz: robots, balls, hive tilts, telemetry, status, gamepad, shots, score, host log lines, errors, fouls. Drag the slider (or step / play) to replay a moment on the field: the live simulation pauses while you look and resumes when you go live. The slider covers the latest INIT→STOP run by default. Copy a snapshot to paste into a chat or a bug report."),
+        el("div", { class: "row tl-scope", style: "gap:4px;align-items:center" },
+          el("span", { class: "note" }, "Span:"),
+          el("button", { "data-scope": "run", onclick: () => { this.tlScope = "run"; this.refreshTimeline(); } }, "Latest run"),
+          el("button", { "data-scope": "all", onclick: () => { this.tlScope = "all"; this.refreshTimeline(); } }, "Everything")),
         el("div", { class: "tl-pos" }, "LIVE"),
         slider,
+        el("div", { class: "row full tl-buttons" },
+          el("button", { title: "back 1 s", onclick: () => { stopPlay(); stepBy(-1000); } }, "⏮ 1 s"),
+          el("button", { title: "back one sample (0.1 s)", onclick: () => { stopPlay(); stepBy(-100); } }, "◀ 0.1"),
+          el("button", { class: "tl-play", title: "replay from here at real speed", onclick: togglePlay }, this.tlPlay ? "❚❚ Pause" : "▶ Play"),
+          el("button", { title: "forward one sample (0.1 s)", onclick: () => { stopPlay(); stepBy(100); } }, "0.1 ▶"),
+          el("button", { title: "forward 1 s", onclick: () => { stopPlay(); stepBy(1000); } }, "1 s ⏭"),
+          el("button", { title: "jump to the start of the latest run", onclick: () => { stopPlay(); const run = rec.latestRun(); scrub(run ? run.start : rec.start); } }, "⇤ Run start")),
         el("div", { class: "row full tl-buttons" },
           el("button", { class: "primary", title: "Copy a Markdown snapshot of the last 30 s (ending at the slider position) to the clipboard", onclick: () => copy(30) }, "Copy 30 s"),
           el("button", { title: "Copy the last 2 minutes", onclick: () => copy(120) }, "Copy 2 min"),
           el("button", { title: "Everything recorded, as JSON", onclick: () => dl(`twin-log-${Date.now()}.json`, { context: this.snapshotContext(), samples: rec.samples, events: rec.events }) }, "Download JSON"),
-          el("button", { onclick: () => { rec.cursor = undefined; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } }, "Live"),
+          el("button", { class: "primary", onclick: () => { stopPlay(); scrub(undefined); } }, "● Live"),
           el("button", { onclick: () => { rec.clear(); this.refreshTimeline(); } }, "Clear")),
         flashEl,
         el("div", { class: "tl-events" }),

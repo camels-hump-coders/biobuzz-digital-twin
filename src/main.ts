@@ -2,14 +2,14 @@ import * as THREE from "three";
 import { camelsHumpHardwareConfig } from "./runtime/hardwareConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
-import { aimPoint, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
+import { aimPoint, hiveTiltAngle, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
 import { HitMapJob } from "./ballistics/hitmap";
 import type { CameraMount } from "./robot/robotSpec";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
 import { startPose } from "./sim/starts";
 import { computeBindings, mergeOverrides, parseBindings, twinKnobs } from "./runtime/bindings";
-import { Recorder } from "./runtime/recorder";
+import { Recorder, type Run, type Sample, type SceneSnapshot } from "./runtime/recorder";
 import type { ScriptedRobot } from "./sim/opponents";
 import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
@@ -329,6 +329,24 @@ link.onAgent = async (action, params) => {
       scripted: scripted.map((r, i) => ({ name: r.name, alliance: scriptedAgents[i].alliance, xIn: +(r.pose.x / IN).toFixed(1), zIn: +(r.pose.z / IN).toFixed(1) })),
     } };
     case "knobs": return { result: twinKnobs(state) };
+    case "run": return { result: { runs: recorder.runs.map((r) => ({ ...r, durationS: +(((r.end ?? Date.now()) - r.start) / 1000).toFixed(1), samples: recorder.samples.filter((x) => x.t >= r.start && x.t <= (r.end ?? Infinity)).length })), latest: recorder.latestRun(), cursor: recorder.cursor, recordedFrom: recorder.start, recordedTo: recorder.end, sampleMs: 100 } };
+    case "replay": {
+      // GET: the sample at a moment. POST with the same parameters scrubs the human's view there (live sim paused).
+      // t = wall-clock ms; offset = seconds into the latest run (negative = before its end); step = ±n samples from the cursor; live = back to live
+      const run = recorder.latestRun();
+      let t: number | undefined;
+      if (params.live) { recorder.cursor = undefined; panel.refreshTimeline(); return { result: { live: true } }; }
+      if (params.t !== undefined) t = num("t", NaN);
+      else if (params.offset !== undefined) { if (!run) throw new Error("no run recorded yet"); const o = num("offset", 0); t = o >= 0 ? run.start + o * 1000 : (run.end ?? recorder.end ?? Date.now()) + o * 1000; }
+      else if (params.step !== undefined) t = recorder.step(recorder.cursor ?? recorder.end ?? Date.now(), Math.round(num("step", 0)))?.t;
+      else t = recorder.cursor ?? recorder.end;
+      if (t === undefined || !Number.isFinite(t)) throw new Error("give t (ms), offset (s into the latest run), step (samples) or live");
+      const smp = recorder.at(t);
+      if (!smp) throw new Error("nothing recorded");
+      if (params.scrub !== undefined ? !!params.scrub : true) { recorder.cursor = smp.t; if (recorder.end !== undefined && recorder.end - smp.t < 300) recorder.cursor = undefined; panel.refreshTimeline(); }
+      const r = recorder.runAt(smp.t);
+      return { result: { t: smp.t, iso: new Date(smp.t).toISOString(), runOffsetS: r ? +((smp.t - r.start) / 1000).toFixed(1) : undefined, index: recorder.indexAt(smp.t), total: recorder.samples.length, cursor: recorder.cursor, sample: smp, events: recorder.eventsBetween(smp.t - 1000, smp.t + 100) } };
+    }
     case "overrides": {
       const clear = params.clear as string | undefined;
       const incoming = Object.fromEntries(Object.entries(params).filter(([k, v]) => k.endsWith(".json") && v && typeof v === "object" && !Array.isArray(v))) as Record<string, Record<string, unknown>>;
@@ -536,6 +554,63 @@ const pins = new PinTracker();
 const recorder = new Recorder();
 panel.recorder = recorder; panel.snapshotContext = snapshotContext; panel.render();
 let lastSampleAt = 0;
+function captureScene(): SceneSnapshot {
+  const balls: number[] = [];
+  for (const f of flying) { if (!f.mesh.visible && !replayPool.active) continue; balls.push(+f.pos.x.toFixed(3), +f.pos.y.toFixed(3), +f.pos.z.toFixed(3), f.kind === "pollen" ? 0 : f.alliance === "blue" ? 2 : 1); }
+  const g = input.gamepads().g1;
+  return {
+    scripted: scripted.map((r) => [+r.pose.x.toFixed(3), +r.pose.z.toFixed(3), +r.pose.heading.toFixed(3)]),
+    balls,
+    hive: [-field.hives.red.pivotGroup.rotation.x, -field.hives.blue.pivotGroup.rotation.x],
+    carry: allAgents.map((a) => [a.inventory.pollen, a.inventory.nectar]),
+    score: [allianceScore("red").total, allianceScore("blue").total],
+    clock: +(state.matchClock ?? 0).toFixed(1), phase: state.matchPhase ?? "setup",
+    sticks: [+g.lx.toFixed(2), +g.ly.toFixed(2), +g.rx.toFixed(2), +g.ry.toFixed(2)],
+  };
+}
+// ---------- replay: draw a recorded sample instead of the live field while the timeline is scrubbed
+const replayPool = { meshes: [] as THREE.Mesh[], active: false, mats: [] as THREE.MeshStandardMaterial[] };
+function replayMesh(i: number): THREE.Mesh {
+  while (replayPool.meshes.length <= i) {
+    if (!replayPool.mats.length) replayPool.mats = [BALL.pollen.color, BALL.nectarRed.color, BALL.nectarBlue.color].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, transparent: true, opacity: 0.9 }));
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), replayPool.mats[0]); mesh.visible = false; scene.add(mesh); replayPool.meshes.push(mesh);
+  }
+  return replayPool.meshes[i];
+}
+function applyReplay(smp: Sample) {
+  const sc = smp.scene;
+  robot.setPose({ x: smp.pose.xIn * IN, z: smp.pose.zIn * IN, heading: (smp.pose.headingDeg * Math.PI) / 180 });
+  if (!sc) return;
+  if (!replayPool.active) { replayPool.active = true; for (const f of flying) f.mesh.visible = false; for (const a of allAgents) a.carryGroup.visible = false; }
+  sc.scripted.forEach((p, i) => scriptedObjs[i]?.setPose({ x: p[0], z: p[1], heading: p[2] }));
+  field.setHiveTilt("red", sc.hive[0]); field.setHiveTilt("blue", sc.hive[1]);
+  const n = sc.balls.length / 4;
+  for (let i = 0; i < n; i++) {
+    const mesh = replayMesh(i); const code = sc.balls[i * 4 + 3];
+    mesh.material = replayPool.mats[code]; const r = m(code === 0 ? BALL.pollen.diaIn : BALL.nectarRed.diaIn) / 2;
+    mesh.scale.setScalar(r); mesh.position.set(sc.balls[i * 4], sc.balls[i * 4 + 1], sc.balls[i * 4 + 2]); mesh.visible = true;
+  }
+  for (let i = n; i < replayPool.meshes.length; i++) replayPool.meshes[i].visible = false;
+}
+function restoreLive() {
+  if (!replayPool.active) return;
+  replayPool.active = false;
+  for (const mesh of replayPool.meshes) mesh.visible = false;
+  for (const f of flying) f.mesh.visible = true;
+  robot.setPose(state.pose);
+  scripted.forEach((r, i) => scriptedObjs[i].setPose(r.pose));
+  for (const a of ["red", "blue"] as Alliance[]) field.setHiveTilt(a, match.hives[a].tipping?.last ?? hiveTiltAngle({ alliance: a, upCell: match.hives[a].upCell }));
+}
+let lastSentRun: Run | undefined;
+/** When a run closes, hand it to the host (server mode) so it is kept under runtime/runs/ for agents and later sessions. */
+function maybeSendRun() {
+  const r = recorder.latestRun();
+  if (!r || r.end === undefined || r === lastSentRun || !link.connected) return;
+  lastSentRun = r;
+  const samples = recorder.samples.filter((x) => x.t >= r.start - 1000 && x.t <= r.end! + 1000);
+  link.sendRun({ opMode: r.opMode || undefined, start: r.start, end: r.end, startIso: new Date(r.start).toISOString(), durationS: +((r.end - r.start) / 1000).toFixed(1), context: snapshotContext(), samples, events: recorder.eventsBetween(r.start - 1000, r.end + 1000) });
+  recorder.event(Date.now(), "note", `run saved to the host (${samples.length} samples)`);
+}
 function recordSample(now: number) {
   if (now - lastSampleAt < 100) return;
   lastSampleAt = now;
@@ -543,6 +618,7 @@ function recordSample(now: number) {
   const held = (p: typeof g.g1, n: number) => (["a", "b", "x", "y", "lb", "rb", "back", "start", "guide", "du", "dd", "dl", "dr", "ls", "rs"] as const).filter((k) => p[k]).map((k) => `${n}:${k}`).join(" ");
   const buttons = [held(g.g1, 1), held(g.g2, 2)].filter(Boolean).join(" ");
   recorder.push({
+    scene: captureScene(),
     t: Date.now(), sim: match.now(),
     status: link.connected ? link.status : "no runtime", opMode: link.currentOpMode,
     telemetry: link.connected ? link.telemetry : [],
@@ -552,6 +628,7 @@ function recordSample(now: number) {
     shots: { fired: shotsFired, hit: shotsHit },
     buttons,
   });
+  maybeSendRun();
 }
 /** Everything an agent needs to reproduce the moment: OpMode, presets, overrides, bound values, start pose. */
 function snapshotContext() {
@@ -674,7 +751,9 @@ function frame(now: number) {
   frameInterval = real > 1 ? frameInterval : frameInterval * 0.9 + real * 0.1;
   // simulate the real elapsed time, capped so a background tab or a hitch does not teleport things. Below 10 fps the
   // simulation therefore runs slower than real time; the HUD says so.
-  const dt = Math.min(0.1, real);
+  // scrubbing the timeline freezes the live simulation (dt 0) and draws the recorded moment instead
+  const replaying = recorder.cursor !== undefined;
+  const dt = replaying ? 0 : Math.min(0.1, real);
   const fps = 1 / Math.max(frameInterval, 1e-3);
   const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
 
@@ -865,8 +944,12 @@ function frame(now: number) {
   const speed = Math.hypot(vel.vx, vel.vz);
   const apex = shot ? Math.max(...shot.samples.map((s) => s.pos.y)) : undefined;
   const flight = shot?.crossing ? shot.samples.find((s) => { const d = (s.pos.x - tf.openingCenter.x) * tf.normal.x + (s.pos.y - tf.openingCenter.y) * tf.normal.y + (s.pos.z - tf.openingCenter.z) * tf.normal.z; return d <= 0; })?.t : undefined;
+  const replaySample = replaying ? recorder.at(recorder.cursor!) : undefined;
+  if (replaySample) applyReplay(replaySample); else restoreLive();
+  const replayRun = replaySample ? recorder.runAt(replaySample.t) : undefined;
+  const replayBanner = replaySample ? `⏪ REPLAY ${replayRun ? `run +${((replaySample.t - replayRun.start) / 1000).toFixed(1)} s${replayRun.opMode ? " · " + replayRun.opMode : ""}` : new Date(replaySample.t).toLocaleTimeString()} · ${((recorder.end ?? replaySample.t) - replaySample.t) / 1000 > 0 ? `${(((recorder.end ?? replaySample.t) - replaySample.t) / 1000).toFixed(1)} s ago` : "now"} · ${replaySample.status}${replaySample.scene ? ` · ${replaySample.scene.phase} ${replaySample.scene.clock.toFixed(0)} s · score ${replaySample.scene.score[0]}–${replaySample.scene.score[1]}` : ""} · live sim paused` : undefined;
   hud.update({
-    poseIn: { x: mToIn(state.pose.x), z: mToIn(state.pose.z), headingDeg: rad2deg(state.pose.heading) },
+    poseIn: replaySample ? { x: replaySample.pose.xIn, z: replaySample.pose.zIn, headingDeg: replaySample.pose.headingDeg } : { x: mToIn(state.pose.x), z: mToIn(state.pose.z), headingDeg: rad2deg(state.pose.heading) },
     speedMps: speed,
     drivetrain: state.robot.drivetrain,
     fieldCentric: state.fieldCentric,
@@ -907,8 +990,8 @@ function frame(now: number) {
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
-    match: state.matchPhase === "running" ? `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left` : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`,
-    matchClass: state.matchPhase === "running" ? "ok" : state.matchPhase === "stopped" ? "bad" : "warn",
+    match: replayBanner ?? (state.matchPhase === "running" ? `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left` : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`),
+    matchClass: replayBanner ? "warn" : (state.matchPhase === "running" ? "ok" : state.matchPhase === "stopped" ? "bad" : "warn"),
     contact: contactText, contactBad,
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",

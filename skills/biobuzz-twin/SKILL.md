@@ -81,7 +81,16 @@ curl -s $A/api/state                           # pose, match phase/clock, score,
 curl -s $A/api/telemetry; curl -s "$A/api/log?tail=300"      # OpMode prints / RobotLog / stack traces
 curl -s "$A/api/timeline?seconds=60"           # raw 10 Hz samples + events (JSON) when the snapshot is not enough
 curl -s $A/api/knobs; curl -s $A/api/overrides # twin knob values; manual + bound asset overrides
+curl -s $A/api/run                             # recorded runs (INIT->STOP), the latest one, the replay cursor
+curl -s "$A/api/replay?offset=12.5&scrub=false" # the recorded moment 12.5 s into the latest run: pose, other robots, balls, hive tilts, telemetry, sticks, score, nearby events
+curl -s $A/api/runs; curl -s "$A/api/runs?file=<name>"   # runs saved on disk by the host (whole run: context, 10 Hz samples, events)
 ```
+
+To step through what the program did, walk `/api/replay` with `offset` (seconds into the run; negative counts from
+its end) or `step` (±samples, 0.1 s each) and compare `sample.telemetry`, `sample.pose`, `sample.scene.sticks` (what
+the driver/agent commanded) and `events` from one moment to the next. Without `scrub=false` each call also moves the
+human's field view to that moment (the live sim pauses); `POST /api/replay {"live": true}` resumes. Say so when you
+leave their view scrubbed.
 
 Read the snapshot's Context block first, then the events, then the telemetry around them. To change the session:
 

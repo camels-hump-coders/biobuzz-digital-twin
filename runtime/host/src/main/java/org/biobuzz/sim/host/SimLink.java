@@ -96,6 +96,22 @@ public class SimLink extends WebSocketServer {
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
             case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
+            case "run": { // a finished run from the browser: keep it under runtime/runs/ for agents and later sessions
+                try {
+                    java.io.File dir = new java.io.File(System.getProperty("sim.runs", "runs")); dir.mkdirs();
+                    JsonObject run = msg.getAsJsonObject("run");
+                    String op = run.has("opMode") && !run.get("opMode").isJsonNull() ? run.get("opMode").getAsString().replaceAll("[^A-Za-z0-9]+", "-") : "keyboard";
+                    String iso = run.has("startIso") ? run.get("startIso").getAsString().replace(":", "").replace("-", "").substring(0, 15) : String.valueOf(System.currentTimeMillis());
+                    java.io.File f = new java.io.File(dir, iso + "-" + op + ".json");
+                    java.nio.file.Files.writeString(f.toPath(), gson.toJson(run));
+                    lastRunFile = f.getName();
+                    System.out.println("run saved: " + f.getPath());
+                    // keep the newest 40
+                    java.io.File[] all = dir.listFiles((d, n) -> n.endsWith(".json"));
+                    if (all != null && all.length > 40) { Arrays.sort(all, Comparator.comparing(java.io.File::getName)); for (int i = 0; i < all.length - 40; i++) all[i].delete(); }
+                } catch (Exception e) { System.err.println("run save failed: " + e); }
+                break;
+            }
             case "agentReply": { // the browser answered an agent API request: {type, id, ok, result|error, contentType}
                 CompletableFuture<JsonObject> f = msg.has("id") ? pending.remove(msg.get("id").getAsString()) : null;
                 if (f != null) f.complete(msg);
@@ -178,6 +194,8 @@ public class SimLink extends WebSocketServer {
     }
 
     // ---- agent API (AgentApi.java) -------------------------------------------------------------------------------
+    public volatile String lastRunFile = "";
+    public java.io.File runsDir() { return new java.io.File(System.getProperty("sim.runs", "runs")); }
     public boolean hasBrowser() { return !clients.isEmpty(); }
     public List<String> telemetry() { return lastTelemetry; }
     public JsonObject agentStatus() {
