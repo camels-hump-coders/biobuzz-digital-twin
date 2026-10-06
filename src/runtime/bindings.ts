@@ -15,8 +15,40 @@
 import type { AppState } from "../state";
 import { intrinsicsFor } from "../robot/robot";
 import { startPose } from "../sim/starts";
+import { aimPoint, upCellFrame } from "../field/hive";
+import { solveSpeedForElevation } from "../ballistics/solver";
+import { rpmForExitSpeed, spinRate } from "../ballistics/launcher";
+import { BALL, m as inchesToM } from "../field/fieldSpec";
 
 const IN = 0.0254;
+
+/** A calibration point the twin computes from its own solver for the CURRENT hood angle, efficiency, exit height and
+ * target cell: the reference range (72 in when the shot is legal there, otherwise the nearest legal range) and the
+ * flywheel power (required RPM / the flywheel motor's free RPM) that scores there. Bound into TeamCode's
+ * shotRangeIn/shotPower, a hood sweep in the twin re-anchors the team's arc model automatically. */
+export function solverCalibration(state: AppState): { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean } | undefined {
+  const l = state.robot.launcher;
+  const frame = upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] }), aim = aimPoint(frame);
+  const nh = Math.hypot(frame.normal.x, frame.normal.z) || 1, nx = frame.normal.x / nh, nz = frame.normal.z / nh;
+  const b = state.ballKind === "pollen" ? BALL.pollen : BALL.nectarRed;
+  const ball = { massKg: b.massKg, diameterM: inchesToM(b.diaIn), cd: state.drag ? 0.45 : 0, cl: state.drag ? 0.2 : 0 };
+  const fly = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
+  const freeRpm = fly?.freeRpm ?? l.maxRpm;
+  const maxSpeed = (Math.PI * l.wheelDiameterM * l.maxRpm) / 60 * l.efficiency;
+  const tryRange = (rangeIn: number) => {
+    const req = { ball, launchPos: { x: aim.x + nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + nz * rangeIn * IN }, target: aim, frame, spin: spinRate(l) };
+    const sol = solveSpeedForElevation(req, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2);
+    if (!sol || !sol.hit) return undefined;
+    const rpm = rpmForExitSpeed(l, sol.speed);
+    return { rangeIn, power: Math.round((rpm / freeRpm) * 1000) / 1000, rpm: Math.round(rpm), speedMps: Math.round(sol.speed * 100) / 100, entryAngleDeg: Math.round(((sol.entryAngleRad ?? 0) * 180) / Math.PI), legal: rpm <= l.maxRpm };
+  };
+  const preferred = 72;
+  const first = tryRange(preferred);
+  if (first && first.legal) return first;
+  // nearest legal range to 72 in, 6 in steps, outward both ways
+  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = tryRange(r); if (s && s.legal) return s; }
+  return first;
+}
 export type Knob = number | string | boolean;
 export type Knobs = Record<string, Knob>;
 
@@ -47,6 +79,12 @@ export function twinKnobs(state: AppState): Knobs {
   k["launcher.rpm"] = l.rpm; k["launcher.maxRpm"] = l.maxRpm; k["launcher.wheelDiameterMm"] = l.wheelDiameterM * 1000; k["launcher.efficiency"] = l.efficiency; k["launcher.spinFraction"] = l.spinFraction;
   k["launcher.turretMinDeg"] = l.turretMinDeg; k["launcher.turretMaxDeg"] = l.turretMaxDeg;
   k["launcher.exitSpeedMps"] = (l.efficiency * Math.PI * l.wheelDiameterM * l.rpm) / 60;
+  // solver-derived calibration for the current hood (see solverCalibration); absent keys when nothing scores
+  try {
+    const cal = solverCalibration(state);
+    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; }
+  } catch { /* geometry not available (tests with partial state) */ }
+  k["hive.aimHeightIn"] = Math.round((aimPoint(upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] })).y / IN) * 100) / 100;
   k["noise.speedPct"] = state.noise.speedFrac * 100; k["noise.elevationDeg"] = state.noise.elevationDeg; k["noise.yawDeg"] = state.noise.yawDeg;
   k["field.tipMassG"] = state.tipMassG; k["match.capacity"] = state.capacity;
   const cam = (prefix: string, c: typeof r.cameras[number]) => {

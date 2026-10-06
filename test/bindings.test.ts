@@ -63,3 +63,17 @@ describe("intake heading knob", () => {
     expect(twinKnobs(st)["robot.intakeHeadingDeg"]).toBe(0);
   });
 });
+
+describe("solver calibration knobs", () => {
+  it("gives a legal reference point at 55° and re-anchors when the hood changes", () => {
+    const st = defaultState();
+    const k55 = twinKnobs(st);
+    expect(k55["launcher.calibration.rangeIn"]).toBe(72);
+    expect(k55["launcher.calibration.power"]).toBeGreaterThan(0.3); expect(k55["launcher.calibration.power"]).toBeLessThan(0.8);
+    expect(k55["launcher.calibration.legal"]).toBe(true);
+    expect(k55["hive.aimHeightIn"]).toBeGreaterThan(50);
+    st.robot.launcher.elevationDeg = 80;
+    const k80 = twinKnobs(st);
+    expect(k80["launcher.calibration.power"]).toBeGreaterThan(k55["launcher.calibration.power"] as number); // a lob needs more speed
+  });
+});
