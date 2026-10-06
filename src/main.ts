@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { camelsHumpHardwareConfig } from "./runtime/hardwareConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
+import { buildVenue } from "./field/buildVenue";
 import { aimPoint, hiveTiltAngle, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
 import { HitMapJob, hitMapLauncherKey } from "./ballistics/hitmap";
 import type { CameraMount } from "./robot/robotSpec";
@@ -102,6 +103,9 @@ scene.add(venue);
 
 const field = buildField(state.hive);
 scene.add(field.group);
+const venueFx = buildVenue();
+venueFx.group.visible = state.stadium;
+scene.add(venueFx.group);
 
 const overlays = new Overlays();
 scene.add(overlays.group);
@@ -224,6 +228,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
   if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides));
   if (what === "robot" || what === "cameras" || what === "launcher" || what === "hardware" || what === "sim" || what === "reset") syncBindings();
+  if (what === "view") venueFx.group.visible = state.stadium;
   if (what === "sim") {
     for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
     playerAgent.alliance = state.alliance;
@@ -1194,6 +1199,7 @@ function frame(now: number) {
   const renderThisFrame = !ciMode || renderCount < 3 || now - lastRenderAt >= 1000 || renderRequested;
   renderRequested = false;
   if (renderThisFrame) { lastRenderAt = now; renderCount++; }
+  if (renderThisFrame) venueFx.update(real, now);
   if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
 

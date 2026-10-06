@@ -107,6 +107,29 @@ export class Panel {
   }
 
   toggle() { this.root.classList.toggle("hidden"); }
+
+  private aboutDialog?: HTMLDialogElement;
+  /** About: who built the twin, where the code lives, licence. */
+  openAbout() {
+    if (!this.aboutDialog) {
+      const base = (import.meta as any).env?.BASE_URL ?? "/";
+      const d = el("dialog", { class: "about-dialog" },
+        el("button", { class: "close", title: "Close", onclick: () => d.close() }, "×"),
+        el("img", { class: "logo", src: base + "chc-logo.png", alt: "Camels Hump Coders logo", width: "128", height: "128" }),
+        el("h2", {}, "BIOBUZZ Digital Twin"),
+        el("p", {}, "A browser 3D twin of the FIRST Tech Challenge 2026-27 BIOBUZZ field and robot, with a virtual runtime that runs a team's unmodified Java TeamCode against it."),
+        el("p", {}, "Built by the ", el("a", { href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "Camels Hump Coders"), ", a rookie FIRST Tech Challenge team of middle- and high-school students from Huntington, Vermont, who moved up from FIRST LEGO League. We share it so other teams can test code before the robot is built."),
+        el("div", { class: "links" },
+          el("a", { class: "button-link", href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "camelshumpcoders.org"),
+          el("a", { class: "button-link", href: "https://github.com/camels-hump-coders/biobuzz-digital-twin", target: "_blank", rel: "noopener" }, "Source on GitHub")),
+        el("p", { class: "fine" }, "MIT licence. AprilTag 36h11 codes from AprilRobotics (BSD-2); goBILDA StarterBot CAD from goBILDA's published STEP files; the FTC Panels dashboard (com.bylazar) runs unmodified in the host. Not affiliated with FIRST or goBILDA; BIOBUZZ and FIRST Tech Challenge are trademarks of FIRST."),
+      );
+      d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
+      document.body.append(d);
+      this.aboutDialog = d;
+    }
+    if (!this.aboutDialog.open) this.aboutDialog.showModal();
+  }
   selectedOpMode = "";
   /** TeamCode settings panel: search text and which files are expanded */
   private assetFilter = "";
@@ -258,7 +281,7 @@ export class Panel {
     const change = (w: Parameters<Change>[0]) => { this.onChange(w); this.render(); };
     const hints = new Map<string, string>();
     sectionCtx = { advanced: st.panelAdvanced, more: this.moreOpen, toggle: (t) => { if (this.moreOpen.has(t)) this.moreOpen.delete(t); else this.moreOpen.add(t); this.render(); }, hints };
-    this.root.append(el("h1", {}, "BIOBUZZ Digital Twin"));
+    this.root.append(el("div", { class: "head" }, el("h1", {}, "BIOBUZZ Digital Twin"), el("button", { class: "about", title: "Who made this, licence and links", onclick: () => this.openAbout() }, "About")));
     // Quick bar: the handful of switches most people reach for first, visible before any section is opened
     const ov = st.overlays;
     this.root.append(el("div", { class: "quick" },
@@ -268,6 +291,7 @@ export class Panel {
       chip("Other robots", "Three simulated robots on their starting marks: partner and two opponents.", () => st.opponents, (v) => { st.opponents = v; change("sim"); }),
       chip("Camera insets", "Show what each robot camera sees in the corner of the view.", () => st.pip, (v) => { st.pip = v; change("view"); }),
       chip("Top view", "Look straight down at the field (key 2); off = orbit camera (key 1).", () => st.view === "top", (v) => { st.view = v ? "top" : "orbit"; change("view"); }),
+      chip("Stadium", "Audience stands, a lighting truss and sweeping colour spots around the field. Decoration only; turn off for a plain backdrop or on a slow machine.", () => st.stadium, (v) => { st.stadium = v; change("view"); }),
     ));
     // Alliance and start square: colour-matched segments; pressing the start you are already on puts the robot back on it
     const startSide = startSideOf(st.starts, st.alliance, st.hive);
@@ -836,6 +860,7 @@ export class Panel {
     addSection(section("View & overlays", open("View & overlays", false),
       sel("Main view", [{ value: "orbit", label: "Orbit (1)" }, { value: "top", label: "Top-down (2)" }, { value: "chase", label: "Chase (3)" }, { value: "robot", label: "Robot camera (4)" }], () => st.view, (v) => { st.view = v as any; change("view"); }),
       chk("Camera insets (all cameras)", () => st.pip, (v) => { st.pip = v; change("view"); }),
+      chk("Stadium backdrop", () => st.stadium, (v) => { st.stadium = v; change("view"); }),
       adv(chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
       chk("Arc as launcher points now (orange)", () => o.actualArc, (v) => { o.actualArc = v; change("overlays"); }),
       chk("Dispersion cloud", () => o.dispersion, (v) => { o.dispersion = v; change("overlays"); }),

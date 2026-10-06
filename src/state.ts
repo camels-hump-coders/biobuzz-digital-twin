@@ -25,6 +25,8 @@ export interface AppState {
   pauseOpponents: boolean;
   view: ViewMode;
   pip: boolean;
+  /** stadium backdrop: audience stands, lighting truss and sweeping colour spots around the field */
+  stadium: boolean;
   /** transient: rotate to face the target on the next frame */
   aimRequest?: boolean;
   /** transient: put every game piece back to match start */
@@ -90,6 +92,7 @@ export function defaultState(): AppState {
     pauseOpponents: false,
     view: "orbit",
     pip: true,
+    stadium: true,
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false },
     showPerf: false,
     panelAdvanced: false,
