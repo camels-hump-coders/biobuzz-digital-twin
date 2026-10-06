@@ -3,7 +3,7 @@ import { camelsHumpHardwareConfig } from "./runtime/hardwareConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildField } from "./field/buildField";
 import { aimPoint, hiveTiltAngle, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
-import { HitMapJob } from "./ballistics/hitmap";
+import { HitMapJob, hitMapLauncherKey } from "./ballistics/hitmap";
 import type { CameraMount } from "./robot/robotSpec";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
@@ -1319,7 +1319,7 @@ function updateHitMap(frame: CellFrame) {
   if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; hitJob = undefined; overlays.setHitMap(undefined); } return; }
   const l = state.robot.launcher;
   const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
-  const key = JSON.stringify([l, state.ballKind, state.drag, state.alliance, state.hive, state.noise, camMount, state.robot.lengthM, state.robot.widthM, state.robot.modelYawDeg]);
+  const key = JSON.stringify([hitMapLauncherKey(l), state.ballKind, state.drag, state.alliance, state.hive, state.noise, camMount, state.robot.lengthM, state.robot.widthM, state.robot.modelYawDeg]);
   if (key !== hitKey) { hitKey = key; hitJob = new HitMapJob(frame, l, ballProps(), state.noise, 6, 40); overlays.setHitMap(hitJob); }
   if (!hitJob || hitJob.done) return;
   const side = state.hive[state.alliance];

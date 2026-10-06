@@ -21,6 +21,18 @@ export interface HitCell {
 
 export interface HitMap { cells: HitCell[]; stepM: number; computed: number }
 
+/**
+ * The launcher fields the map depends on. Deliberately not the whole config: `rpm` is rewritten every frame by the
+ * actuator model (flywheel spinning up or down under TeamCode) and by auto-RPM, and the map picks its own speed per
+ * square, so keying on it restarted the job over and over while the robot stood still. `elevationDeg` only matters
+ * for a fixed hood; with an adjustable hood the map scans the whole range.
+ */
+export function hitMapLauncherKey(l: LauncherConfig): unknown[] {
+  const fixed = l.elevationMinDeg === l.elevationMaxDeg;
+  return [l.kind, l.wheelDiameterM, l.maxRpm, l.efficiency, fixed ? l.elevationDeg : undefined, l.elevationMinDeg, l.elevationMaxDeg,
+    l.exitForwardM, l.exitLeftM, l.exitHeightM, l.yawOffsetDeg, l.turretMinDeg, l.turretMaxDeg, l.spinFraction];
+}
+
 export class HitMapJob implements HitMap {
   cells: HitCell[] = [];
   stepM: number;
@@ -28,7 +40,7 @@ export class HitMapJob implements HitMap {
   private target: { x: number; y: number; z: number };
   private frame: CellFrame; private launcher: LauncherConfig; private ball: BallProps; private noise: NoiseConfig; private n: number;
   constructor(frame: CellFrame, launcher: LauncherConfig, ball: BallProps, noise: NoiseConfig, stepIn = 6, n = 40) {
-    this.frame = frame; this.launcher = launcher; this.ball = ball; this.noise = noise; this.n = n;
+    this.frame = frame; this.launcher = { ...launcher }; this.ball = ball; this.noise = noise; this.n = n;
     this.stepM = m(stepIn);
     const half = m(FIELD.sizeIn) / 2;
     const hz = m(HIVE.frameDepthIn) / 2 + 0.2;

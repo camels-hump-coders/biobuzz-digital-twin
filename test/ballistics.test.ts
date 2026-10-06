@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { simulate, velocityFrom } from "../src/ballistics/projectile";
 import { adaptiveAimInsideM, evaluateShot, scanElevations, solveSpeedAdaptive, solveSpeedForElevation, vacuumSpeed } from "../src/ballistics/solver";
 import { LAUNCHER_PRESETS, exitSpeed, rpmForExitSpeed } from "../src/ballistics/launcher";
+import { hitMapLauncherKey } from "../src/ballistics/hitmap";
 import { aimPoint, upCellFrame } from "../src/field/hive";
 import { BALL, m } from "../src/field/fieldSpec";
 
@@ -98,5 +99,22 @@ describe("shots from behind the hive", () => {
     expect(flat.hit).toBe(false);
     const results = [70, 80, 85].map((deg) => ({ deg, ad: solveSpeedAdaptive(drag, behind, frame, (deg * Math.PI) / 180, 25, 157) }));
     for (const { ad } of results) { expect(ad.insideM).toBe(0); if (ad.result?.blockedByCell) expect(ad.result.hit).toBe(false); if (ad.result?.hit) expect(ad.result.entryAngleRad!).toBeLessThan((35 * Math.PI) / 180); }
+  });
+});
+
+describe("hit map dependency key", () => {
+  const base = { ...LAUNCHER_PRESETS[Object.keys(LAUNCHER_PRESETS)[0]] };
+  it("ignores the live flywheel rpm, which the actuator model rewrites every frame", () => {
+    expect(hitMapLauncherKey({ ...base, rpm: 1200 })).toEqual(hitMapLauncherKey({ ...base, rpm: 1187.3 }));
+  });
+  it("ignores the current hood angle when the hood is adjustable but not when it is fixed", () => {
+    const adj = { ...base, elevationMinDeg: 30, elevationMaxDeg: 60 };
+    expect(hitMapLauncherKey({ ...adj, elevationDeg: 40 })).toEqual(hitMapLauncherKey({ ...adj, elevationDeg: 50 }));
+    const fixed = { ...base, elevationMinDeg: 55, elevationMaxDeg: 55 };
+    expect(hitMapLauncherKey({ ...fixed, elevationDeg: 55 })).not.toEqual(hitMapLauncherKey({ ...fixed, elevationDeg: 50 }));
+  });
+  it("changes when a field the map uses changes", () => {
+    expect(hitMapLauncherKey(base)).not.toEqual(hitMapLauncherKey({ ...base, efficiency: base.efficiency + 0.1 }));
+    expect(hitMapLauncherKey(base)).not.toEqual(hitMapLauncherKey({ ...base, exitHeightM: base.exitHeightM + 0.05 }));
   });
 });
