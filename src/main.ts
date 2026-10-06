@@ -1199,6 +1199,7 @@ function frame(now: number) {
   const renderThisFrame = !ciMode || renderCount < 3 || now - lastRenderAt >= 1000 || renderRequested;
   renderRequested = false;
   if (renderThisFrame) { lastRenderAt = now; renderCount++; }
+  venueFx.group.visible = state.stadium && state.view !== "top"; // the top-down view is for analysis: no truss fixtures in the way
   if (renderThisFrame) venueFx.update(real, now);
   if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
