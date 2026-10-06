@@ -72,6 +72,8 @@ describe("solver calibration knobs", () => {
     expect(k55["launcher.calibration.power"]).toBeGreaterThan(0.3); expect(k55["launcher.calibration.power"]).toBeLessThan(0.8);
     expect(k55["launcher.calibration.legal"]).toBe(true);
     expect(k55["hive.aimHeightIn"]).toBeGreaterThan(50);
+    const minR = k55["launcher.calibration.minRangeIn"] as number;
+    expect(minR).toBeGreaterThanOrEqual(24); expect(minR).toBeLessThanOrEqual(72); expect(minR % 2).toBe(0);
     st.robot.launcher.elevationDeg = 80;
     const k80 = twinKnobs(st);
     expect(k80["launcher.calibration.power"]).toBeGreaterThan(k55["launcher.calibration.power"] as number); // a lob needs more speed

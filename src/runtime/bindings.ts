@@ -26,7 +26,19 @@ const IN = 0.0254;
  * target cell: the reference range (72 in when the shot is legal there, otherwise the nearest legal range) and the
  * flywheel power (required RPM / the flywheel motor's free RPM) that scores there. Bound into TeamCode's
  * shotRangeIn/shotPower, a hood sweep in the twin re-anchors the team's arc model automatically. */
-export function solverCalibration(state: AppState): { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean } | undefined {
+export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; minRangeIn?: number }
+let calCache: { key: string; value: SolverCalibration | undefined } | undefined;
+export function solverCalibration(state: AppState): SolverCalibration | undefined {
+  const l = state.robot.launcher;
+  const fly0 = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
+  // the scans below cost a few hundred shot simulations: memoise on everything they depend on
+  const key = JSON.stringify([l.elevationDeg, l.efficiency, l.exitHeightM, l.wheelDiameterM, l.maxRpm, l.spinFraction, state.alliance, state.hive, state.ballKind, state.drag, fly0?.freeRpm]);
+  if (calCache && calCache.key === key) return calCache.value;
+  const value = solverCalibrationUncached(state);
+  calCache = { key, value };
+  return value;
+}
+function solverCalibrationUncached(state: AppState): SolverCalibration | undefined {
   const l = state.robot.launcher;
   const frame = upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] }), aim = aimPoint(frame);
   const nh = Math.hypot(frame.normal.x, frame.normal.z) || 1, nx = frame.normal.x / nh, nz = frame.normal.z / nh;
@@ -42,12 +54,17 @@ export function solverCalibration(state: AppState): { rangeIn: number; power: nu
     const rpm = rpmForExitSpeed(l, sol.speed);
     return { rangeIn, power: Math.round((rpm / freeRpm) * 1000) / 1000, rpm: Math.round(rpm), speedMps: Math.round(sol.speed * 100) / 100, entryAngleDeg: Math.round(((sol.entryAngleRad ?? 0) * 180) / Math.PI), legal: rpm <= l.maxRpm };
   };
+  const legalAt = (r: number) => { const s = tryRange(r); return s && s.legal ? s : undefined; };
+  // smallest legal range: coarse 6 in scan from 24 in, then walk down in 2 in steps while shots stay legal (floor 6 in)
+  let minRangeIn: number | undefined;
+  for (let r = 24; r <= 144; r += 6) { if (legalAt(r)) { minRangeIn = r; break; } }
+  if (minRangeIn !== undefined) while (minRangeIn - 2 >= 6 && legalAt(minRangeIn - 2)) minRangeIn -= 2;
   const preferred = 72;
   const first = tryRange(preferred);
-  if (first && first.legal) return first;
+  if (first && first.legal) return { ...first, minRangeIn };
   // nearest legal range to 72 in, 6 in steps, outward both ways
-  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = tryRange(r); if (s && s.legal) return s; }
-  return first;
+  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = legalAt(r); if (s) return { ...s, minRangeIn }; }
+  return first ? { ...first, minRangeIn } : undefined;
 }
 export type Knob = number | string | boolean;
 export type Knobs = Record<string, Knob>;
@@ -82,7 +99,7 @@ export function twinKnobs(state: AppState): Knobs {
   // solver-derived calibration for the current hood (see solverCalibration); absent keys when nothing scores
   try {
     const cal = solverCalibration(state);
-    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; }
+    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; if (cal.minRangeIn !== undefined) k["launcher.calibration.minRangeIn"] = cal.minRangeIn; }
   } catch { /* geometry not available (tests with partial state) */ }
   k["hive.aimHeightIn"] = Math.round((aimPoint(upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] })).y / IN) * 100) / 100;
   k["noise.speedPct"] = state.noise.speedFrac * 100; k["noise.elevationDeg"] = state.noise.elevationDeg; k["noise.yawDeg"] = state.noise.yawDeg;
