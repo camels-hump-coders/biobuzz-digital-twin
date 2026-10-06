@@ -59,7 +59,7 @@ public class SimLink extends WebSocketServer {
 
     @Override public void onOpen(WebSocket conn, ClientHandshake hs) {
         clients.add(conn);
-        send(conn, opModesMessage()); send(conn, statusMessage()); send(conn, telemetryMessage(lastTelemetry)); send(conn, assetsMessage());
+        send(conn, opModesMessage()); send(conn, statusMessage()); send(conn, telemetryMessage(lastTelemetry)); send(conn, assetsMessage()); send(conn, settingsMessage());
         System.out.println("browser connected from " + conn.getRemoteSocketAddress());
     }
     @Override public void onClose(WebSocket conn, int code, String reason, boolean remote) { clients.remove(conn); if (clients.isEmpty()) runner.stop(); }
@@ -98,6 +98,22 @@ public class SimLink extends WebSocketServer {
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
             case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
+            case "settingsLoad": send(conn, settingsMessage()); break;
+            case "settingsSave": { // {text}: the twin's settings file (server mode): versioned next to the team's bindings
+                JsonObject r = new JsonObject(); r.addProperty("type", "settingsSaved");
+                try {
+                    java.io.File f = settingsFile();
+                    String text = msg.has("text") ? msg.get("text").getAsString() : "";
+                    new JsonParser().parse(text);
+                    if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                    java.nio.file.Files.writeString(f.toPath(), text);
+                    r.addProperty("ok", true); r.addProperty("path", f.getAbsolutePath());
+                    System.out.println("settings saved: " + f.getPath());
+                } catch (Exception e) { r.addProperty("ok", false); r.addProperty("error", String.valueOf(e.getMessage() != null ? e.getMessage() : e)); }
+                send(conn, r);
+                broadcastJson(settingsMessage());
+                break;
+            }
             case "writeAsset": { // {path, text}: save the merged settings file where the robot build reads it (team assets root)
                 String path = msg.has("path") ? msg.get("path").getAsString().replace('\\', '/') : "";
                 String text = msg.has("text") ? msg.get("text").getAsString() : null;
@@ -259,6 +275,15 @@ public class SimLink extends WebSocketServer {
             o.addProperty("heldFramesEver", heldFrames); o.add("gapsOver100ms", gapLog.deepCopy());
             sensorStats = o; sensorWindowStart = now; sensorPackets10s = 0; sensorGapMax10sNanos = 0;
         }
+    }
+    private java.io.File settingsFile() { return new java.io.File(System.getProperty("sim.settings", "twin-settings.json")); }
+    /** {type:"settings", path, exists, text}: the repo's twin settings file as it is on disk right now. */
+    public JsonObject settingsMessage() {
+        JsonObject m = new JsonObject(); m.addProperty("type", "settings");
+        java.io.File f = settingsFile();
+        m.addProperty("path", f.getAbsolutePath()); m.addProperty("exists", f.isFile());
+        if (f.isFile()) { try { m.addProperty("text", java.nio.file.Files.readString(f.toPath())); m.addProperty("modified", f.lastModified()); } catch (Exception e) { m.addProperty("error", String.valueOf(e)); } }
+        return m;
     }
     public volatile String lastRunFile = "";
     public java.io.File runsDir() { return new java.io.File(System.getProperty("sim.runs", "runs")); }

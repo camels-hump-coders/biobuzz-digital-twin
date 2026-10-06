@@ -7,7 +7,8 @@
  *
  * One host and one Vite server serve every scenario in the list (each scenario gets a fresh browser page); starting the
  * host (Gradle + JVM) is the slow part, so batch scenarios instead of calling this once per file. Exit code 0 only
- * when every scenario passes. Other flags: --port 5190 --host-port 8790 --headed --screenshot shot.png --host-timeout 600.
+ * when every scenario passes. The twin is served as a production build (no hot reload mid-run; --dev uses the dev
+ * server, --rebuild forces a build). Other flags: --port 5190 --host-port 8790 --headed --screenshot shot.png --host-timeout 600.
  */
 import { spawn, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -53,7 +54,11 @@ if (process.platform !== "win32") {
   const busy = (() => { try { return execSync(`lsof -nP -iTCP:${hostPort} -sTCP:LISTEN -t 2>/dev/null`, { encoding: "utf8" }).trim(); } catch { return ""; } })();
   if (busy) { console.error(`twin-test: something is already listening on the host port ${hostPort} (pid ${busy.split("\n").join(", ")}). A human's pnpm sim? Pass --host-port <other> (and --port) or stop it.`); process.exit(2); }
 }
+// built bundle by default: the dev server's hot reload would restart the page (and kill the run) whenever someone edits
+// the twin's sources; --dev opts back into the dev server, --rebuild forces a fresh build
 const simArgs = [resolve(root, "scripts/sim.mjs"), "--no-browser", "--no-watch", "--no-panels", "--port", port, "--host-port", hostPort]; // no Panels: its fixed ports belong to the human's session
+if (!has("--dev")) simArgs.push("--built");
+if (has("--rebuild")) simArgs.push("--rebuild");
 if (team) simArgs.push("--team", team);
 console.log(`twin-test: ${scenarios.length} scenario${scenarios.length > 1 ? "s" : ""}; starting host and twin (${simArgs.slice(1).join(" ")})`);
 const sim = spawn(process.execPath, simArgs, { cwd: root, detached: true, stdio: ["ignore", "pipe", "pipe"] });

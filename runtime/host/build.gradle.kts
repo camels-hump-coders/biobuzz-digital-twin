@@ -19,6 +19,7 @@ tasks.named<JavaExec>("run") {
     systemProperty("sim.panels", (findProperty("simPanels") as String?) ?: "true")
     systemProperty("sim.runs", rootProject.file("runs").absolutePath) // finished runs from the browser, for agents and later sessions
     systemProperty("sim.bindings", (findProperty("simBindings") as String?) ?: "")
+    systemProperty("sim.settings", (findProperty("simSettings") as String?) ?: rootProject.file("twin-settings.json").absolutePath) // the twin's settings file (server mode)
     // SIM_DEBUG=true prints OpMode lifecycle notifications and turns on Panels' own logs
     systemProperty("sim.debugLifecycle", System.getenv("SIM_DEBUG") ?: "false")
     systemProperty("sim.prefs", (findProperty("simPrefs") as String?) ?: layout.projectDirectory.dir("../.sim-prefs").asFile.path)

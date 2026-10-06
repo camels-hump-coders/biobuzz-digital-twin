@@ -111,6 +111,8 @@ public final class AgentApi {
         e.addProperty("POST /api/replay", "{\"offset\": 12.5} | {\"step\": -1} | {\"t\": 1791...} scrub the human's field to that moment (live sim pauses); {\"live\": true} resumes");
         e.addProperty("GET /api/runs", "runs saved on disk by the host (runtime/runs/*.json); ?file=<name> returns one (context, samples, events)");
         e.addProperty("POST /api/overrides", "{\"biobuzz/robot-profile.json\": {\"matchAuto.startPosition\": \"FAR_SIDE\"}}  merge into the panel's overrides (sent to TeamCode at INIT); {\"clear\": \"<path>\"} forgets a file's overrides");
+        e.addProperty("GET /api/settings", "the twin's settings file (server mode: <team repo>/twin-settings.json): path, exists, whether the browser differs from it, and the browser's current settings");
+        e.addProperty("POST /api/settings", "{\"save\": true} writes the browser's settings to the file; {\"load\": true} applies the file to the browser; {\"text\": \"{...}\"} applies given settings JSON (and saves if also save:true)");
         e.addProperty("POST /api/save", "{\"file\": \"robot-profile.json\"} or {\"all\": true}  write the merged settings file(s) back into the team repo's assets folder (what the robot build uses); overrides for them are cleared");
         e.addProperty("POST /api/twin", "{\"alliance\": \"red\", \"launcher.elevationDeg\": 52, \"hive.blue\": \"audience\", \"opponents\": false}  set twin settings by path (whitelisted)");
         e.addProperty("POST /api/match", "{\"action\": \"init\"|\"start\"|\"stop\"|\"reset\", \"opMode\": \"name\"}  Driver-Station flow; init selects the OpMode first");

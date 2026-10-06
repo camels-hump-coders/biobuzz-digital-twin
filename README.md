@@ -68,6 +68,8 @@ The host also runs the **real FTC Panels dashboard** (com.bylazar, the same libr
 
 See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Three sample OpModes ship with it: a mecanum TeleOp, an AprilTag auto-aim autonomous and the shooter-calibration OpMode (see *Launcher model*).
 
+**Long sessions next to an editing agent:** `pnpm sim --built` serves a production build instead of the dev server, so edits to the twin's sources cannot hot-reload the page under a running OpMode (`--rebuild` forces a fresh build). `pnpm twin-test` does this by default (`--dev` opts out).
+
 ## Test bed for coding agents (and CI)
 
 `pnpm twin-test` runs one OpMode headlessly against the twin from a scenario file, injects gamepad inputs at simulated times, checks expectations and writes a JSON report with telemetry, pose, shots and errors:
@@ -140,6 +142,9 @@ The field loads in **setup**: every robot parked on its starting mark (Field & t
 **Scoring** follows Competition Manual §10.5, Table 10-2, and shows in the HUD's *Score* row and in timeline snapshots: HIVE TIP 20 (tips completed in the first 30 s count as AUTO), LEAVE 3 per robot no longer touching the perimeter wall at the end of AUTO, AUTO PARK 5 per robot at least partially in its alliance's LOADING ZONE at the end of AUTO, TELEOP PARK 5 at the end of the match, 2 per POLLEN/NECTAR left in an upward cell, 1 per ball in the GARDEN. The row also tells you your own robot's LEAVE / PARK status live, so you can check an autonomous routine earns what you expect; LEAVE and AUTO PARK are latched when the clock passes 0:30 of AUTO (2:00 left), PARK when the match ends. Both LOADING ZONES are taped on the mat (23 in by 11 in, in the corner next to each alliance area). The scripted robots drive to their LOADING ZONE in the last 12 seconds. FLOWER points are not modelled.
 
 ## Saving, sharing and resetting
+
+**Server mode keeps the settings in a file.** With `pnpm sim --team …` running, the Session section shows the twin's settings file, `TeamCode/twin-settings.json` next to `twin-bindings.json` (under `runtime/` without a team). *Save to repo file* writes every setting in the panel there in a stable, sorted JSON so it diffs cleanly and can be committed and shared; *Load from repo file* applies it; by default the file is applied when the host connects, unless the browser holds changes it never saved, in which case the panel says so and offers both buttons. The browser's storage still works on its own for the standalone (no server) twin. Agents use `GET/POST /api/settings`.
+
 
 Everything in the side panel is kept in the browser's localStorage. The **Session** section at the top of the panel has:
 

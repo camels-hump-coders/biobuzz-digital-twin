@@ -21,7 +21,7 @@ import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
 import { Hud, type HudData } from "./ui/hud";
-import { loadState, saveState, type AppState } from "./state";
+import { hydrateState, loadState, saveState, serializeSettings, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, solveSpeedForElevation, type ShotResult } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { computeReachability, type ReachMap } from "./ballistics/reachability";
@@ -332,6 +332,12 @@ link.onAgent = async (action, params) => {
       scripted: scripted.map((r, i) => ({ name: r.name, alliance: scriptedAgents[i].alliance, xIn: +(r.pose.x / IN).toFixed(1), zIn: +(r.pose.z / IN).toFixed(1) })),
     } };
     case "knobs": return { result: twinKnobs(state) };
+    case "settings": { // the twin's settings file: read, save the browser's settings, load the file, or apply given JSON
+      if (params.text !== undefined) { const j = typeof params.text === "string" ? JSON.parse(params.text) : params.text; applySettingsJson(j); recorder.event(Date.now(), "note", "agent applied settings JSON"); }
+      if (params.load) { const r = loadSettingsFromFile(); if (!r.ok) throw new Error(r.error); }
+      if (params.save) { const r = await saveSettingsToFile(); if (!r.ok) throw new Error(r.error); }
+      return { result: { path: link.settings?.path, exists: !!link.settings?.exists, modified: link.settings?.modified, differsFromBrowser: settingsDiffer(), browserHasUnsavedChanges: localUnsaved(), autoLoad: state.settingsAutoLoad, settings: JSON.parse(serializeSettings(state)) } };
+    }
     case "shot": {
       // required exit speed / RPM / power to drop into the up cell at a horizontal range (drag + Magnus model, descending
       // arc through the opening's aim height), for one range or a table: ?rangeIn=68 or ?rangesIn=48,60,72,84
@@ -442,6 +448,56 @@ link.onAgent = async (action, params) => {
     default: throw new Error(`unknown action ${action}; GET / on the agent API lists them`);
   }
 };
+// ---------- the twin's settings file (server mode): <team repo>/twin-settings.json, versioned with the code
+const SYNC_KEY = "biobuzz-twin-synced"; // the file text last loaded or saved by this browser, to tell "unsaved local changes" apart
+let settingsPending: ((r: { ok: boolean; path?: string; error?: string }) => void) | undefined;
+/** Replace the live settings with saved ones, keeping the objects other modules hold (state itself, state.hive). */
+function applySettingsJson(json: unknown) {
+  const h = hydrateState(JSON.parse(JSON.stringify(json)));
+  for (const k of Object.keys(h) as (keyof AppState)[]) {
+    if (k === "hive") Object.assign(state.hive, h.hive);
+    else if (!(["pose", "matchPhase", "matchClock", "matchRequest", "aimRequest", "resetMatchRequest"] as string[]).includes(k)) (state as any)[k] = h[k];
+  }
+  onChange("reset"); onChange("sim"); onChange("runtime"); onChange("hardware"); onChange("assets");
+  panel.render();
+}
+function settingsDiffer(): boolean { return !!link.settings?.exists && link.settings.text !== undefined && link.settings.text !== serializeSettings(state); }
+function localUnsaved(): boolean { const synced = localStorage.getItem(SYNC_KEY); return serializeSettings(state) !== synced; }
+function loadSettingsFromFile(): { ok: boolean; error?: string } {
+  const f = link.settings;
+  if (!f?.exists || !f.text) return { ok: false, error: "no settings file on the host yet" };
+  try { applySettingsJson(JSON.parse(f.text)); } catch (e) { return { ok: false, error: `settings file is not valid: ${e}` }; }
+  localStorage.setItem(SYNC_KEY, f.text);
+  recorder.event(Date.now(), "note", `settings loaded from ${f.path}`);
+  panel.flashSession(`Loaded settings from ${f.path.split("/").pop()}`);
+  return { ok: true };
+}
+function saveSettingsToFile(): Promise<{ ok: boolean; path?: string; error?: string }> {
+  if (!link.connected) return Promise.resolve({ ok: false, error: "not connected to the host (server mode only)" });
+  const text = serializeSettings(state);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { settingsPending = undefined; resolve({ ok: false, error: "host did not answer" }); }, 5000);
+    settingsPending = (r) => { clearTimeout(timer); if (r.ok) { localStorage.setItem(SYNC_KEY, text); link.settings = { path: r.path ?? link.settings?.path ?? "", exists: true, text, modified: Date.now() }; } resolve(r); };
+    link.saveSettings(text);
+  });
+}
+link.onSettingsSaved = (r) => {
+  recorder.event(Date.now(), r.ok ? "note" : "error", r.ok ? `settings saved to ${r.path}` : `settings not saved: ${r.error}`);
+  settingsPending?.(r); settingsPending = undefined;
+  panel.render();
+  panel.flashSession(r.ok ? `Saved settings to ${r.path?.split("/").pop()}` : `Not saved: ${r.error}`, !r.ok);
+};
+let settingsAutoLoaded = false;
+link.onSettings = (f) => {
+  // first report after a connect: apply the repo file unless this browser has changes it never saved
+  if (!settingsAutoLoaded && state.settingsAutoLoad && f.exists && f.text) {
+    settingsAutoLoaded = true;
+    if (f.text === serializeSettings(state)) { localStorage.setItem(SYNC_KEY, f.text); }
+    else if (!localUnsaved() || localStorage.getItem(SYNC_KEY) === null) loadSettingsFromFile();
+    else recorder.event(Date.now(), "note", `settings file ${f.path} differs from this browser's unsaved settings; not applied (Session: Load from file / Save to file)`);
+  }
+  panel.render();
+};
 // the host wrote a settings file back to the repo: the manual overrides for it are now in the file, so drop them
 const pendingWrites = new Map<string, (r: { ok: boolean; file?: string; error?: string }) => void>();
 link.onAssetWritten = (r) => {
@@ -468,7 +524,7 @@ link.onChange = () => {
   if (link.statusError && link.status === "ERROR") recorder.event(Date.now(), "error", link.statusError.split("\n")[0]);
   if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); hardwareSent = true; }
   if (link.bindings?.text !== lastBindingsText) syncBindings();
-  if (!link.connected) hardwareSent = false;
+  if (!link.connected) { hardwareSent = false; settingsAutoLoaded = false; }
   // Driver-Station flow: INIT parks everything at the start positions, START releases the match clock and the other
   // robots together with the OpMode, STOP freezes them
   if (link.status !== lastLinkStatus) {
@@ -482,6 +538,7 @@ link.onChange = () => {
 };
 panel = new Panel(state, onChange);
 panel.saveAssetToRepo = saveAssetToRepo;
+panel.settingsFile = { save: saveSettingsToFile, load: loadSettingsFromFile, differs: settingsDiffer, unsaved: localUnsaved };
 panel.link = link;
 syncRuntime();
 Object.assign(overlays.show, state.overlays);

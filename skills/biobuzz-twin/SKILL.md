@@ -44,6 +44,10 @@ pnpm twin-test --team <team repo root> --scenario a.json --scenario b.json --sce
   is the expensive part; one call runs every scenario against the same host, each in a fresh page, writes
   `<reports dir>/<scenario name>.json` per scenario, prints a summary and exits 0 only if all pass. Do not loop
   `pnpm twin-test` per file, and do not sleep between calls: the run ends its own host and Vite.
+- twin-test serves a production build of the twin (built once, reused while `dist/` is newer than `src/`), so edits to
+  the twin's sources by another agent cannot hot-reload the page mid-run. A crash of the shape "window.__twin is
+  undefined" or "Execution context was destroyed" means the page reloaded: with `--dev` that is the dev server; with
+  the default build it should not happen.
 - Headless, the simulation runs at real time (each run prints `simulated N s in M s wall`); a scenario costs about its
   `durationS` plus 5 s. If the ratio drops well below 1x, the machine is overloaded: run fewer things at once.
 - It uses ports 5190/8790, so a human's `pnpm sim` session on 5173/8765 is not disturbed.
@@ -182,6 +186,15 @@ shooter direction, alliance, start pose. Rules:
    *Save to repo* button in the TeamCode settings panel. The host patches the file in place (key order and indentation
    kept, only changed values differ), then the overrides for it are cleared because the values are now in the file.
    Review `git diff` and commit. Without a host, *Export* downloads the files instead.
+
+## 4c. The twin's own settings live in `twin-settings.json`
+
+In server mode the twin's settings (robot preset and dimensions, cameras, launcher, hardware map, asset overrides,
+calibration, start positions, …) are saved to `TeamCode/twin-settings.json` (sorted JSON, next to
+`twin-bindings.json`) by *Session → Save to repo file* or `POST $A/api/settings {"save": true}`, and applied on
+connect or with `{"load": true}`. Commit that file with the code when the robot's measured setup changes; `GET
+$A/api/settings` tells whether the browser differs from the file. Do not hand-edit numbers that have a bound asset
+key instead (see 4): bindings derive those from the twin, so change them in the twin and save.
 
 ## 4a. Every JSON asset gets a schema sidecar; you create and maintain it
 

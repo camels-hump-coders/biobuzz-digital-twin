@@ -156,3 +156,17 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .warn-note { color: #ffd54a; }
 #panel .tl-replay-note.hidden { display: none; }
 #panel .assets .aflash { color: #8fd18f; } #panel .assets .aflash.bad { color: #ff8a8a; }
+/* telemetry box: free-form lines, coloured by well-known words */
+#panel .telemetry-box { margin: 0; font: 11px ui-monospace, Menlo, monospace; background: #0b0e13; border: 1px solid #2a313a; border-radius: 4px; padding: 4px 6px; min-height: 60px; max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
+#panel .telemetry-box.rewind { border-color: #8a7400; }
+#panel .tel-line { white-space: pre-wrap; word-break: break-word; padding: 1px 4px; border-radius: 3px; border-left: 2px solid transparent; }
+#panel .tel-key { color: var(--muted); font-weight: 600; }
+#panel .tel-sep { color: #3a434e; }
+#panel .tel-head { color: #ffd54a; font-weight: 600; }
+#panel .tel-empty { color: var(--muted); }
+#panel .tel-err { background: #3a1414; border-left-color: #ff5c5c; color: #ffb3b3; }
+#panel .tel-err .tel-key { color: #ff8a8a; }
+#panel .tel-warn { background: #3a2f00; border-left-color: #ffd54a; color: #ffe08a; }
+#panel .tel-warn .tel-key { color: #ffd54a; }
+#panel .tel-ok { border-left-color: #2a9a5e; }
+#panel .tel-ok .tel-val { color: #8fd18f; }

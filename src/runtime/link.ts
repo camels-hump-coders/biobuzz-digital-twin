@@ -55,6 +55,10 @@ export class RuntimeLink {
   onLog: (level: string, text: string, millis: number) => void = () => {};
   /** the host wrote (or refused to write) an asset file back to the team repo */
   onAssetWritten: (r: { path: string; ok: boolean; file?: string; error?: string }) => void = () => {};
+  /** server mode: the repo's twin-settings.json as last reported by the host */
+  settings?: { path: string; exists: boolean; text?: string; modified?: number };
+  onSettings: (s: { path: string; exists: boolean; text?: string; modified?: number }) => void = () => {};
+  onSettingsSaved: (r: { ok: boolean; path?: string; error?: string }) => void = () => {};
   /** TeamCode/twin-bindings.json from the team repo, when present */
   bindings?: { path: string; text: string };
   /** latest evaluation of the bindings (filled by the app) */
@@ -108,6 +112,8 @@ export class RuntimeLink {
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
       case "assetWritten": this.onAssetWritten({ path: msg.path, ok: !!msg.ok, file: msg.file, error: msg.error }); break;
+      case "settings": this.settings = { path: msg.path, exists: !!msg.exists, text: msg.text, modified: msg.modified }; this.onSettings(this.settings); break;
+      case "settingsSaved": this.onSettingsSaved({ ok: !!msg.ok, path: msg.path, error: msg.error }); break;
       case "log": this.onLog(msg.level ?? "out", msg.text ?? "", msg.millis ?? Date.now()); break;
       case "assets": {
         // Panels' web UI files are not robot settings (older hosts still send them)
@@ -126,6 +132,8 @@ export class RuntimeLink {
   sendRun(run: unknown) { this.send({ type: "run", run }); }
   /** server mode: ask the host to write the merged settings file into the team's assets folder */
   writeAsset(path: string, text: string) { this.send({ type: "writeAsset", path, text }); }
+  saveSettings(text: string) { this.send({ type: "settingsSave", text }); }
+  requestSettings() { this.send({ type: "settingsLoad" }); }
   sendSensors(p: SensorPacket) { const now = performance.now(); if (now - this.lastSend < 15) return; this.lastSend = now; this.send(p); }
   init(opMode: string) { this.send({ type: "init", opMode }); }
   start() { this.send({ type: "start" }); }

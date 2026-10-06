@@ -6,12 +6,13 @@
  *   pnpm sim                                           # afterwards
  *   pnpm sim --team <path> --exclude "**\/roadrunner/**,**\/Old*.java"
  *   pnpm sim --no-watch --no-browser --no-panels --port 5173 --host-port 8765
+ *   pnpm sim --built            # serve a production build: no hot reload while someone edits the twin (--rebuild forces a build)
  *
  * --team accepts either the FtcRobotController project root (TeamCode/src/main/java is appended),
  * the TeamCode module folder, or the java source folder itself.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +31,11 @@ const hostPort = flag("--host-port", "8765");
 const watch = !has("--no-watch");
 const openBrowser = !has("--no-browser");
 const panels = !has("--no-panels"); // the real FTC Panels dashboard on 8001/8002; off for secondary hosts such as twin-test
+// --built: serve a production build (vite preview) instead of the dev server. No hot reload: edits to the twin's
+// sources while this runs cannot reload the page under a running OpMode or a headless test. The build is reused when
+// dist/ is newer than every source file; --rebuild forces one.
+const built = has("--built");
+const forceRebuild = has("--rebuild");
 
 function resolveTeam(p) {
   if (!p) return undefined;
@@ -122,6 +128,10 @@ if (assetsDir && existsSync(assetsDir)) gradleArgs.push(`-PsimAssets=${assetsDir
 if (!panels) gradleArgs.push("-PsimPanels=false");
 const bindingsFile = team ? join(resolve(team, "../../.."), "twin-bindings.json") : undefined;
 if (bindingsFile && existsSync(bindingsFile)) gradleArgs.push(`-PsimBindings=${bindingsFile}`);
+// the twin's own settings (robot config, launcher, hardware map, overrides, calibration…) live next to the team's
+// bindings so they are versioned with the code; without a team they stay under runtime/
+const settingsFile = team ? join(resolve(team, "../../.."), "twin-settings.json") : join(root, "runtime", "twin-settings.json");
+gradleArgs.push(`-PsimSettings=${settingsFile}`);
 if (watch) gradleArgs.push("--continuous");
 
 console.log(`sim: TeamCode  ${team ?? "(none — sample OpModes only; pass --team <path>)"}`);
@@ -130,9 +140,10 @@ if (autoExcluded.length) { console.log(`sim: skipping ${autoExcluded.length} fil
 if (simDir && existsSync(simDir)) console.log(`sim: overrides ${simDir}`);
 if (assetsDir && existsSync(assetsDir)) console.log(`sim: assets    ${assetsDir}`);
 if (bindingsFile && existsSync(bindingsFile)) console.log(`sim: bindings  ${bindingsFile}`);
+console.log(`sim: settings  ${settingsFile}${existsSync(settingsFile) ? "" : "  (not created yet: Session → Save to repo file)"}`);
 console.log(`sim: JDK       ${javaHome ?? "from PATH"}`);
 console.log(`sim: host      ws://127.0.0.1:${hostPort}${watch ? "  (auto-rebuilds and restarts when your code changes)" : ""}`);
-console.log(`sim: twin      http://localhost:${port}/?runtime=1`);
+console.log(`sim: twin      http://localhost:${port}/?runtime=1${built ? "  (built bundle, no hot reload)" : ""}`);
 
 const children = [];
 const prefix = (name, color) => { let buf = ""; return (chunk) => { buf += chunk.toString(); const lines = buf.split(/\r?\n/); buf = lines.pop() ?? ""; for (const line of lines) if (line.trim()) process.stdout.write(`\x1b[${color}m[${name}]\x1b[0m ${line}\n`); }; };
@@ -163,7 +174,17 @@ children.push(host);
 
 // run Vite's own entry point rather than `pnpm exec vite`, so the pid we hold is Vite itself and a signal reaches it
 const viteBin = join(root, "node_modules", "vite", "bin", "vite.js");
-const viteArgs = [viteBin, "--port", port, "--strictPort"];
+if (built) {
+  const newest = (dir) => { let t = 0; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = join(d, e.name); if (e.isDirectory()) walk(f); else t = Math.max(t, statSync(f).mtimeMs); } }; if (existsSync(dir)) walk(dir); return t; };
+  const distIndex = join(root, "dist", "index.html");
+  const stale = forceRebuild || !existsSync(distIndex) || statSync(distIndex).mtimeMs < Math.max(newest(join(root, "src")), newest(join(root, "public")), statSync(join(root, "index.html")).mtimeMs, statSync(join(root, "vite.config.ts")).mtimeMs);
+  if (stale) {
+    console.log("sim: building the twin (vite build) …");
+    const b = spawnSync(process.execPath, [viteBin, "build"], { cwd: root, stdio: "inherit", env: { ...process.env, BASE_PATH: "/" } });
+    if (b.status !== 0) { console.error("sim: vite build failed"); process.exit(1); }
+  } else console.log("sim: serving the existing build in dist/ (newer than src/; --rebuild forces a build)");
+}
+const viteArgs = built ? [viteBin, "preview", "--port", port, "--strictPort"] : [viteBin, "--port", port, "--strictPort"];
 if (openBrowser) viteArgs.push("--open", "/?runtime=1");
 const vite = spawn(process.execPath, viteArgs, { cwd: root, env: process.env });
 vite.stdout.on("data", prefix("twin", "36"));

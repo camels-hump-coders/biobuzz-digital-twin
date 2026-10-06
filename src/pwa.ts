@@ -3,6 +3,8 @@ import { registerSW } from "virtual:pwa-register";
 
 export function setupUpdates() {
   if (!("serviceWorker" in navigator)) return;
+  // headless test pages must run exactly the bundle being served, never one a service worker cached earlier
+  if (new URLSearchParams(location.search).get("ci") === "1") return;
   const toast = (text: string, action?: { label: string; onClick: () => void }) => {
     document.getElementById("update-toast")?.remove();
     const el = document.createElement("div");

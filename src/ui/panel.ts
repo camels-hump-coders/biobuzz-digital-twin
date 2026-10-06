@@ -11,6 +11,7 @@ import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
 import { applyOverrides, downloadText, exportChangedAssets, guessAssetFor, parsePastedSettings } from "../runtime/assetExport";
 import { constraintText, hasRange, isInteger, isNumeric, isSchemaFile, nodeAt, nullable, schemaFor, searchText, validate, validateAll } from "../runtime/assetSchema";
+import { classifyTelemetryLine, splitTelemetryLine } from "./telemetryFormat";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
 import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
@@ -106,6 +107,12 @@ export class Panel {
   /** sections whose advanced rows were revealed with their "more" button (Essential mode) */
   private moreOpen = new Set<string>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
+  /** server mode: the twin's settings file on disk (set by main) */
+  settingsFile?: { save: () => Promise<{ ok: boolean; path?: string; error?: string }>; load: () => { ok: boolean; error?: string }; differs: () => boolean; unsaved: () => boolean };
+  private sessionFlashEl?: HTMLElement;
+  /** survives the re-renders that follow a save (the host re-broadcasts the settings) */
+  private sessionFlash?: { text: string; bad: boolean; until: number };
+  flashSession(text: string, bad = false) { this.sessionFlash = { text, bad, until: Date.now() + 6000 }; const e = this.sessionFlashEl; if (e) { e.textContent = text; e.classList.toggle("bad", bad); } }
   /** server mode: write a merged asset file back into the team repo (set by main) */
   saveAssetToRepo?: (path: string) => Promise<{ ok: boolean; file?: string; error?: string }>;
   private assetFlashEl?: HTMLElement;
@@ -123,8 +130,23 @@ export class Panel {
     if (this.telemetryEl) {
       // scrubbed back in time: show that moment's telemetry instead of the live stream
       const hist = rec?.cursor !== undefined ? rec.at(rec.cursor) : undefined;
-      const t = hist ? `⏪ ${((Date.now() - hist.t) / 1000).toFixed(1)} s ago · ${hist.status}${hist.opMode ? " " + hist.opMode : ""}\n` + (hist.telemetry.join("\n") || "(no telemetry)") : (lines.join("\n") || "(telemetry)");
-      if (this.telemetryEl.textContent !== t) this.telemetryEl.textContent = t;
+      const shown = hist ? hist.telemetry : lines;
+      const head = hist ? `⏪ ${((Date.now() - hist.t) / 1000).toFixed(1)} s ago · ${hist.status}${hist.opMode ? " " + hist.opMode : ""}` : "";
+      const key = head + "\u0000" + shown.join("\n");
+      if ((this.telemetryEl as any).__key !== key) {
+        (this.telemetryEl as any).__key = key;
+        const rows: HTMLElement[] = [];
+        if (head) rows.push(el("div", { class: "tel-line tel-head" }, head));
+        if (!shown.length) rows.push(el("div", { class: "tel-line tel-empty" }, hist ? "(no telemetry)" : "(telemetry)"));
+        for (const line of shown) {
+          // free-form text: colour by well-known words, bold the caption of "caption : value" lines
+          const level = classifyTelemetryLine(line);
+          const { key: cap, value } = splitTelemetryLine(line);
+          const icon = level === "err" ? "✖ " : level === "warn" ? "⚠ " : level === "ok" ? "✓ " : "";
+          rows.push(cap !== undefined ? el("div", { class: `tel-line tel-${level}` }, el("span", { class: "tel-key" }, icon + cap), el("span", { class: "tel-sep" }, " : "), el("span", { class: "tel-val" }, value ?? "")) : el("div", { class: `tel-line tel-${level}` }, icon + line));
+        }
+        this.telemetryEl.replaceChildren(...rows);
+      }
       this.telemetryEl.classList.toggle("rewind", !!hist);
     }
     this.refreshTimeline();
@@ -201,7 +223,23 @@ export class Panel {
     const download = (name: string, data: unknown) => { const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
     const upload = (onJson: (j: any) => void) => { const i = document.createElement("input"); i.type = "file"; i.accept = "application/json,.json"; i.onchange = async () => { const f = i.files?.[0]; if (!f) return; try { onJson(JSON.parse(await f.text())); } catch (e) { alert("Not a valid config file: " + e); } }; i.click(); };
     const resetAssetsToo = el("input", { type: "checkbox", title: "Also forget the TeamCode asset overrides (TeamCode settings panel). Off: they survive the reset." }) as HTMLInputElement;
+    const settingsRows: (Row | AdvGroup)[] = [];
+    if (this.link?.connected && this.link.settings && this.settingsFile) {
+      const f = this.link.settings, sf = this.settingsFile;
+      const differs = sf.differs(), unsaved = sf.unsaved();
+      const fl = this.sessionFlash && this.sessionFlash.until > Date.now() ? this.sessionFlash : undefined;
+      this.sessionFlashEl = el("span", { class: `note aflash${fl?.bad ? " bad" : ""}` }, fl?.text ?? "");
+      settingsRows.push(el("div", { class: "sub" }, "Settings file (server mode)"));
+      settingsRows.push(el("div", { class: "note full" }, el("code", {}, f.path), f.exists ? ` · saved ${f.modified ? new Date(f.modified).toLocaleString() : ""}${differs ? " · differs from this browser" : " · matches this browser"}` : " · not created yet", unsaved && f.exists ? " · this browser has changes not in the file" : ""));
+      settingsRows.push(el("div", { class: "row full", style: "align-items:center;gap:6px" },
+        el("button", { class: "primary", title: "Write every setting in this panel (robot, cameras, launcher, hardware map, overrides, calibration, starts…) to the file so it can be committed and shared", onclick: async () => { await sf.save(); } }, f.exists ? "Save to repo file" : "Create repo file"),
+        el("button", { ...(f.exists ? {} : { disabled: "" }), title: "Replace this browser's settings with the file's", onclick: () => { if (!sf.differs() || confirm("Replace this browser's settings with the repo file? Unsaved changes here are lost.")) { const r = sf.load(); if (!r.ok) alert(r.error); } } }, "Load from repo file"),
+        this.sessionFlashEl));
+      settingsRows.push(chk("Load the repo file on connect", () => st.settingsAutoLoad, (v) => { st.settingsAutoLoad = v; change("view"); }));
+      settingsRows.push(el("div", { class: "note" }, "With the host running, the file is the shared, versioned copy of these settings; the browser's storage is only a cache. On connect the file is applied unless this browser has changes it never saved (then both buttons are offered)."));
+    }
     this.root.append(section("Session", open("Session", false),
+      ...settingsRows,
       adv(el("div", { class: "note" }, "Everything in this panel is saved in this browser's localStorage) and restored on reload. Robot config = robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings.")),
       el("div", { class: "row full" },
         el("button", { class: "primary", onclick: () => download(`biobuzz-robot-${(st.robot.name || "robot").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.json`, { biobuzzRobotConfig: 1, robotPresetId: st.robotPresetId, robot: st.robot, hardware: st.hardware, noise: st.noise, capacity: st.capacity, canPollen: st.canPollen, canNectar: st.canNectar, alliance: st.alliance }) }, "Export robot config"),
@@ -264,7 +302,7 @@ export class Panel {
       if (link.statusError) rtRows.push(el("pre", { class: "note full", style: "white-space:pre-wrap;color:#ff8888" }, link.statusError));
       for (const n of link.notes) rtRows.push(el("div", { class: "note full", style: "color:#f2c200" }, n));
       rtRows.push(adv(el("div", { class: "note full" }, `Hardware map: ${st.hardware.devices.length} devices (${st.hardware.devices.map((d) => d.name).join(", ")}). Names must match your hardwareMap.get() calls; see the Hardware map panel for presets.`)));
-      this.telemetryEl = el("pre", { class: "full", style: "margin:0;white-space:pre-wrap;font-size:11px;background:#0b0e13;border:1px solid #2a313a;border-radius:4px;padding:6px;min-height:60px;max-height:220px;overflow:auto" }, link.telemetry.join("\n") || "(telemetry)");
+      this.telemetryEl = el("div", { class: "full telemetry-box" }, el("div", { class: "tel-line tel-empty" }, "(telemetry)"));
       rtRows.push(this.telemetryEl);
     }
     if (this.recorder) rtRows.push(el("div", { class: `note full warn-note tl-replay-note${this.recorder.cursor === undefined ? " hidden" : ""}` }, "⏪ Replaying a past moment (Timeline below). INIT, START, Start match or Reset return to live automatically; so does driving."));

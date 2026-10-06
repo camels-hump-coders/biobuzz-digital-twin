@@ -62,6 +62,8 @@ export interface AppState {
   assetOverrides: Record<string, Record<string, unknown>>;
   /** shooter calibration wizard: setup, measured shots and the OpMode's pending shot announcements */
   calibration: CalibrationSession;
+  /** server mode: apply the repo's twin-settings.json when the host connects (unless the browser has unsaved changes) */
+  settingsAutoLoad: boolean;
 }
 
 export function defaultState(): AppState {
@@ -100,15 +102,38 @@ export function defaultState(): AppState {
     tagNoiseIn: 0.3,
     assetOverrides: {},
     calibration: defaultCalibration(robot.launcher.exitHeightM),
+    settingsAutoLoad: true,
   };
 }
 
 const KEY = "biobuzz-twin";
+/** Fields that describe the moment, not the setup: never saved to the settings file, never restored from it. */
+export const TRANSIENT_KEYS = ["pose", "aimRequest", "resetMatchRequest", "matchPhase", "matchClock", "matchRequest"] as const;
+/** Deterministic JSON of the settings (sorted keys, transient fields dropped) so a committed file diffs cleanly. */
+export function serializeSettings(s: AppState): string {
+  const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])])) : v;
+  const copy: Record<string, unknown> = { ...s };
+  for (const k of TRANSIENT_KEYS) delete copy[k];
+  return JSON.stringify({ biobuzzTwinSettings: 1, ...(sorted(copy) as object) }, null, 2) + "\n";
+}
+/** Turn saved JSON (localStorage or the repo's twin-settings.json) into a complete, migrated state. */
+export function hydrateState(s: any): AppState {
+  if (s && typeof s === "object") {
+    delete s.biobuzzTwinSettings;
+    return migrate(s);
+  }
+  return defaultState();
+}
 export function loadState(): AppState {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
+    if (raw) return hydrateState(JSON.parse(raw));
+  } catch { /* ignore */ }
+  return defaultState();
+}
+function migrate(s: any): AppState {
+  {
+    {
       // migration: StarterBot CAD exports face +Z; older saves predate the yaw fix
       if (s.robot && s.robot.model !== "box" && s.robot.modelYawDeg === undefined) s.robot.modelYawDeg = 90;
       // migration: launcher direction offset; the StarterBot fires out the back over its ramp
@@ -130,8 +155,7 @@ export function loadState(): AppState {
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
       return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), matchPhase: undefined, matchClock: undefined, matchRequest: undefined };
     }
-  } catch { /* ignore */ }
-  return defaultState();
+  }
 }
 export function saveState(s: AppState) {
   localStorage.setItem(KEY, JSON.stringify(s));
