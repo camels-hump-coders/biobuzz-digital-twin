@@ -9,7 +9,7 @@ import type { RuntimeLink } from "../runtime/link";
 import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/starts";
 import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
-import { applyOverrides, downloadText, exportChangedAssets } from "../runtime/assetExport";
+import { applyOverrides, downloadText, exportChangedAssets, guessAssetFor, parsePastedSettings } from "../runtime/assetExport";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
 import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
@@ -234,6 +234,7 @@ export class Panel {
         ));
         rtRows.push(el("div", { class: "note" }, s === "IDLE" || s === "STOPPED" ? "Pick an OpMode and press INIT." : s === "INIT" ? "init() ran. Press START to begin, or STOP to abort." : s === "RUNNING" ? "Running. Keyboard is gamepad1 while the 3D view has focus. STOP cuts all power." : s === "ERROR" ? "The OpMode threw; see the message below, fix and INIT again." : ""));
       }
+      if (link.agentUrl) rtRows.push(adv(el("div", { class: "note full" }, "Agent API: ", el("code", {}, link.agentUrl), " — coding agents read this session's snapshot, timeline, telemetry and logs, and apply settings or Driver-Station actions, from the command line (GET / for the list). Localhost only.")));
       if (link.panelsUrl) rtRows.push(el("div", { class: "row full", style: "align-items:center;gap:8px" },
         el("a", { href: link.panelsUrl, target: "_blank", rel: "noopener", class: "button-link" }, "Open Panels dashboard ↗"),
         el("span", { class: "note" }, "The real FTC Panels (com.bylazar) running on the host: telemetry, graphs, field and the simulated camera stream, exactly as your code publishes them on the robot.")));
@@ -292,6 +293,25 @@ export class Panel {
         ...link.bound.errors.map((e) => el("div", { class: "note", style: "color:#ff8888" }, `binding error: ${e}`)),
         el("div", { class: "row full" }, el("button", { title: "Every twin knob a binding can reference, with its current value", onclick: () => { const blob = new Blob([JSON.stringify(twinKnobs(st), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "twin-knobs.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); } }, "Download twin knob catalogue")),
         el("div", { class: "arow tools" }, filter, el("button", { ...(total ? {} : { disabled: "" }), title: "Forget every override in every file", onclick: () => { st.assetOverrides = {}; change("assets"); } }, `Clear all${total ? ` (${total})` : ""}`)),
+        (() => {
+          // paste settings an agent conveyed in chat ("key": value lines or a JSON fragment) and apply them as overrides
+          const ta = el("textarea", { rows: 3, class: "full", placeholder: 'Paste settings from an agent, e.g.\n"matchAuto.startPosition": "FAR_SIDE",\n"matchAuto.loadingZoneDistanceIn": 72' }) as HTMLTextAreaElement;
+          const target = el("select") as HTMLSelectElement;
+          target.append(el("option", { value: "" }, "file: auto-detect"));
+          for (const f of link.assets) if (f.path.endsWith(".json")) target.append(el("option", { value: f.path }, f.path));
+          const status = el("span", { class: "note" }, "");
+          const apply = el("button", { onclick: () => {
+            const parsed = parsePastedSettings(ta.value);
+            const keys = Object.keys(parsed.values);
+            if (!keys.length) { status.textContent = "nothing recognisable: paste \"key\": value lines or a JSON object"; return; }
+            const path = target.value || (parsed.asset && link.assets.some((a) => a.path === parsed.asset) ? parsed.asset : undefined) || (parsed.asset ? link.assets.find((a) => a.path.endsWith(parsed.asset!.split("/").pop()!))?.path : undefined) || guessAssetFor(keys, link.assets);
+            if (!path) { status.textContent = "cannot tell which file these belong to: choose one"; return; }
+            st.assetOverrides[path] = { ...(st.assetOverrides[path] ?? {}), ...parsed.values };
+            this.recorder?.event(Date.now(), "note", `pasted overrides into ${path}: ${keys.join(", ")}`);
+            change("assets");
+          } }, "Apply pasted settings");
+          return el("div", { class: "full", style: "display:grid;gap:4px" }, ta, el("div", { class: "row", style: "align-items:center;gap:6px" }, target, apply, status));
+        })(),
         (() => {
           // export: the committed files with every override and twin-bound value applied, in the file's own format
           const changed = exportChangedAssets(link.assets, st.assetOverrides, link.bound.overrides);

@@ -79,6 +79,10 @@ Not supported: raw camera frames into custom `VisionProcessor`s (accepted so cod
 - AprilTag detections come from the twin's camera analysis (in frame, facing the camera, not occluded by the hive, frame, flowers or other robots) with optional Gaussian position noise (*AprilTag noise* in the Hardware map panel, default 0.3 in).
 - Gamepads arrive at 50 Hz from the browser.
 
+## Agent API (HTTP, WebSocket port + 1)
+
+`GET /` on http://127.0.0.1:8766/ lists the endpoints. `/api/status`, `/api/telemetry` and `/api/log` are answered by the host; everything else is forwarded to the connected browser as `{type:"agent", id, action, params}` and answered with `{type:"agentReply", id, ok, result, contentType}`, so the browser (`link.onAgent` in src/main.ts) can add actions without touching the host. Override with `-DagentPort=…` if the port is taken.
+
 ## Protocol (for other tools)
 
 JSON text frames. Browser → host: `{type:"hardware", devices:[{name,kind,ticksPerRev}]}`, `{type:"sensors", motors:{name:{pos,vel}}, imu:{yaw,pitch,roll,yawRate}, distances:{}, tags:{webcamName:[{id,cx,cy,x,y,z,yaw,pitch,roll,range,bearing,elevation,robotX,robotY,robotYaw}]}, gamepad1:{lx,ly,rx,ry,lt,rt,a,b,x,y,lb,rb,back,start,guide,du,dd,dl,dr,ls,rs}, gamepad2:{...}, battery}`, `{type:"init", opMode}`, `{type:"start"}`, `{type:"stop"}`. Host → browser: `{type:"opmodes", opModes:[{name,group,flavor,className}]}`, `{type:"status", status, opMode, error}`, `{type:"telemetry", lines:[]}`, `{type:"actuators", devices:{name:{kind:"motor",power,mode,reverse,targetVel,targetPos,brake} | {kind:"servo",position} | {kind:"crservo",power}}}` at 50 Hz.

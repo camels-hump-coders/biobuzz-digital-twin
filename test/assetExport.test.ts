@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOverrides, detectIndent, exportChangedAssets, patchJsonText, putDotted } from "../src/runtime/assetExport";
+import { applyOverrides, detectIndent, exportChangedAssets, guessAssetFor, parsePastedSettings, patchJsonText, putDotted } from "../src/runtime/assetExport";
 
 const file = { path: "biobuzz/robot-profile.json", text: '{\n    "robotWidthIn": 17.5,\n    "camera": {\n        "xIn": 0,\n        "pitchDeg": 8\n    },\n    "tagTracking": {\n        "alliance": "RED",\n        "shotRangeIn": null,\n        "powerTable": []\n    }\n}\n' };
 
@@ -49,5 +49,20 @@ describe("asset export", () => {
   it("falls back to re-serialising when a whole parent object is missing", () => {
     const out = patchJsonText('{"a": 1}', [{ key: "b.c.d", value: 2 }]);
     expect(JSON.parse(out)).toEqual({ a: 1, b: { c: { d: 2 } } });
+  });
+  it("parses settings pasted from an agent's message in several shapes", () => {
+    const pasted = `For this run, add these to the twin's asset overrides for biobuzz/robot-profile.json:\n\n"matchAuto.startPosition": "FAR_SIDE",\n"matchAuto.loadingZoneSide": "LEFT",\n"matchAuto.loadingZoneDistanceIn": 72,\n"matchAuto.returnReserveSeconds": 12`;
+    const r = parsePastedSettings(pasted);
+    expect(r.asset).toBe("biobuzz/robot-profile.json");
+    expect(r.values).toEqual({ "matchAuto.startPosition": "FAR_SIDE", "matchAuto.loadingZoneSide": "LEFT", "matchAuto.loadingZoneDistanceIn": 72, "matchAuto.returnReserveSeconds": 12 });
+    expect(parsePastedSettings('{ "tagTracking": { "autoShootEnabled": true, "shotRangeIn": 60 } }').values).toEqual({ "tagTracking.autoShootEnabled": true, "tagTracking.shotRangeIn": 60 });
+    expect(parsePastedSettings("speeds.flywheelHigh = 0.6 // faster\nspeeds.windmill: 0.25,\nname: Bob").values).toEqual({ "speeds.flywheelHigh": 0.6, "speeds.windmill": 0.25, name: "Bob" });
+    expect(parsePastedSettings("nothing useful here").values).toEqual({});
+  });
+  it("guesses the asset file from existing keys or sections", () => {
+    const files = [file, { path: "biobuzz/controller-profile.json", text: '{"speeds": {"flywheelHigh": 0.5}}' }];
+    expect(guessAssetFor(["speeds.flywheelHigh"], files)).toBe("biobuzz/controller-profile.json");
+    expect(guessAssetFor(["tagTracking.newKey", "camera.xIn"], files)).toBe(file.path); // new key under a known section counts
+    expect(guessAssetFor(["unknown.key"], files)).toBeUndefined();
   });
 });

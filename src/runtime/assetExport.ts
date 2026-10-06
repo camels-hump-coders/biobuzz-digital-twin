@@ -146,3 +146,48 @@ export function downloadText(name: string, text: string, type = "application/jso
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+/** Flatten a nested object into dotted keys (arrays stay whole, as the override merge treats them as values). */
+export function flattenDotted(obj: Record<string, unknown>, prefix = "", out: Record<string, unknown> = {}): Record<string, unknown> {
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) flattenDotted(v as Record<string, unknown>, key, out); else out[key] = v;
+  }
+  return out;
+}
+
+/** Parse settings a person pasted from an agent's message: a JSON object, a JSON fragment of `"key": value,` lines
+ * (trailing commas, comments and prose around it tolerated), or `key: value` / `key = value` lines. Returns dotted
+ * keys. A leading `path/to/file.json` or a line mentioning one is returned as `asset`. */
+export function parsePastedSettings(text: string): { asset?: string; values: Record<string, unknown> } {
+  const assetM = /([\w./-]+\.json)/.exec(text);
+  const asset = assetM ? assetM[1] : undefined;
+  const tryJson = (t: string): Record<string, unknown> | undefined => { try { const j = JSON.parse(t); return j && typeof j === "object" && !Array.isArray(j) ? j : undefined; } catch { return undefined; } };
+  let obj = tryJson(text.trim());
+  if (!obj) {
+    // keep only lines that look like assignments; strip comments and trailing commas; wrap in braces
+    const lines = text.split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, "").trim()).filter((l) => /^"?[\w.[\]-]+"?\s*[:=]/.test(l));
+    const norm = lines.map((l) => {
+      const m = /^"?([\w.[\]-]+)"?\s*[:=]\s*(.*?)[,;]?\s*$/.exec(l);
+      if (!m) return "";
+      let v = m[2].trim();
+      if (!/^(".*"|-?\d+(\.\d+)?([eE][-+]?\d+)?|true|false|null|\[.*\]|\{.*\})$/.test(v)) v = JSON.stringify(v.replace(/^'(.*)'$/, "$1"));
+      return `"${m[1]}": ${v}`;
+    }).filter(Boolean);
+    obj = tryJson(`{${norm.join(",")}}`);
+  }
+  return { asset, values: obj ? flattenDotted(obj) : {} };
+}
+
+/** Which asset file the pasted keys belong to: the one whose JSON already has most of them; undefined when none match. */
+export function guessAssetFor(keys: string[], files: AssetFile[]): string | undefined {
+  let best: { path: string; n: number } | undefined;
+  for (const f of files) {
+    if (!f.path.endsWith(".json")) continue;
+    let json: unknown; try { json = JSON.parse(f.text); } catch { continue; }
+    // a key matches when it exists, or when its parent object exists (new key under a known section)
+    const n = keys.filter((k) => getDotted(json, k) !== undefined || (k.includes(".") && getDotted(json, k.slice(0, k.lastIndexOf("."))) !== undefined)).length;
+    if (n > 0 && (!best || n > best.n)) best = { path: f.path, n };
+  }
+  return best?.path;
+}

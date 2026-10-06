@@ -94,6 +94,23 @@ pnpm skill:install ~/dev/FtcRobotController     # copies to <team>/.claude/skill
 
 `npx skills add ... --list` shows what the repo offers. The CLI install does not know where your twin checkout is; the skill then looks for a sibling `biobuzz-digital-twin` directory or clones one, so optionally add `.biobuzz-twin.json` (`{ "twinPath": "/path/to/twin" }`) to the team repo root to point it somewhere else. Commit the skill files; from then on "run this through the twin" is something every teammate's agent knows how to do.
 
+## Agent API: let a coding agent look at (and steer) your live session
+
+While `pnpm sim` runs, the host serves a small local HTTP API next to its WebSocket port (default http://127.0.0.1:8766/, shown in the Runtime panel; `GET /` lists everything). A coding agent on the same machine can debug what you are seeing without screenshots or copy-pasting:
+
+```bash
+curl -s http://127.0.0.1:8766/api/status                      # runtime status, OpMode, error, OpMode list
+curl -s http://127.0.0.1:8766/api/snapshot?seconds=30         # the Timeline panel's Markdown snapshot
+curl -s http://127.0.0.1:8766/api/state                       # pose, match, score, inventory, hives, telemetry
+curl -s http://127.0.0.1:8766/api/telemetry ; curl -s 'http://127.0.0.1:8766/api/log?tail=200'
+curl -s -X POST http://127.0.0.1:8766/api/overrides -d '{"biobuzz/robot-profile.json": {"matchAuto.startPosition": "FAR_SIDE"}}'
+curl -s -X POST http://127.0.0.1:8766/api/twin -d '{"alliance": "red", "robot.launcher.elevationDeg": 52}'
+curl -s -X POST http://127.0.0.1:8766/api/match -d '{"action": "init", "opMode": "BioBuzz: Drive + Auto Aim"}'   # then start / stop / reset
+curl -s -X POST http://127.0.0.1:8766/api/gamepad -d '{"pad": 1, "values": {"a": true}, "holdMs": 300}'
+```
+
+Settings an agent applies show up in the panel immediately (and in the timeline as a note), exactly as if you had typed them, and are sent to TeamCode at the next INIT. If the agent cannot reach your machine, it can instead print the settings as `"key": value` lines; paste those into the **Paste settings from an agent** box in the TeamCode settings panel, which picks the right file and applies them. Localhost only, no authentication: anything on your machine can drive the session.
+
 ## Timeline & logs: go back in time, hand a moment to an agent
 
 Telemetry changes faster than anyone can read, so the twin records the last ~10 minutes at 10 Hz: telemetry, runtime status, pose, match state, held gamepad buttons, shots, plus events (status changes, Home/button presses, shots, host console lines from your OpMode and `RobotLog`, exceptions with their stack traces, fouls). The **Timeline & logs** section has a slider: drag it back and the telemetry box shows that moment (marked ⏪); click an event to jump to it; *Go live* returns. **Copy last 30 s / 2 min** puts a Markdown snapshot on the clipboard: context (OpMode, presets, hardware map, asset overrides and bound values, camera mounts, start positions), the event list, and the telemetry at every change in the window. Paste it to a teammate or an agent. *Download full log* saves everything as JSON.

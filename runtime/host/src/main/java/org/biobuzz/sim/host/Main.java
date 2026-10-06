@@ -18,6 +18,7 @@ public class Main {
         LogTee.install(link::broadcastLog); // OpMode prints and RobotLog lines reach the twin's timeline
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { try { link.stop(500); } catch (Exception ignored) {} }));
         current = link;
+        AgentApi.start(link, Integer.parseInt(System.getProperty("agentPort", String.valueOf(port + 1)))); // agents inspect/steer the live session
         link.run(); // blocks while serving; returns only after stop() or a fatal socket error
         System.err.println("sim-host: server loop ended; exiting");
         System.exit(0); // never leave Panels / scheduler threads keeping a server-less JVM alive

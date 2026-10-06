@@ -37,7 +37,7 @@ import { buildDetections } from "./runtime/apriltags";
 import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
 import { velocityFrom } from "./ballistics/projectile";
 import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
-import { clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
+import { IN, clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
 import { clonePreset } from "./robot/presets";
 
 const state: AppState = loadState();
@@ -304,6 +304,84 @@ link.onLog = (level, text, millis) => {
     }
     const d = /CAL discard shot=(\d+)/.exec(text);
     if (d) { const i = state.calibration.inbox.findIndex((x) => x.id === +d[1]); if (i >= 0) { state.calibration.inbox.splice(i, 1); saveState(state); panel.render(); } }
+  }
+};
+// ---------- agent API (host AgentApi.java -> link.onAgent): what only the browser session knows or can do
+link.onAgent = async (action, params) => {
+  const num = (k: string, d: number) => { const v = params[k]; const n = typeof v === "number" ? v : parseFloat(String(v ?? "")); return Number.isFinite(n) ? n : d; };
+  switch (action) {
+    case "snapshot": {
+      const seconds = num("seconds", 30); const to = Date.now(), from = to - seconds * 1000;
+      return { contentType: "text/markdown", result: recorder.snapshot({ from, to, context: snapshotContext(), title: `BIOBUZZ twin snapshot · ${link.currentOpMode || "no OpMode"} · last ${seconds} s` }) };
+    }
+    case "timeline": {
+      const seconds = num("seconds", 30); const to = Date.now(), from = to - seconds * 1000;
+      return { result: { from, to, samples: recorder.samples.filter((x) => x.t >= from && x.t <= to), events: recorder.eventsBetween(from, to) } };
+    }
+    case "state": return { result: {
+      ...snapshotContext(),
+      pose: { xIn: +(state.pose.x / IN).toFixed(2), zIn: +(state.pose.z / IN).toFixed(2), headingDeg: +((state.pose.heading * 180) / Math.PI).toFixed(1) },
+      match: { phase: state.matchPhase, clock: +(state.matchClock ?? 0).toFixed(1) },
+      score: { red: allianceScore("red"), blue: allianceScore("blue") },
+      inventory: playerAgent.inventory, shots: { fired: shotsFired, hit: shotsHit }, cellLoad: { red: match.cellLoad("red"), blue: match.cellLoad("blue") },
+      hives: { red: { upCell: match.hives.red.upCell, tips: match.hives.red.tips }, blue: { upCell: match.hives.blue.upCell, tips: match.hives.blue.tips } },
+      selectedOpMode: panel.selectedOpMode, telemetry: link.telemetry, runtimeStatus: link.status, notice: launchBlockedUntil > performance.now() ? launchBlockedMsg : undefined,
+      scripted: scripted.map((r, i) => ({ name: r.name, alliance: scriptedAgents[i].alliance, xIn: +(r.pose.x / IN).toFixed(1), zIn: +(r.pose.z / IN).toFixed(1) })),
+    } };
+    case "knobs": return { result: twinKnobs(state) };
+    case "overrides": {
+      const clear = params.clear as string | undefined;
+      const incoming = Object.fromEntries(Object.entries(params).filter(([k, v]) => k.endsWith(".json") && v && typeof v === "object" && !Array.isArray(v))) as Record<string, Record<string, unknown>>;
+      if (clear) delete state.assetOverrides[clear];
+      for (const [path, vals] of Object.entries(incoming)) {
+        if (!link.assets.some((a) => a.path === path)) throw new Error(`unknown asset ${path}; known: ${link.assets.map((a) => a.path).join(", ")}`);
+        state.assetOverrides[path] = { ...(state.assetOverrides[path] ?? {}), ...vals };
+      }
+      if (clear || Object.keys(incoming).length) { onChange("assets"); panel.render(); recorder.event(Date.now(), "note", `agent set overrides: ${Object.entries(incoming).map(([p, v]) => `${p} ${Object.keys(v).join(", ")}`).join("; ")}${clear ? ` · cleared ${clear}` : ""}`); }
+      return { result: { manual: state.assetOverrides, bound: link.bound.overrides, effective: mergeOverrides(state.assetOverrides, link.bound.overrides), note: "applied at the next INIT" } };
+    }
+    case "twin": {
+      // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
+      const allowed = /^(alliance|ballKind|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM))|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
+      const set: string[] = [], rejected: string[] = [];
+      for (const [path, value] of Object.entries(params)) {
+        if (!allowed.test(path)) { rejected.push(path); continue; }
+        const parts = path.split("."); let o: any = state;
+        for (const k of parts.slice(0, -1)) o = o[k];
+        if (o === undefined) { rejected.push(path); continue; }
+        o[parts[parts.length - 1]] = value; set.push(path);
+      }
+      if (set.length) { onChange("reset"); onChange("sim"); panel.render(); recorder.event(Date.now(), "note", `agent set ${set.join(", ")}`); }
+      if (rejected.length && !set.length) throw new Error(`not settable: ${rejected.join(", ")} (GET /api/knobs lists readable values; settable paths: alliance, hive.red/blue, robot.*, robot.launcher.*, noise.*, starts.*, overlays.*, opponents, ...)`);
+      return { result: { set, rejected } };
+    }
+    case "match": {
+      const a = String(params.action ?? "");
+      if (a === "init") { const name = String(params.opMode ?? panel.selectedOpMode); if (!link.connected) throw new Error("runtime not connected"); if (!link.opModes.some((o) => o.name === name)) throw new Error(`unknown OpMode ${name}; available: ${link.opModes.map((o) => o.name).join(", ")}`); panel.selectedOpMode = name; link.init(name); }
+      else if (a === "start") { if (link.status === "INIT") link.start(); else startMatch(); }
+      else if (a === "stop") { if (link.status === "RUNNING" || link.status === "INIT") link.stop(); else stopMatch(); }
+      else if (a === "reset") resetBoard();
+      else throw new Error(`action must be init|start|stop|reset, got ${a}`);
+      // the host processes init/start/stop asynchronously: give the status a moment to change so the reply is current
+      const want = a === "init" ? "INIT" : a === "start" ? "RUNNING" : a === "stop" ? "STOPPED" : undefined;
+      const until = performance.now() + 2500;
+      while (want && link.connected && link.status !== want && link.status !== "ERROR" && performance.now() < until) await new Promise((r) => setTimeout(r, 50));
+      panel.render();
+      return { result: { runtimeStatus: link.status, error: link.statusError || undefined, matchPhase: state.matchPhase, opMode: link.currentOpMode || undefined } };
+    }
+    case "gamepad": {
+      const pad = (num("pad", 1) === 2 ? 2 : 1) as 1 | 2; const values = (params.values ?? {}) as Record<string, unknown>;
+      input.inject(pad, values as any);
+      const hold = num("holdMs", 0);
+      if (hold > 0) setTimeout(() => { const off: Record<string, unknown> = {}; for (const k of Object.keys(values)) off[k] = typeof values[k] === "boolean" ? false : 0; input.inject(pad, off as any); }, hold);
+      return { result: { pad, values, holdMs: hold || undefined } };
+    }
+    case "pose": {
+      state.pose = { x: num("xIn", state.pose.x / IN) * IN, z: num("zIn", state.pose.z / IN) * IN, heading: (num("headingDeg", (state.pose.heading * 180) / Math.PI) * Math.PI) / 180 };
+      robot.setPose(state.pose);
+      return { result: { xIn: state.pose.x / IN, zIn: state.pose.z / IN, headingDeg: (state.pose.heading * 180) / Math.PI } };
+    }
+    default: throw new Error(`unknown action ${action}; GET / on the agent API lists them`);
   }
 };
 let lastLinkStatus = link.status;

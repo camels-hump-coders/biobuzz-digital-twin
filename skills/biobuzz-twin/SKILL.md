@@ -67,12 +67,46 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
 - `expect`: `noErrors`, `shotsFired`/`shotsHit`/`fouls` comparisons like `">=1"`, `telemetryIncludes` (regexes that
   must match some telemetry line during the run), `telemetryFinalIncludes`, `movedAtLeastIn`, `poseNear`.
 
-## 2b. Debugging from a human's session
+## 2b. Debugging a human's live session (agent API)
 
-If the user ran the twin interactively, ask for a snapshot instead of screenshots: *Timeline & logs → Copy last 30 s*
-(or 2 min) in the twin's panel produces Markdown with the OpMode, presets, overrides, bound values, every event (button
-presses, status changes, exceptions with stack traces, shots, fouls) and the telemetry at each change. The *Download
-full log* JSON has the same at 10 Hz. Read the Context block first, then the events, then the telemetry around them.
+When the user has `pnpm sim` running, query their session directly instead of asking for screenshots. The host serves
+a local HTTP API at the WebSocket port + 1 (default `http://127.0.0.1:8766/`; the Runtime panel shows it; `GET /`
+lists endpoints; if it refuses, the host is not running or uses another `--host-port`):
+
+```bash
+A=http://127.0.0.1:8766
+curl -s $A/api/status                          # IDLE/INIT/RUNNING/STOPPED/ERROR, current OpMode, error, OpMode list
+curl -s "$A/api/snapshot?seconds=60"           # Markdown: context, events (status, buttons, exceptions, shots, fouls), telemetry
+curl -s $A/api/state                           # pose, match phase/clock, score, inventory, hives, telemetry, scripted robots
+curl -s $A/api/telemetry; curl -s "$A/api/log?tail=300"      # OpMode prints / RobotLog / stack traces
+curl -s "$A/api/timeline?seconds=60"           # raw 10 Hz samples + events (JSON) when the snapshot is not enough
+curl -s $A/api/knobs; curl -s $A/api/overrides # twin knob values; manual + bound asset overrides
+```
+
+Read the snapshot's Context block first, then the events, then the telemetry around them. To change the session:
+
+```bash
+curl -s -X POST $A/api/overrides -d '{"biobuzz/robot-profile.json": {"matchAuto.startPosition": "FAR_SIDE"}}'  # TeamCode settings (applied at INIT)
+curl -s -X POST $A/api/twin -d '{"alliance": "red", "hive.red": "scoring", "robot.launcher.elevationDeg": 52}'   # twin settings (whitelisted paths)
+curl -s -X POST $A/api/match -d '{"action": "init", "opMode": "BioBuzz: Drive + Auto Aim"}'   # then {"action":"start"|"stop"|"reset"}
+curl -s -X POST $A/api/gamepad -d '{"pad": 1, "values": {"guide": true}, "holdMs": 300}'       # press Home for 300 ms
+curl -s -X POST $A/api/pose -d '{"xIn": 0, "zIn": 36, "headingDeg": 90}'
+```
+
+Everything you set appears in the human's panel and timeline (as an "agent set …" note), so say what you changed. Do
+not run twin-test against the human's ports (5173/8765); it uses its own (5190/8790).
+
+**Conveying settings when you cannot reach the session** (different machine, no host running): print them as
+`"dotted.key": value` lines under the asset file name, e.g.
+
+```
+biobuzz/robot-profile.json
+"matchAuto.startPosition": "FAR_SIDE",
+"matchAuto.loadingZoneDistanceIn": 72
+```
+
+The human pastes that into *TeamCode settings → Paste settings from an agent*; the panel picks the file (by name or by
+which file already has those keys/sections) and applies them as overrides.
 
 ## 3. Read the report
 

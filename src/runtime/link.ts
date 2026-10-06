@@ -59,6 +59,9 @@ export class RuntimeLink {
   bound: { overrides: Record<string, Record<string, unknown>>; sources: Record<string, Record<string, string>>; errors: string[] } = { overrides: {}, sources: {}, errors: [] };
   /** the real FTC Panels dashboard the host serves (undefined when the host runs without it) */
   panelsUrl?: string;
+  /** local HTTP API on the host for agents (AgentApi.java); requests arrive here as {type:"agent"} and are answered by main */
+  agentUrl?: string;
+  onAgent: (action: string, params: Record<string, unknown>) => Promise<{ result?: unknown; contentType?: string }> = async () => { throw new Error("no agent handler"); };
   private retryTimer?: number;
   private lastSend = 0;
 
@@ -91,7 +94,14 @@ export class RuntimeLink {
         if (this.servoTransitions.length > 200) this.servoTransitions.splice(0, this.servoTransitions.length - 200);
         break;
       }
-      case "opmodes": this.opModes = msg.opModes ?? []; this.panelsUrl = msg.panelsUrl || undefined; this.onChange(); break;
+      case "opmodes": this.opModes = msg.opModes ?? []; this.panelsUrl = msg.panelsUrl || undefined; this.agentUrl = msg.agentUrl || undefined; this.onChange(); break;
+      case "agent": { // an agent asked the host something only the browser session knows or can do
+        const id = msg.id as string;
+        this.onAgent(String(msg.action ?? ""), (msg.params ?? {}) as Record<string, unknown>)
+          .then((r) => this.send({ type: "agentReply", id, ok: true, result: r.result ?? null, contentType: r.contentType ?? "application/json" }))
+          .catch((e) => this.send({ type: "agentReply", id, ok: false, error: String(e?.message ?? e) }));
+        break;
+      }
       case "status": { const prev = this.status; this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; if (prev !== this.status) this.statusSince = performance.now(); this.onChange(); break; }
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;

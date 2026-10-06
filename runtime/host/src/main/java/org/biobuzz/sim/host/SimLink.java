@@ -25,6 +25,10 @@ public class SimLink extends WebSocketServer {
     private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "sim-link"); t.setDaemon(true); return t; });
     private volatile List<String> lastTelemetry = Collections.emptyList();
     private final boolean panels;
+    /** agent API plumbing: requests awaiting the browser's answer, and the recent host output */
+    private final Map<String, CompletableFuture<JsonObject>> pending = new ConcurrentHashMap<>();
+    private final Deque<JsonObject> logRing = new ArrayDeque<>();
+    private static final int LOG_RING = 3000;
 
     public SimLink(int port, List<OpModeScanner.Entry> opModes) {
         super(new InetSocketAddress("127.0.0.1", port));
@@ -92,6 +96,11 @@ public class SimLink extends WebSocketServer {
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
             case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
+            case "agentReply": { // the browser answered an agent API request: {type, id, ok, result|error, contentType}
+                CompletableFuture<JsonObject> f = msg.has("id") ? pending.remove(msg.get("id").getAsString()) : null;
+                if (f != null) f.complete(msg);
+                break;
+            }
             case "assetOverrides": { // {overrides: {path: {dotted.key: value}}} from the browser's TeamCode settings panel
                 Map<String, org.json.JSONObject> all = new HashMap<>();
                 if (msg.has("overrides") && msg.get("overrides").isJsonObject())
@@ -164,7 +173,37 @@ public class SimLink extends WebSocketServer {
         for (OpModeScanner.Entry e : opModes) { JsonObject o = new JsonObject(); o.addProperty("name", e.name); o.addProperty("group", e.group); o.addProperty("flavor", e.flavor); o.addProperty("className", e.cls.getName()); arr.add(o); }
         m.add("opModes", arr);
         if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);
+        if (!AgentApi.URL.isEmpty()) m.addProperty("agentUrl", AgentApi.URL);
         return m;
+    }
+
+    // ---- agent API (AgentApi.java) -------------------------------------------------------------------------------
+    public boolean hasBrowser() { return !clients.isEmpty(); }
+    public List<String> telemetry() { return lastTelemetry; }
+    public JsonObject agentStatus() {
+        JsonObject m = statusMessage(); m.remove("type");
+        m.addProperty("browserConnected", hasBrowser());
+        m.add("opModes", opModesMessage().get("opModes"));
+        if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);
+        m.addProperty("agentUrl", AgentApi.URL);
+        return m;
+    }
+    public JsonArray logTail(int n) {
+        JsonArray a = new JsonArray();
+        synchronized (logRing) { int skip = Math.max(0, logRing.size() - n); int i = 0; for (JsonObject o : logRing) if (i++ >= skip) a.add(o); }
+        return a;
+    }
+    /** Forward an action to the (first) connected browser and wait for its reply; null on timeout. */
+    public JsonObject askBrowser(String action, JsonObject params, long timeoutMs) {
+        WebSocket target = null;
+        for (WebSocket c : clients) if (c.isOpen()) { target = c; break; }
+        if (target == null) return null;
+        String id = UUID.randomUUID().toString();
+        CompletableFuture<JsonObject> f = new CompletableFuture<>();
+        pending.put(id, f);
+        JsonObject m = new JsonObject(); m.addProperty("type", "agent"); m.addProperty("id", id); m.addProperty("action", action); m.add("params", params);
+        send(target, m);
+        try { return f.get(timeoutMs, TimeUnit.MILLISECONDS); } catch (Exception e) { pending.remove(id); return null; }
     }
     /** Every JSON asset under the sim.assets roots (not the .sim.json variants), with its text, for the browser's settings panel. */
     private JsonObject assetsMessage() {
@@ -203,8 +242,9 @@ public class SimLink extends WebSocketServer {
     }
     /** A line the host printed (OpMode output, RobotLog, exceptions): {type:"log", level, text, millis}. */
     public void broadcastLog(String level, String text) {
-        if (clients.isEmpty()) return;
         JsonObject m = new JsonObject(); m.addProperty("type", "log"); m.addProperty("level", level); m.addProperty("text", text); m.addProperty("millis", System.currentTimeMillis());
+        synchronized (logRing) { logRing.addLast(m); while (logRing.size() > LOG_RING) logRing.removeFirst(); }
+        if (clients.isEmpty()) return;
         broadcastJson(m);
     }
     private void send(WebSocket c, JsonObject o) { try { if (c.isOpen()) c.send(gson.toJson(o)); } catch (Exception ignored) {} }
