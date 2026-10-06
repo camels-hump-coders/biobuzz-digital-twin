@@ -152,8 +152,11 @@ export class Panel {
       const inRun = rec.runAt(shown);
       if (label) label.textContent = rec.cursor === undefined
         ? `LIVE · ${run ? `last run ${run.opMode || "keyboard match"} · ${(((run.end ?? rec.end ?? shown) - run.start) / 1000).toFixed(0)} s${run.end === undefined ? " (running)" : ""}` : `${((end - start) / 1000).toFixed(0)} s recorded, no run yet`}`
-        : `⏪ ${inRun ? `run +${((shown - inRun.start) / 1000).toFixed(1)} s · ` : ""}${(((rec.end ?? shown) - shown) / 1000).toFixed(1)} s ago (${new Date(shown).toLocaleTimeString()}) · live sim paused`;
+        : `⏪ REPLAY ${inRun ? `run +${((shown - inRun.start) / 1000).toFixed(1)} s · ` : ""}${(((rec.end ?? shown) - shown) / 1000).toFixed(1)} s ago (${new Date(shown).toLocaleTimeString()}) — the field shows this moment; the live sim is paused`;
     }
+    this.root.querySelectorAll(".tl-replay-note").forEach((n) => n.classList.toggle("hidden", rec.cursor === undefined));
+    const mode = box.querySelector(".tl-mode") as HTMLElement | null;
+    if (mode) { mode.classList.toggle("live", rec.cursor === undefined); mode.classList.toggle("replay", rec.cursor !== undefined); }
     const scopeBtns = box.querySelectorAll(".tl-scope button");
     scopeBtns.forEach((b) => b.classList.toggle("on", (b as HTMLElement).dataset.scope === this.tlScope));
     if (list) {
@@ -254,6 +257,7 @@ export class Panel {
       this.telemetryEl = el("pre", { class: "full", style: "margin:0;white-space:pre-wrap;font-size:11px;background:#0b0e13;border:1px solid #2a313a;border-radius:4px;padding:6px;min-height:60px;max-height:220px;overflow:auto" }, link.telemetry.join("\n") || "(telemetry)");
       rtRows.push(this.telemetryEl);
     }
+    if (this.recorder) rtRows.push(el("div", { class: `note full warn-note tl-replay-note${this.recorder.cursor === undefined ? " hidden" : ""}` }, "⏪ Replaying a past moment (Timeline below). INIT, START, Start match or Reset return to live automatically; so does driving."));
     rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead.")));
     this.root.append(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
 
@@ -285,7 +289,7 @@ export class Panel {
           el("span", { class: "note" }, "Span:"),
           el("button", { "data-scope": "run", onclick: () => { this.tlScope = "run"; this.refreshTimeline(); } }, "Latest run"),
           el("button", { "data-scope": "all", onclick: () => { this.tlScope = "all"; this.refreshTimeline(); } }, "Everything")),
-        el("div", { class: "tl-pos" }, "LIVE"),
+        el("div", { class: "tl-mode live" }, el("span", { class: "tl-pos" }, "LIVE"), el("button", { class: "primary tl-golive", title: "Stop replaying and show the live field again", onclick: () => { stopPlay(); scrub(undefined); } }, "● Go live")),
         slider,
         el("div", { class: "row full tl-buttons" },
           el("button", { title: "back 1 s", onclick: () => { stopPlay(); stepBy(-1000); } }, "⏮ 1 s"),
@@ -298,7 +302,6 @@ export class Panel {
           el("button", { class: "primary", title: "Copy a Markdown snapshot of the last 30 s (ending at the slider position) to the clipboard", onclick: () => copy(30) }, "Copy 30 s"),
           el("button", { title: "Copy the last 2 minutes", onclick: () => copy(120) }, "Copy 2 min"),
           el("button", { title: "Everything recorded, as JSON", onclick: () => dl(`twin-log-${Date.now()}.json`, { context: this.snapshotContext(), samples: rec.samples, events: rec.events }) }, "Download JSON"),
-          el("button", { class: "primary", onclick: () => { stopPlay(); scrub(undefined); } }, "● Live"),
           el("button", { onclick: () => { rec.clear(); this.refreshTimeline(); } }, "Clear")),
         flashEl,
         el("div", { class: "tl-events" }),

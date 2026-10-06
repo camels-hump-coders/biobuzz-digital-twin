@@ -178,6 +178,7 @@ function parkScripted() {
  * audience cell up, blue hive with its scoring cell up, 3 NECTAR staged in each raised cell, flowers and gardens full,
  * 4 POLLEN preloaded, every robot on its starting mark, clock at 2:30, fouls cleared. */
 function resetBoard() {
+  if (recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); }
   state.hive.red = "audience"; state.hive.blue = "scoring"; // mutate in place: the Match holds this object
   match.reset(allAgents);
   shotsFired = 0; shotsHit = 0;
@@ -187,7 +188,7 @@ function resetBoard() {
   parkScripted();
   state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
 }
-function startMatch() { if (state.matchPhase === "setup" || state.matchPhase === "stopped") { if (state.matchPhase === "stopped" && (state.matchClock ?? 0) <= 0) state.matchClock = MATCH_SECONDS; state.matchPhase = "running"; } }
+function startMatch() { if (recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } if (state.matchPhase === "setup" || state.matchPhase === "stopped") { if (state.matchPhase === "stopped" && (state.matchClock ?? 0) <= 0) state.matchClock = MATCH_SECONDS; state.matchPhase = "running"; } }
 function stopMatch() { if (state.matchPhase === "running") state.matchPhase = "stopped"; }
 parkScripted();
 
@@ -424,6 +425,7 @@ link.onChange = () => {
   // Driver-Station flow: INIT parks everything at the start positions, START releases the match clock and the other
   // robots together with the OpMode, STOP freezes them
   if (link.status !== lastLinkStatus) {
+    if ((link.status === "INIT" || link.status === "RUNNING") && recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } // a new run: back to live
     if (link.status === "INIT") resetBoard();
     else if (link.status === "RUNNING") startMatch();
     else if (lastLinkStatus === "RUNNING") stopMatch();
@@ -765,7 +767,7 @@ function frame(now: number) {
   // simulate the real elapsed time, capped so a background tab or a hitch does not teleport things. Below 10 fps the
   // simulation therefore runs slower than real time; the HUD says so.
   // scrubbing the timeline freezes the live simulation (dt 0) and draws the recorded moment instead
-  const replaying = recorder.cursor !== undefined;
+  let replaying = recorder.cursor !== undefined;
   const dt = replaying ? 0 : Math.min(0.1, real);
   const fps = 1 / Math.max(frameInterval, 1e-3);
   const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
@@ -773,6 +775,8 @@ function frame(now: number) {
   // input & drive
   perf.begin();
   const { cmd, actions } = input.poll();
+  // driving while replaying means "I want the live robot": drop back to live
+  if (replaying && !link.running && (Math.abs(cmd.forward) > 0.2 || Math.abs(cmd.left) > 0.2 || Math.abs(cmd.turn) > 0.2)) { recorder.cursor = undefined; panel.refreshTimeline(); replaying = false; }
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
   if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; match.resetHive(state.alliance); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }

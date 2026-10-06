@@ -146,3 +146,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .assets .badge.ok { background: #1f7a4a; color: #fff; }
 #panel .assets .badge.bad { background: #a33; color: #fff; }
 #panel .assets .badge.quiet { background: transparent; border: 1px dashed #3a434e; color: var(--muted); }
+/* timeline mode bar: quiet when live, loud when replaying, with the way back */
+#panel .tl-mode { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid #2a313a; }
+#panel .tl-mode.live { background: #11151b; }
+#panel .tl-mode.live .tl-golive { display: none; }
+#panel .tl-mode.replay { background: #3a2f00; border-color: #8a7400; }
+#panel .tl-mode.replay .tl-pos { color: #ffd54a; }
+#panel .tl-mode .tl-golive { flex: 0 0 auto; font-weight: 700; }
+#panel .warn-note { color: #ffd54a; }
+#panel .tl-replay-note.hidden { display: none; }
