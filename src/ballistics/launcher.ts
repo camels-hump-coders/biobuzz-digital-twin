@@ -65,7 +65,7 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     elevationDeg: 55,
     elevationMinDeg: 55,
     elevationMaxDeg: 55,
-    exitForwardM: -0.10, // ball leaves the top of the ramp at the back of the robot
+    exitForwardM: -0.20, // the ramp's top edge is at the rear extreme of the chassis in the CAD (8.8 in behind centre); the ball leaves just inside it
     exitLeftM: 0,
     exitHeightM: 0.31,
     yawOffsetDeg: 180, // the StarterBot shoots out the back, over the ramp, away from the intake

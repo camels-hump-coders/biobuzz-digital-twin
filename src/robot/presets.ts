@@ -32,10 +32,12 @@ export function starterBotCamera(id = "cam1"): CameraMount {
 export const ROBOT_PRESETS: Record<string, RobotSpec> = {
   starterbot6wd: {
     name: "goBILDA StarterBot (6WD, Gecko wheels)",
+    // Chassis box from goBILDA's STEP (3200-2627-0003) via scripts/step2glb.py: 17.8 x 16.8 in, 12.0 in to the top edge of
+    // the launcher ramp (no camera). Wheel diameter, motor speeds, intake width and mass are kit specs or estimates.
     drivetrain: "tank",
-    lengthM: 17.5 * IN,
-    widthM: 17.5 * IN,
-    heightM: 16 * IN,
+    lengthM: 17.8 * IN,
+    widthM: 16.8 * IN,
+    heightM: 12 * IN,
     wheelRpm: 312,
     wheelDiameterM: 0.096,
     model: "starterbot-6wd",
@@ -48,10 +50,11 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
   },
   starterbotMecanum: {
     name: "goBILDA StarterBot (Strafer mecanum)",
+    // Chassis box from goBILDA's STEP (3200-2627-0004): 17.8 x 17.8 in, 12.2 in to the ramp's top edge (no camera).
     drivetrain: "mecanum",
-    lengthM: 17.5 * IN,
-    widthM: 17.5 * IN,
-    heightM: 16 * IN,
+    lengthM: 17.8 * IN,
+    widthM: 17.8 * IN,
+    heightM: 12.2 * IN,
     wheelRpm: 312,
     wheelDiameterM: 0.104,
     model: "starterbot-mecanum",
