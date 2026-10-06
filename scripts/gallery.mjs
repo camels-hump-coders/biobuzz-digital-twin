@@ -80,9 +80,9 @@ if (!hostUp) { console.log(`gallery: no host on ${hostPort}; skipping runtime, s
   const op = opModes.find((n) => /Auto 30s \+ Drive/.test(n)) ?? opModes.find((n) => /Auto Aim/i.test(n)) ?? opModes[0];
   // INIT / START a run and let it play for a while
   await t((name) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === name)); s.value = name; s.dispatchEvent(new Event("change")); }, op);
-  await page.click('#panel button:has-text("INIT")');
+  await page.click('#panel button.init');
   await page.waitForFunction(() => window.__twin.link.status === "INIT", null, { timeout: 20_000 });
-  await page.click('#panel button:has-text("START")');
+  await page.click('#panel button.start');
   await page.waitForFunction(() => window.__twin.link.status === "RUNNING", null, { timeout: 10_000 });
   await page.waitForTimeout(9000);
   if (want("runtime-teamcode")) {
@@ -91,7 +91,7 @@ if (!hostUp) { console.log(`gallery: no host on ${hostPort}; skipping runtime, s
     await page.waitForTimeout(800); await shot(page, "runtime-teamcode");
   }
   await page.waitForTimeout(6000);
-  await page.click('#panel button:has-text("STOP")').catch(() => {});
+  await page.click('#panel button.stop').catch(() => {});
   await page.waitForFunction(() => window.__twin.link.status !== "RUNNING", null, { timeout: 10_000 }).catch(() => {});
   await page.waitForTimeout(800);
   if (want("replay-timeline")) {
