@@ -22,7 +22,7 @@ import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
 import { Hud, type HudData } from "./ui/hud";
 import { hydrateState, loadState, saveState, serializeSettings, type AppState } from "./state";
-import { evaluateShot, evaluateVelocity, scanElevations, solveSpeedForElevation, type ShotResult } from "./ballistics/solver";
+import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveSpeedAdaptive } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { computeReachability, type ReachMap } from "./ballistics/reachability";
 import { monteCarlo, perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
@@ -355,9 +355,9 @@ link.onAgent = async (action, params) => {
       const elevRad = (prm.elevationDeg * Math.PI) / 180;
       const rows = ranges.map((rangeIn) => {
         const rangeM = rangeIn * IN;
-        const req = { ball: bp, launchPos: { x: aim.x + nx * rangeM, y: l.exitHeightM, z: aim.z + nz * rangeM }, target: aim, frame, spin: spinRate(l) };
-        const sol = solveSpeedForElevation(req, elevRad, exitSpeed(l, l.maxRpm) * 1.5);
-        const twin = sol && sol.hit ? { exitSpeedMps: +sol.speed.toFixed(2), rpm: Math.round(rpmForExitSpeed(l, sol.speed)), power: +(rpmForExitSpeed(l, sol.speed) / model.freeRpm).toFixed(3), entryAngleDeg: sol.entryAngleRad !== undefined ? +((sol.entryAngleRad * 180) / Math.PI).toFixed(1) : undefined, reachable: rpmForExitSpeed(l, sol.speed) <= l.maxRpm } : { reachable: false };
+        const ad = solveSpeedAdaptive(bp, { x: aim.x + nx * rangeM, y: l.exitHeightM, z: aim.z + nz * rangeM }, frame, elevRad, exitSpeed(l, l.maxRpm) * 1.5, spinRate(l));
+        const sol = ad.result;
+        const twin = sol && sol.hit ? { exitSpeedMps: +sol.speed.toFixed(2), rpm: Math.round(rpmForExitSpeed(l, sol.speed)), power: +(rpmForExitSpeed(l, sol.speed) / model.freeRpm).toFixed(3), entryAngleDeg: sol.entryAngleRad !== undefined ? +((sol.entryAngleRad * 180) / Math.PI).toFixed(1) : undefined, aimInsideIn: +(ad.insideM / IN).toFixed(2), aimHeightIn: +(ad.target.y / IN).toFixed(2), reachable: rpmForExitSpeed(l, sol.speed) <= l.maxRpm } : { reachable: false };
         const v = speedForRange(model, prm, rangeM, targetHeightM);
         const desc = v === undefined ? { reachable: false } : (() => { const rpm = rpmForExitSpeed(l, v); return { reachable: rpm <= l.maxRpm, exitSpeedMps: +v.toFixed(2), rpm: Math.round(rpm), power: +(rpm / model.freeRpm).toFixed(3) }; })();
         return { rangeIn, twinSolver: twin, descendingArc: desc };
@@ -780,18 +780,22 @@ let analysisTick = 0;
 let lastRenderAt = 0;
 let lastSlowNote = 0;
 let lastShotInfo: Record<string, unknown> = {};
+let lastAimInsideM = 0.05;
 let renderCount = 0;
 let renderRequested = false; // the first render compiles every shader (a 0.5-1 s stall under software GL); test harnesses wait for it before INIT
 
 function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } {
   const l = state.robot.launcher;
-  const target = aimPoint(frame, 0.05);
   const key = JSON.stringify([exit.x.toFixed(3), exit.y.toFixed(3), exit.z.toFixed(3), l, state.ballKind, state.drag, state.autoRpm, state.autoHood, state.alliance, state.hive]);
   if (key === shotCache.key) return shotCache;
-  const req = { ball: ballProps(), launchPos: exit, target, frame, spin: spinRate(l) };
-  const scan = scanElevations(req, Math.min(l.elevationMinDeg, l.elevationMaxDeg), Math.max(l.elevationMinDeg, l.elevationMaxDeg), 2.5, exitSpeed(l, l.maxRpm));
+  const scanReq = { ball: ballProps(), launchPos: exit, target: aimPoint(frame, 0.05), frame, spin: spinRate(l) };
+  const scan = scanElevations(scanReq, Math.min(l.elevationMinDeg, l.elevationMaxDeg), Math.max(l.elevationMinDeg, l.elevationMaxDeg), 2.5, exitSpeed(l, l.maxRpm));
   if (state.autoHood && scan.best && !link.running) l.elevationDeg = rad2deg(scan.best.elevationRad);
-  const fixed = solveSpeedForElevation(req, (l.elevationDeg * Math.PI) / 180, exitSpeed(l, l.maxRpm) * 1.5);
+  // aim depth follows the entry angle: steep arcs aim at the opening's centre, flat ones deeper into the cell
+  const adaptive = solveSpeedAdaptive(ballProps(), exit, frame, (l.elevationDeg * Math.PI) / 180, exitSpeed(l, l.maxRpm) * 1.5, spinRate(l));
+  lastAimInsideM = adaptive.insideM;
+  const req = { ball: ballProps(), launchPos: exit, target: adaptive.target, frame, spin: spinRate(l) };
+  const fixed = adaptive.result;
   const required = fixed?.speed;
   if (state.autoRpm && required !== undefined && !link.running) l.rpm = clamp(rpmForExitSpeed(l, required), 0, l.maxRpm);
   const shot = evaluateShot(req, (l.elevationDeg * Math.PI) / 180, exitSpeed(l));
@@ -1097,7 +1101,7 @@ function frame(now: number) {
   lastShotInfo = {
     target: `${state.alliance} hive, ${state.hive[state.alliance]} cell`,
     rangeIn: +mToIn(Math.hypot(target.x - exit.x, target.z - exit.z)).toFixed(1), bearingErrDeg: +rad2deg(bearingErr).toFixed(1), aimed: turretOk,
-    hoodDeg: l.elevationDeg, exitHeightIn: +mToIn(l.exitHeightM).toFixed(1),
+    hoodDeg: l.elevationDeg, exitHeightIn: +mToIn(l.exitHeightM).toFixed(1), aimInsideIn: +mToIn(lastAimInsideM).toFixed(2),
     requiredSpeedMps: required !== undefined ? +required.toFixed(2) : undefined, requiredRpm: required !== undefined ? Math.round(rpmForExitSpeed(l, required)) : undefined,
     requiredPower: required !== undefined ? +(rpmForExitSpeed(l, required) / freeRpm).toFixed(3) : undefined, flywheelFreeRpm: freeRpm,
     currentRpm: Math.round(l.rpm), currentPower: +(l.rpm / freeRpm).toFixed(3), currentSpeedMps: +exitSpeed(l).toFixed(2),

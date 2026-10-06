@@ -217,7 +217,7 @@ Pre-seeded FTC-legal UVC webcams with their published fields of view (Logitech C
 
 ## Launcher model
 
-Exit speed = *efficiency* x flywheel surface speed. Hooded single-wheel shooters measure roughly 0.30-0.45; dual opposing wheels around 0.85-0.9. Flight uses quadratic drag (Cd 0.45) and optional Magnus lift from backspin. Use the calibration wizard below to measure efficiency and hood angle on your robot instead of guessing.
+Exit speed = *efficiency* x flywheel surface speed. Hooded single-wheel shooters measure roughly 0.30-0.45; dual opposing wheels around 0.85-0.9. Flight uses quadratic drag (Cd 0.45) and optional Magnus lift from backspin. Use the calibration wizard below to measure efficiency and hood angle on your robot instead of guessing. The solver aims adaptively: a steep descending arc targets the centre of the opening (aiming deeper would push its crossing toward the far lip), a flat or rising one up to 4 in inside the cell. Steep hoods are also sensitive: at 65 in a 1 % speed error moves the crossing about 0.9 in at a 55° hood but about 3.9 in at 75°, which is why the hit probability drops as you raise the hood.
 
 ### Calibrate the twin against your robot (Launcher ▸ Shooter calibration)
 

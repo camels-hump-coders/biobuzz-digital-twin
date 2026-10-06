@@ -129,3 +129,29 @@ export function vacuumSpeed(range: number, dy: number, elevationRad: number, g =
   if (denom <= 0) return undefined;
   return Math.sqrt((g * range * range) / denom);
 }
+
+/** How far inside the opening to aim, from the entry angle: a steep descending arc must cross the opening plane near
+ * its centre (aiming deeper would push the crossing toward the far lip by inside x tan(entry)); a shallow or rising
+ * arc may aim deeper so it carries into the cell. 2 in at 45 deg, 0.5 in at 75 deg, capped at 4 in for flat entries. */
+export function adaptiveAimInsideM(entryAngleRad: number): number {
+  const t = Math.tan(Math.max(0.05, Math.abs(entryAngleRad)));
+  return Math.max(0, Math.min(0.10, 0.05 / t));
+}
+
+/** Solve the exit speed for a fixed elevation with the aim depth adapted to the resulting entry angle (two passes
+ * converge in practice). Returns the final target used, so callers evaluate against the same point. */
+export function solveSpeedAdaptive(ball: BallProps, launchPos: Vec3, frame: CellFrame, elevationRad: number, maxSpeed: number, spin = 0): { result?: ShotResult; target: Vec3; insideM: number } {
+  let insideM = 0.05;
+  let target = aimPointInside(frame, insideM);
+  let result = solveSpeedForElevation({ ball, launchPos, target, frame, spin }, elevationRad, maxSpeed);
+  for (let pass = 0; pass < 2 && result?.entryAngleRad !== undefined; pass++) {
+    const next = adaptiveAimInsideM(result.entryAngleRad);
+    if (Math.abs(next - insideM) < 0.002) break;
+    insideM = next; target = aimPointInside(frame, insideM);
+    result = solveSpeedForElevation({ ball, launchPos, target, frame, spin }, elevationRad, maxSpeed);
+  }
+  return { result, target, insideM };
+}
+function aimPointInside(frame: CellFrame, insideM: number): Vec3 {
+  return { x: frame.openingCenter.x - frame.normal.x * insideM, y: frame.openingCenter.y - frame.normal.y * insideM, z: frame.openingCenter.z - frame.normal.z * insideM };
+}

@@ -6,7 +6,7 @@
 import { type CellFrame, aimPoint } from "../field/hive";
 import type { BallProps } from "./projectile";
 import { type LauncherConfig, exitSpeed, rpmForExitSpeed, spinRate } from "./launcher";
-import { scanElevations, solveSpeedForElevation } from "./solver";
+import { scanElevations, solveSpeedAdaptive } from "./solver";
 import { type NoiseConfig, monteCarlo } from "./dispersion";
 import { FIELD, HIVE, m } from "../field/fieldSpec";
 
@@ -55,11 +55,13 @@ export class HitMapJob implements HitMap {
       const c = this.cells[this.computed++];
       k++;
       const launchPos = { x: c.x, y: l.exitHeightM, z: c.z };
-      const req = { ball: this.ball, launchPos, target: this.target, frame: this.frame, spin: spinRate(l) };
+      let req = { ball: this.ball, launchPos, target: this.target, frame: this.frame, spin: spinRate(l) };
       let speed: number | undefined, elev: number | undefined;
       if (fixed) {
-        const r = solveSpeedForElevation(req, (l.elevationDeg * Math.PI) / 180, vmax);
-        if (r?.hit) { speed = r.speed; elev = (l.elevationDeg * Math.PI) / 180; }
+        // same adaptive aim depth as the HUD solve, so the map agrees with the predicted shot
+        const ad = solveSpeedAdaptive(this.ball, launchPos, this.frame, (l.elevationDeg * Math.PI) / 180, vmax, spinRate(l));
+        req = { ...req, target: ad.target };
+        if (ad.result?.hit) { speed = ad.result.speed; elev = (l.elevationDeg * Math.PI) / 180; }
       } else {
         const s = scanElevations(req, l.elevationMinDeg, l.elevationMaxDeg, 5, vmax);
         if (s.best) { speed = s.best.speed; elev = s.best.elevationRad; }

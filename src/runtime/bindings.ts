@@ -16,7 +16,7 @@ import type { AppState } from "../state";
 import { intrinsicsFor } from "../robot/robot";
 import { startPose } from "../sim/starts";
 import { aimPoint, upCellFrame } from "../field/hive";
-import { solveSpeedForElevation } from "../ballistics/solver";
+import { solveSpeedAdaptive } from "../ballistics/solver";
 import { rpmForExitSpeed, spinRate } from "../ballistics/launcher";
 import { BALL, m as inchesToM } from "../field/fieldSpec";
 
@@ -26,7 +26,7 @@ const IN = 0.0254;
  * target cell: the reference range (72 in when the shot is legal there, otherwise the nearest legal range) and the
  * flywheel power (required RPM / the flywheel motor's free RPM) that scores there. Bound into TeamCode's
  * shotRangeIn/shotPower, a hood sweep in the twin re-anchors the team's arc model automatically. */
-export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; minRangeIn?: number; powerTable?: { rangeIn: number; power: number }[] }
+export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; aimInsideIn: number; aimHeightIn: number; minRangeIn?: number; powerTable?: { rangeIn: number; power: number }[] }
 let calCache: { key: string; value: SolverCalibration | undefined } | undefined;
 export function solverCalibration(state: AppState): SolverCalibration | undefined {
   const l = state.robot.launcher;
@@ -48,11 +48,11 @@ function solverCalibrationUncached(state: AppState): SolverCalibration | undefin
   const freeRpm = fly?.freeRpm ?? l.maxRpm;
   const maxSpeed = (Math.PI * l.wheelDiameterM * l.maxRpm) / 60 * l.efficiency;
   const tryRange = (rangeIn: number) => {
-    const req = { ball, launchPos: { x: aim.x + nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + nz * rangeIn * IN }, target: aim, frame, spin: spinRate(l) };
-    const sol = solveSpeedForElevation(req, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2);
+    const ad = solveSpeedAdaptive(ball, { x: aim.x + nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + nz * rangeIn * IN }, frame, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2, spinRate(l));
+    const sol = ad.result;
     if (!sol || !sol.hit) return undefined;
     const rpm = rpmForExitSpeed(l, sol.speed);
-    return { rangeIn, power: Math.round((rpm / freeRpm) * 1000) / 1000, rpm: Math.round(rpm), speedMps: Math.round(sol.speed * 100) / 100, entryAngleDeg: Math.round(((sol.entryAngleRad ?? 0) * 180) / Math.PI), legal: rpm <= l.maxRpm };
+    return { rangeIn, power: Math.round((rpm / freeRpm) * 1000) / 1000, rpm: Math.round(rpm), speedMps: Math.round(sol.speed * 100) / 100, entryAngleDeg: Math.round(((sol.entryAngleRad ?? 0) * 180) / Math.PI), legal: rpm <= l.maxRpm, aimInsideIn: Math.round((ad.insideM / IN) * 100) / 100, aimHeightIn: Math.round((ad.target.y / IN) * 100) / 100 };
   };
   const legalAt = (r: number) => { const s = tryRange(r); return s && s.legal ? s : undefined; };
   // smallest legal range: coarse 6 in scan from 24 in, then walk down in 2 in steps while shots stay legal (floor 6 in)
@@ -108,7 +108,12 @@ export function twinKnobs(state: AppState): Knobs {
     const cal = solverCalibration(state);
     if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; if (cal.minRangeIn !== undefined) k["launcher.calibration.minRangeIn"] = cal.minRangeIn; if (cal.powerTable?.length) k["launcher.calibration.powerTable"] = cal.powerTable; }
   } catch { /* geometry not available (tests with partial state) */ }
-  k["hive.aimHeightIn"] = Math.round((aimPoint(upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] })).y / IN) * 100) / 100;
+  // aim height: the opening centre pushed inside by a depth that follows the entry angle at the reference range (steep
+  // arcs aim at the centre, flat ones deeper); hive.openingCenterHeightIn is the fixed geometry
+  const cal2 = (() => { try { return solverCalibration(state); } catch { return undefined; } })();
+  k["hive.openingCenterHeightIn"] = Math.round((upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] }).openingCenter.y / IN) * 100) / 100;
+  k["hive.aimHeightIn"] = cal2 ? cal2.aimHeightIn : Math.round((aimPoint(upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] })).y / IN) * 100) / 100;
+  k["hive.aimInsideIn"] = cal2 ? cal2.aimInsideIn : 2;
   k["noise.speedPct"] = state.noise.speedFrac * 100; k["noise.elevationDeg"] = state.noise.elevationDeg; k["noise.yawDeg"] = state.noise.yawDeg;
   k["field.tipMassG"] = state.tipMassG; k["match.capacity"] = state.capacity;
   const cam = (prefix: string, c: typeof r.cameras[number]) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { simulate, velocityFrom } from "../src/ballistics/projectile";
-import { scanElevations, solveSpeedForElevation, vacuumSpeed } from "../src/ballistics/solver";
+import { adaptiveAimInsideM, scanElevations, solveSpeedAdaptive, solveSpeedForElevation, vacuumSpeed } from "../src/ballistics/solver";
 import { LAUNCHER_PRESETS, exitSpeed, rpmForExitSpeed } from "../src/ballistics/launcher";
 import { aimPoint, upCellFrame } from "../src/field/hive";
 import { BALL, m } from "../src/field/fieldSpec";
@@ -57,5 +57,27 @@ describe("launcher", () => {
     expect(rpmForExitSpeed(cfg, v)).toBeCloseTo(4000, 6);
     // 96 mm wheel at 4000 rpm: surface 20.1 m/s, x0.45 = 9.05 m/s
     expect(v).toBeCloseTo(9.05, 1);
+  });
+});
+
+describe("adaptive aim depth", () => {
+  it("aims at the opening centre for steep entries and deeper for flat ones", () => {
+    expect(adaptiveAimInsideM((75 * Math.PI) / 180)).toBeLessThan(0.02);
+    expect(adaptiveAimInsideM((45 * Math.PI) / 180)).toBeCloseTo(0.05, 3);
+    expect(adaptiveAimInsideM((20 * Math.PI) / 180)).toBe(0.10);
+  });
+  it("a 75 deg lob still crosses inside the opening with the adapted aim", () => {
+    const frame = upCellFrame({ alliance: "red", upCell: "audience" });
+    const target = aimPoint(frame);
+    const launchPos = { x: target.x, y: 0.31, z: target.z + 1.65 }; // 65 in back
+    const drag = { massKg: BALL.pollen.massKg, diameterM: m(BALL.pollen.diaIn), cd: 0.45, cl: 0.2 };
+    const ad = solveSpeedAdaptive(drag, launchPos, frame, (75 * Math.PI) / 180, 20, 157);
+    expect(ad.result?.hit).toBe(true);
+    // the opening plane is tilted 30 deg, so a 75 deg launch meets it at roughly 45-50 deg: the aim moves toward the centre
+    expect(ad.insideM).toBeLessThan(0.05);
+    expect(ad.result!.entryAngleRad!).toBeGreaterThan((40 * Math.PI) / 180);
+    const centre = frame.openingCenter;
+    const dist = (p: { x: number; y: number; z: number }) => Math.hypot(p.x - centre.x, p.y - centre.y, p.z - centre.z);
+    expect(dist(ad.target)).toBeLessThan(dist(target)); // nearer the opening centre than the old fixed 2 in aim
   });
 });

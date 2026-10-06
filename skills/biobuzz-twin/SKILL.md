@@ -209,6 +209,16 @@ connect or with `{"load": true}`. Commit that file with the code when the robot'
 $A/api/settings` tells whether the browser differs from the file. Do not hand-edit numbers that have a bound asset
 key instead (see 4): bindings derive those from the twin, so change them in the twin and save.
 
+## 4d. Steep hoods are sensitive; the aim follows the entry angle
+
+The height a ball crosses the opening at changes by about 2(R tan θ − Δh) per unit of fractional speed error:
+at 65 in that is ~0.9 in per 1 % of speed at a 55° hood but ~3.9 in per 1 % at 75°, so the twin's default 3 % speed
+noise alone scatters a 75° lob by ~12 in against a 14 in opening. The HUD's hit probability and the hit-probability map
+already include this; a low number at a steep hood is physics, not a power bug. The twin also aims adaptively: the
+solver targets the opening centre for steep descending entries and up to 4 in inside the cell for flat or rising ones
+(`hive.aimInsideIn`, `hive.aimHeightIn` are the values used at the calibration reference range, `/api/shot` reports
+`aimInsideIn` per range), so bound targetHeightIn and powerTable carry that geometry.
+
 ## 4a. Every JSON asset gets a schema sidecar; you create and maintain it
 
 Each JSON asset the OpModes read (`TeamCode/src/main/assets/**/*.json`) must have a JSON Schema sidecar next to it,
