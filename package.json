@@ -2,6 +2,7 @@
   "name": "biobuzz",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "sim": "node scripts/sim.mjs",
     "twin-test": "node scripts/twin-test.mjs",
-    "skill:install": "node scripts/install-skill.mjs"
+    "skill:install": "node scripts/install-skill.mjs",
+    "gallery": "node scripts/gallery.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",

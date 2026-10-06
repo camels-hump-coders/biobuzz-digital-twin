@@ -1,12 +1,19 @@
 # BIOBUZZ Digital Twin
 
-A browser-based 3D digital twin of the FIRST Tech Challenge 2026-27 **BIOBUZZ** field and of our robot.
-Use it to:
+A browser-based 3D digital twin of the FIRST Tech Challenge 2026-27 **BIOBUZZ** field and of our robot, plus a virtual runtime that runs the team's unmodified Java TeamCode against it. MIT licensed.
 
-- see exactly what the robot's cameras see from any spot on the mat (field of view footprint, frustum, which AprilTags are in frame, which are occluded by the hive or other robots);
-- read off the hood angle, exit speed, flywheel RPM and arc needed to launch POLLEN or NECTAR into the upward-facing CELL from wherever the robot is standing;
-- drive around (mecanum or tank, keyboard or gamepad) with simulated partner and opponent robots moving as obstacles;
-- load the goBILDA StarterBot CAD (6WD or Strafer mecanum) as the chassis and tune the launcher.
+**Standalone, in any browser (no install):**
+
+- see exactly what the robot's cameras see from any spot on the mat: field-of-view footprint, frustum, which AprilTags are in frame and which the hive or other robots occlude;
+- read off the hood angle, exit speed, flywheel RPM and arc needed to launch POLLEN or NECTAR into the upward-facing CELL from wherever the robot stands, with a Monte-Carlo hit probability and field-wide reachability and hit-probability maps;
+- drive (mecanum or tank, keyboard or gamepad) in a scored match against scripted partner and opponent robots: hives tip, balls fly, bounce and settle, pins are called, LEAVE / PARK / tip points tally per Table 10-2;
+- load the goBILDA StarterBot CAD (6WD or Strafer mecanum), place cameras and the launcher by dragging, and replay any moment of a run with the timeline slider.
+
+**With the local host (`pnpm sim`, server mode):**
+
+- run your Android Studio TeamCode unchanged: INIT / START / STOP from the browser, encoders, IMU, AprilTag detections and gamepads from the sim, the real FTC Panels dashboard fed by your code;
+- edit the OpModes' JSON settings in a schema-aware editor (help text, dropdowns, sliders, validation), bind robot measurements to the twin, calibrate the launcher against real shots, and save settings back into the repo;
+- let coding agents test scenarios headlessly (`pnpm twin-test`), inspect and steer the live session through a local HTTP API, and keep the twin's settings in a versioned file next to your code.
 
 Field geometry comes from the Competition Manual (TU02, Section 9) and the Event Field Setup Guide v1.0.
 See `docs/superpowers/specs/2026-10-04-biobuzz-digital-twin-design.md` for the numbers used and the design.
@@ -36,20 +43,24 @@ pnpm test         # unit tests for geometry, ballistics, kinematics, camera math
 pnpm build        # static site in dist/ (also deployed to GitHub Pages, see Hosting)
 ```
 
-The side panel on the right holds the settings. It opens in **Essential** mode, showing the everyday controls (preset, drivetrain, intake side, launcher RPM and hood, alliance and target, other robots, main view and mat maps); each section has a *Show N more settings* button for the rest, and **All settings** at the top shows everything. The HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; export them from the **Session** section to share.
+The side panel on the right holds the settings. It opens in **Essential** mode, showing the everyday controls (preset, drivetrain, intake side, launcher RPM and hood, alliance and target, other robots, main view and mat maps); each section has a *Show N more settings* button for the rest, and **All settings** at the top shows everything. The HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; in server mode they also live in a versioned file (see *Saving, sharing and resetting*).
 
 ## Gallery
+
+Regenerate with `pnpm gallery` (see `.claude/skills/readme-upkeep`).
 
 | | |
 |---|---|
 | ![Overview: predicted arc, dispersion cloud and hit probability for the raised cell](docs/screenshots/overview.png) | ![What the robot's webcam sees: AprilTags under the raised cell](docs/screenshots/camera-view.png) |
 | **Shot analysis.** Hood angle, exit speed and flywheel RPM to reach the raised CELL from where the robot stands, the Monte-Carlo dispersion cloud and the hit probability; partner and opponents on the field. | **Robot camera.** Press 4 to see exactly what the configured webcam sees (preset lens, mount position, pitch); the HUD lists which AprilTags are in frame and which are occluded. |
 | ![Top view with camera footprints and the planned trajectory](docs/screenshots/top-view.png) | ![Red hive mid-tip after eight POLLEN, balls rolling out](docs/screenshots/hive-tipping.png) |
-| **Top view.** Camera ground footprint, FOV frustum, the launch line and the start/loading zones; shift-click anywhere to teleport and auto-aim. | **Hive physics.** Balls fly, bounce and settle in the cell; the hive tips at the calibrated load and pours the pieces out as it swings. |
-| ![Hit-probability map: where on the field an aimed shot lands in the raised cell](docs/screenshots/hit-probability-map.png) | ![Browser editor for the TeamCode JSON assets](docs/screenshots/teamcode-settings.png) |
-| **Hit-probability map.** From every 6 in square, aim and fire 40 simulated shots with your shot variability: green always scores, red never; dimmed where the selected camera cannot see the target cell's AprilTags. Watch it change as you tweak hood angle, RPM limits, variability or camera mounts. | **TeamCode settings.** The OpModes' JSON assets as a searchable form; edits are simulator-only overrides merged at INIT, the repo files stay untouched. |
-| ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and telemetry](docs/screenshots/runtime-teamcode.png) | ![Shooter calibration wizard: measured impacts, fitted arcs and the launcher fit](docs/screenshots/shooter-calibration.png) |
-| **Virtual runtime.** The team's unmodified Java OpMode (here: tag-based auto aim) running on a desktop JVM, driving the simulated robot from the browser with INIT / START / STOP and live telemetry. | |
+| **Top view.** Camera ground footprint, FOV frustum, the launch line and the loading zones; shift-click anywhere to teleport and auto-aim. | **Hive physics.** Balls fly, bounce and settle in the cell; the hive tips at the calibrated load and pours the pieces out as it swings. |
+| ![Hit-probability map: where on the field an aimed shot lands in the raised cell](docs/screenshots/hit-probability-map.png) | ![Team's TeamCode OpMode running against the twin with Driver-Station style controls and colour-coded telemetry](docs/screenshots/runtime-teamcode.png) |
+| **Hit-probability map.** From every 6 in square, aim and fire 40 simulated shots with your shot variability: green always scores, red never; dimmed where the selected camera cannot see the target cell's AprilTags. | **Virtual runtime.** The team's unmodified Java OpMode running on a desktop JVM, driving the simulated robot with INIT / START / STOP; telemetry lines are colour-coded so errors and warnings stand out. |
+| ![Settings editor: the OpModes' JSON assets with schema help, dropdowns and sliders](docs/screenshots/settings-editor.png) | ![Timeline replay: the field rewound to a moment of the last run](docs/screenshots/replay-timeline.png) |
+| **Settings editor.** The OpModes' JSON assets as a searchable form; a schema sidecar supplies help text, enum dropdowns, ranged sliders and validation; Save writes the merged file back into the repo. | **Replay.** Drag or step through the latest INIT→STOP run: robots, balls, hive tilts and the telemetry of that moment come back; the live sim pauses until *Go live*. |
+| ![Shooter calibration wizard: measured impacts, fitted arcs and the launcher fit](docs/screenshots/shooter-calibration.png) | |
+| **Shooter calibration.** Fire the real robot at a wall, enter where each ball hit, and the fitter tunes efficiency and hood angle until the twin's flight model reproduces every impact. | |
 
 ## Run your TeamCode against the twin (virtual runtime)
 
@@ -116,7 +127,7 @@ Settings an agent applies show up in the panel immediately (and in the timeline 
 
 ## Timeline & logs: go back in time, hand a moment to an agent
 
-Telemetry changes faster than anyone can read, so the twin records the last ~10 minutes at 10 Hz: telemetry, runtime status, pose, match state, held gamepad buttons and sticks, shots, score, the other robots, every ball and the hive tilts, plus events (status changes, Home/button presses, shots, host console lines from your OpMode and `RobotLog`, exceptions with their stack traces, fouls). The **Timeline & logs** section has a slider that **replays the run on the field**: drag it back and the robots, balls and hives move to that moment, the telemetry box shows what the OpMode printed then (marked ⏪) and the HUD's Match row says REPLAY; the live simulation pauses while you look and resumes when you press *Live*. Step buttons move 0.1 s or 1 s at a time, *Play* replays at real speed, *Run start* jumps to the latest INIT, and the slider covers the latest INIT→STOP run by default (*Everything* widens it to the whole recording). Click an event to jump to it. This works standalone (no host needed); in server mode every finished run is also saved under `runtime/runs/` and agents can scrub your view or fetch any moment through the agent API (`/api/run`, `/api/replay`, `/api/runs`). **Copy last 30 s / 2 min** puts a Markdown snapshot on the clipboard: context (OpMode, presets, hardware map, asset overrides and bound values, camera mounts, start positions), the event list, and the telemetry at every change in the window. Paste it to a teammate or an agent. *Download full log* saves everything as JSON.
+Telemetry changes faster than anyone can read, so the twin records the last ~10 minutes at 10 Hz: telemetry, runtime status, pose, match state, held gamepad buttons and sticks, shots, score, the other robots, every ball and the hive tilts, plus events (status changes, Home/button presses, shots, host console lines from your OpMode and `RobotLog`, exceptions with their stack traces, fouls). The **Timeline & logs** section has a slider that **replays the run on the field**: drag it back and the robots, balls and hives move to that moment, the telemetry box shows what the OpMode printed then (marked ⏪; telemetry lines are colour-coded by well-known words, so errors are red, warnings amber and good states green) and the HUD's Match row says REPLAY; the live simulation pauses while you look and resumes when you press *Live*. Step buttons move 0.1 s or 1 s at a time, *Play* replays at real speed, *Run start* jumps to the latest INIT, and the slider covers the latest INIT→STOP run by default (*Everything* widens it to the whole recording). Click an event to jump to it. This works standalone (no host needed); in server mode every finished run is also saved under `runtime/runs/` and agents can scrub your view or fetch any moment through the agent API (`/api/run`, `/api/replay`, `/api/runs`). **Copy last 30 s / 2 min** puts a Markdown snapshot on the clipboard: context (OpMode, presets, hardware map, asset overrides and bound values, camera mounts, start positions), the event list, and the telemetry at every change in the window. Paste it to a teammate or an agent. *Download full log* saves everything as JSON.
 
 ## TeamCode settings with help, dropdowns, sliders and validation
 
@@ -146,11 +157,11 @@ The field loads in **setup**: every robot parked on its starting mark (Field & t
 **Server mode keeps the settings in a file.** With `pnpm sim --team …` running, the **Settings & session** section (bottom of the panel) shows the twin's settings file, `TeamCode/twin-settings.json` next to `twin-bindings.json` (under `runtime/` without a team). A status badge says whether this browser is in sync with the file, has unsaved changes, or is behind a file that changed elsewhere, and only the button that makes sense is enabled: *Save to repo file* writes every setting in the panel there in a stable, sorted JSON so it diffs cleanly and can be committed and shared; *Load from repo file* applies it. By default the file is applied when the host connects unless the browser holds unsaved changes. Saves and loads confirm with a toast. The browser's storage still works on its own for the standalone (no server) twin. Agents use `GET/POST /api/settings`.
 
 
-Everything in the side panel is kept in the browser's localStorage. The **Session** section at the top of the panel has:
+Everything in the side panel is also kept in the browser's localStorage, which is all the standalone twin uses. The **Settings & session** section at the bottom of the panel has:
 
 - *Export robot config* / *Import robot config*: a JSON file with the robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings. Share it across browsers or commit it next to your TeamCode.
 - *Export whole session* / *Import whole session*: everything, including pose, view and overlay toggles.
-- *Reset session to defaults*: clears the saved state and reloads, keeping your TeamCode asset overrides unless you tick the box beneath it. *Reset robot to preset* only puts the robot back to its preset.
+- *Reset session to defaults* (behind *more*): clears the saved state and reloads, keeping your TeamCode asset overrides unless you tick the box beneath it. *Reset robot to preset* only puts the robot back to its preset.
 
 ## Controls
 
@@ -253,6 +264,14 @@ What works on the hosted page: everything except running Java TeamCode. The virt
 - Driving: the two triangular frame legs and the four FLOWER cages block the robot; the space under the cells between the legs is open, as on the real field.
 - Robot-vs-robot contact is a traction contest (0.8 x weight; set *Mass* in the Robot panel). A robot driving against a push resists with all its traction, an idle tank robot skids sideways but can be rolled lengthwise at about half, mecanum rollers give a little in every direction, and the perimeter always holds. Holding an opponent (directly or against the wall) counts a G421 PIN in the HUD: 3 s is a MAJOR FOUL and another every 3 s; scripted robots back off before the count runs out.
 - Camera images are ideal pinhole renders: no lens distortion, exposure or motion blur.
+
+## Repository upkeep
+
+`.claude/skills/readme-upkeep/SKILL.md` is a repo-local skill (not installed into team repos) that tells an agent working here to update this README and the team-facing skill with every user-visible change, and to regenerate the gallery with `pnpm gallery` only after major visual changes.
+
+## License
+
+MIT, see `LICENSE`. Third-party material: AprilTag 36h11 codes from AprilRobotics (BSD-2) in `src/field/tag36h11.ts`; goBILDA StarterBot CAD converted from goBILDA's published STEP files (`public/models/`); the FTC Panels dashboard (com.bylazar) is downloaded as AARs at build time and runs unmodified in the host.
 
 ## Coordinate system
 

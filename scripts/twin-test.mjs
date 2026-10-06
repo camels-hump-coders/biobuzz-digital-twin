@@ -129,6 +129,7 @@ async function runScenario(scenario, scenarioPath, out) {
     overlays: { fan: false, dispersion: false, hitmap: false, reach: false },
     showPerf: false,
     pip: false, // camera insets are extra renders; AprilTag detections do not need them
+    settingsAutoLoad: false, // the scenario is the source of truth: never let the repo's twin-settings.json replace it
   };
   if (scenario.starts) seed.starts = scenario.starts;
   await page.addInitScript((s) => { localStorage.setItem("biobuzz-twin", JSON.stringify(s)); }, seed);

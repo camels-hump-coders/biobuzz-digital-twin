@@ -32,6 +32,11 @@ public class HardwareMap implements Iterable<HardwareDevice> {
     /** Android Context on the robot; a desktop stand-in here (assets from TeamCode/src/main/assets, file-backed SharedPreferences). */
     public final android.content.Context appContext = new android.content.Context();
 
+    /** Remove a device by name from every mapping (the browser dropped it from its hardware map). */
+    public void unregister(String name) {
+        allDevices.remove(name);
+        for (DeviceMapping<?> m : new DeviceMapping<?>[] { dcMotor, servo, crservo, voltageSensor, touchSensor }) m.map.remove(name);
+    }
     public void register(String name, HardwareDevice device) {
         allDevices.put(name, device);
         if (device instanceof DcMotor) dcMotor.put(name, (DcMotor) device);
@@ -66,6 +71,8 @@ public class HardwareMap implements Iterable<HardwareDevice> {
         for (HardwareDevice d : allDevices.values()) if (classOrInterface.isInstance(d)) out.add(classOrInterface.cast(d));
         return out;
     }
+    /** Every registered device name (a copy). */
+    public Set<String> names() { return new java.util.HashSet<>(allDevices.keySet()); }
     public Set<String> getNamesOf(HardwareDevice device) {
         Set<String> s = new HashSet<>();
         for (Map.Entry<String, HardwareDevice> e : allDevices.entrySet()) if (e.getValue() == device) s.add(e.getKey());

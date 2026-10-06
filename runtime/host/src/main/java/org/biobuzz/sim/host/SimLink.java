@@ -60,9 +60,14 @@ public class SimLink extends WebSocketServer {
     @Override public void onOpen(WebSocket conn, ClientHandshake hs) {
         clients.add(conn);
         send(conn, opModesMessage()); send(conn, statusMessage()); send(conn, telemetryMessage(lastTelemetry)); send(conn, assetsMessage()); send(conn, settingsMessage());
-        System.out.println("browser connected from " + conn.getRemoteSocketAddress());
+        System.out.println("browser connected from " + conn.getRemoteSocketAddress() + " (" + clients.size() + " connected)");
     }
-    @Override public void onClose(WebSocket conn, int code, String reason, boolean remote) { clients.remove(conn); if (clients.isEmpty()) runner.stop(); }
+    @Override public void onClose(WebSocket conn, int code, String reason, boolean remote) {
+        clients.remove(conn);
+        if (driver == conn) driver = null;
+        System.out.println("browser disconnected (" + clients.size() + " left)");
+        if (clients.isEmpty()) runner.stop();
+    }
     @Override public void onError(WebSocket conn, Exception ex) { System.err.println("link error: " + ex); }
     /** set once the socket is bound and accepting (Main's startup watchdog reads it) */
     public volatile boolean started = false;
@@ -74,6 +79,11 @@ public class SimLink extends WebSocketServer {
         String type = msg.has("type") ? msg.get("type").getAsString() : "";
         switch (type) {
             case "sensors":
+                // only one browser drives the simulated robot: the first to connect, or the one that last pressed INIT.
+                // A second viewer (a human watching an agent's run, a stale tab) must not interleave its own encoder
+                // ticks and gamepad with the driver's; its packets are counted and dropped
+                if (driver != null && driver != conn && driver.isOpen()) { ignoredSensorPackets++; break; }
+                driver = conn;
                 synchronized (sensorLock) { noteSensorPacket(); lastSensorsMsg = msg; state.ingest(msg); }
                 runner.updateGamepads(msg.getAsJsonObject("gamepad1"), msg.getAsJsonObject("gamepad2"));
                 break;
@@ -82,13 +92,23 @@ public class SimLink extends WebSocketServer {
                 String j = gson.toJson(msg.getAsJsonArray("devices"));
                 if (!j.equals(hardwareJson)) {
                     hardwareJson = j;
+                    // Always update the ONE hardware map in place. Swapping in a new map (the old behaviour when no
+                    // OpMode was live) raced with an OpMode that was just starting: part of its init() got device objects
+                    // from the old map and part from the new one, so e.g. two "Left Drive" motors existed, only one of
+                    // which had its encoder reset, and readings alternated between two series.
+                    JsonArray devs = msg.getAsJsonArray("devices");
+                    updateHardwareMap(devs);
                     boolean live = runner.status() == OpModeRunner.Status.RUNNING || runner.status() == OpModeRunner.Status.INIT;
-                    if (live) updateHardwareMap(msg.getAsJsonArray("devices")); // keep the OpMode's device objects, refresh ports/ticks, add new
-                    else hardwareMap = buildHardwareMap(msg.getAsJsonArray("devices"));
+                    if (!live && devs != null) { // drop devices the browser no longer lists (never under a running OpMode)
+                        java.util.Set<String> keep = new java.util.HashSet<>();
+                        for (JsonElement el : devs) keep.add(el.getAsJsonObject().get("name").getAsString());
+                        for (String n : hardwareMap.names()) if (!keep.contains(n)) { hardwareMap.unregister(n); state.actuators.remove(n); }
+                    }
                 }
                 break;
             }
             case "init": {
+                driver = conn; // whoever INITs is the driver from now on
                 String name = msg.get("opMode").getAsString();
                 opModes.stream().filter(e -> e.name.equals(name)).findFirst().ifPresent(e -> runner.init(e, hardwareMap));
                 break;
@@ -247,6 +267,8 @@ public class SimLink extends WebSocketServer {
      * simulated world does not advance during a stall, so the sensors are still true; re-stamping the last packet is
      * what a real camera does when it keeps seeing an unchanged scene. Held only for short stalls. */
     private final Object sensorLock = new Object();
+    private volatile WebSocket driver; // the browser whose sensors and gamepads the OpMode sees
+    private int ignoredSensorPackets = 0;
     private void holdSensorsIfStalled() {
         // under the same lock as the ws thread's ingest, so a held (older) packet can never land after a newer one
         synchronized (sensorLock) {
@@ -294,6 +316,8 @@ public class SimLink extends WebSocketServer {
     public JsonObject agentStatus() {
         JsonObject m = statusMessage(); m.remove("type");
         m.addProperty("browserConnected", hasBrowser());
+        m.addProperty("browserClients", clients.size());
+        m.addProperty("ignoredSensorPacketsFromOtherClients", ignoredSensorPackets);
         JsonObject ss = sensorStats.deepCopy(); if (lastSensorNanos != 0) ss.addProperty("sinceLastPacketMs", Math.round((System.nanoTime() - lastSensorNanos) / 1e6)); m.add("sensors", ss);
         m.add("opModes", opModesMessage().get("opModes"));
         if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);

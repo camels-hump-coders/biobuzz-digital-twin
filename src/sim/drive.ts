@@ -128,12 +128,24 @@ export function hiveFrameObstacle(): Obstacle {
 }
 
 /** Integrate one step and keep the robot inside the field and out of obstacles. */
-export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obstacles: Obstacle[] = hiveFrameObstacles()): Pose {
+/** Coulomb friction against the perimeter: a robot pressing into the wall at an angle does not glide along it. The
+ * tangential speed is reduced by mu x the speed it is pushing into the wall with; below that it scrubs in place. Tank
+ * wheels cannot roll sideways so they bind hard; mecanum rollers let the chassis crab along the wall more easily. */
+export const WALL_MU: Record<Drivetrain, number> = { tank: 1.0, mecanum: 0.45 };
+export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obstacles: Obstacle[] = hiveFrameObstacles(), wallMu = 0): Pose {
   const heading = wrapAngle(pose.heading + v.yawRate * dt);
-  let x = pose.x + v.vx * dt;
-  let z = pose.z + v.vz * dt;
   const half = m(FIELD.sizeIn) / 2;
   const { hx, hz } = worldHalfExtents(fp, heading);
+  let vx = v.vx, vz = v.vz;
+  if (wallMu > 0) {
+    // already touching a wall and still pushing into it: friction eats the sliding component
+    const atXWall = (pose.x >= half - hx - 0.002 && vx > 0) || (pose.x <= -half + hx + 0.002 && vx < 0);
+    const atZWall = (pose.z >= half - hz - 0.002 && vz > 0) || (pose.z <= -half + hz + 0.002 && vz < 0);
+    if (atXWall) { const slide = Math.max(0, Math.abs(vz) - wallMu * Math.abs(vx)); vz = Math.sign(vz) * slide; }
+    if (atZWall) { const slide = Math.max(0, Math.abs(vx) - wallMu * Math.abs(vz)); vx = Math.sign(vx) * slide; }
+  }
+  let x = pose.x + vx * dt;
+  let z = pose.z + vz * dt;
   x = clamp(x, -half + hx, half - hx);
   z = clamp(z, -half + hz, half - hz);
   // two passes: a push-out can land in another obstacle; the wall always wins (a robot can be pushed against the
