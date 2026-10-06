@@ -53,7 +53,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 // simulation loop; render the view only every few ticks at low resolution and drive the loop with a timer so the
 // physics, sensors and the OpMode see the same cadence as on a real display.
 const ciMode = new URLSearchParams(location.search).get("ci") === "1";
-renderer.setPixelRatio(ciMode ? 0.5 : Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(ciMode ? 0.35 : Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -691,6 +691,7 @@ function snapshotContext() {
 setupUpdates();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
 let analysisTick = 0;
+let lastRenderAt = 0;
 
 function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } {
   const l = state.robot.launcher;
@@ -798,7 +799,8 @@ function frame(now: number) {
   // simulation therefore runs slower than real time; the HUD says so.
   // scrubbing the timeline freezes the live simulation (dt 0) and draws the recorded moment instead
   let replaying = recorder.cursor !== undefined;
-  const dt = replaying ? 0 : Math.min(0.1, real);
+  // headless: a software-GL render tick can exceed 100 ms; letting one step cover it keeps the sim at real time
+  const dt = replaying ? 0 : Math.min(ciMode ? 0.25 : 0.1, real);
   const fps = 1 / Math.max(frameInterval, 1e-3);
   const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
 
@@ -1066,7 +1068,8 @@ function frame(now: number) {
   robot.cameraGizmos.visible = showGizmos;
   robot.launcherMarker.visible = showGizmos;
   for (const a of allAgents) a.carryGroup.visible = showGizmos;
-  const renderThisFrame = !ciMode || analysisTick % 6 === 0;
+  const renderThisFrame = !ciMode || now - lastRenderAt >= 250; // headless: a few frames per second is plenty for screenshots
+  if (renderThisFrame) lastRenderAt = now;
   if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
 

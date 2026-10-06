@@ -1,35 +1,38 @@
 #!/usr/bin/env node
 /**
- * Headless test bed: run one of the team's OpModes against the digital twin from a scenario file and report what happened.
+ * Headless test bed: run one or more OpModes against the twin from scenario files and write JSON reports.
  *
- *   pnpm twin-test --team <TeamCode project> --scenario scenarios/example-teleop.json [--out report.json] [--headed]
- *   pnpm twin-test --team <path> --opmode "My TeleOp" --duration 10          # minimal, no scenario file
+ *   pnpm twin-test --scenario scenarios/example-teleop.json [--scenario more.json ...] [--team <path>] [--out report.json | --out-dir dir]
+ *   pnpm twin-test --opmode "Sim: StarterBot TeleOp" --duration 20
  *
- * Starts the host + twin (ports 5190/8790 by default so a human's `pnpm sim` is untouched), drives the browser with
- * Playwright, injects gamepad inputs at simulated times, samples telemetry, checks the scenario's `expect` block and
- * writes a JSON report. Exit code 0 = all expectations met. See scenarios/scenario.schema.json for the format.
+ * One host and one Vite server serve every scenario in the list (each scenario gets a fresh browser page); starting the
+ * host (Gradle + JVM) is the slow part, so batch scenarios instead of calling this once per file. Exit code 0 only
+ * when every scenario passes. Other flags: --port 5190 --host-port 8790 --headed --screenshot shot.png --host-timeout 600.
  */
 import { spawn, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
-const flag = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
+const flag = (name, def) => { const i = args.indexOf(name); return i >= 0 && i + 1 < args.length ? args[i + 1] : def; };
+const flags = (name) => args.map((a, i) => (a === name && i + 1 < args.length ? args[i + 1] : undefined)).filter(Boolean);
 const has = (name) => args.includes(name);
 
-const scenarioPath = flag("--scenario");
-const scenario = scenarioPath ? JSON.parse(readFileSync(resolve(scenarioPath), "utf8")) : {};
-if (flag("--opmode")) scenario.opMode = flag("--opmode");
-if (flag("--duration")) scenario.durationS = parseFloat(flag("--duration"));
-if (!scenario.opMode) { console.error("twin-test: give --scenario <file> (with opMode) or --opmode <name>"); process.exit(2); }
+// ---- scenarios: every --scenario value, plus bare *.json arguments, or a single --opmode
+const scenarioPaths = [...flags("--scenario"), ...args.filter((a, i) => a.endsWith(".json") && args[i - 1] !== "--scenario" && !args[i - 1]?.startsWith("--out") && args[i - 1] !== "--screenshot")];
+const scenarios = scenarioPaths.map((p) => ({ path: p, scenario: JSON.parse(readFileSync(resolve(p), "utf8")) }));
+if (flag("--opmode")) scenarios.push({ path: undefined, scenario: { opMode: flag("--opmode") } });
+if (flag("--duration")) for (const s of scenarios) s.scenario.durationS = parseFloat(flag("--duration"));
+for (const s of scenarios) if (!s.scenario.opMode) { console.error(`twin-test: ${s.path ?? "scenario"} has no opMode`); process.exit(2); }
+if (!scenarios.length) { console.error("twin-test: give --scenario <file> (with opMode), scenario files, or --opmode <name>"); process.exit(2); }
 const team = flag("--team");
 const port = flag("--port", "5190"), hostPort = flag("--host-port", "8790");
-const out = resolve(flag("--out", "twin-report.json"));
+const outDir = flag("--out-dir") ? resolve(flag("--out-dir")) : undefined;
+const outSingle = resolve(flag("--out", "twin-report.json"));
 const headed = has("--headed");
-const duration = scenario.durationS ?? 20;
-const sampleEvery = scenario.sampleEveryS ?? 1;
+const reportPathFor = (s, i) => (outDir ? resolve(outDir, `${s.path ? basename(s.path, ".json") : "opmode"}.json`) : scenarios.length === 1 ? outSingle : resolve(dirname(outSingle), `${s.path ? basename(s.path, ".json") : `scenario-${i + 1}`}.json`));
 
 let playwright;
 try { playwright = await import("playwright"); } catch {
@@ -52,7 +55,7 @@ if (process.platform !== "win32") {
 }
 const simArgs = [resolve(root, "scripts/sim.mjs"), "--no-browser", "--no-watch", "--no-panels", "--port", port, "--host-port", hostPort]; // no Panels: its fixed ports belong to the human's session
 if (team) simArgs.push("--team", team);
-console.log(`twin-test: starting host and twin (${simArgs.slice(1).join(" ")})`);
+console.log(`twin-test: ${scenarios.length} scenario${scenarios.length > 1 ? "s" : ""}; starting host and twin (${simArgs.slice(1).join(" ")})`);
 const sim = spawn(process.execPath, simArgs, { cwd: root, detached: true, stdio: ["ignore", "pipe", "pipe"] });
 let simLog = "";
 const ready = { host: false, twin: false };
@@ -79,110 +82,145 @@ while (!(ready.host && ready.twin)) {
 }
 console.log(`twin-test: host ready after ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 
-// ---- 2. browser
+// ---- 2. browser (one per run; a fresh page per scenario)
 const browser = await playwright.chromium.launch({ headless: !headed, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
-const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-const pageErrors = [];
-page.on("pageerror", (e) => pageErrors.push(e.message));
-const seed = {
-  alliance: scenario.alliance ?? "red",
-  opponents: scenario.opponents ?? true,
-  opponentsScore: scenario.opponentsScore ?? true,
-  pauseOpponents: false,
-  runtimeEnabled: true,
-  runtimeUrl: `ws://127.0.0.1:${hostPort}`,
-  assetOverrides: scenario.assetOverrides ?? {},
-  overlays: { fan: false, dispersion: false, hitmap: false, reach: false },
-  showPerf: false,
-};
-if (scenario.starts) seed.starts = scenario.starts;
-await page.addInitScript((s) => { localStorage.setItem("biobuzz-twin", JSON.stringify(s)); }, seed);
-await page.goto(`http://localhost:${port}/?ci=1${scenario.ignoreBindings ? "&nobind=1" : ""}`, { waitUntil: "networkidle" }); // ci=1: light rendering so the sim runs at full rate under software GL
-await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus !== "loading", null, { timeout: 60_000 });
-await page.waitForFunction(() => window.__twin.link.connected && window.__twin.link.opModes.length > 0, null, { timeout: 30_000 }).catch(() => {});
-const opModes = await page.evaluate(() => window.__twin.link.opModes.map((o) => o.name));
-if (!opModes.includes(scenario.opMode)) { console.error(`twin-test: OpMode "${scenario.opMode}" not found. Available:\n  ${opModes.join("\n  ")}`); await browser.close(); process.exit(1); }
-// robot / hardware presets through the panel so the same code paths run as for a human
-if (scenario.robotPreset) await page.evaluate((id) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === id)); if (s) { s.value = id; s.dispatchEvent(new Event("change")); } }, scenario.robotPreset);
-if (scenario.hardwarePreset) await page.evaluate((hp) => { const label = hp === "camelsHump" ? "Camels Hump" : "StarterBot names"; [...document.querySelectorAll("#panel button")].find((b) => b.textContent.includes(label))?.click(); }, scenario.hardwarePreset);
-await page.waitForTimeout(400);
-// INIT (parks everything at the start positions), then our custom start pose if given, then START
-await page.evaluate((name) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === name)); s.value = name; s.dispatchEvent(new Event("change")); }, scenario.opMode);
-await page.click('#panel button:has-text("INIT")');
-await page.waitForFunction(() => ["INIT", "ERROR"].includes(window.__twin.link.status), null, { timeout: 20_000 }).catch(() => {});
-let status = await page.evaluate(() => ({ status: window.__twin.link.status, error: window.__twin.link.statusError }));
-if (status.status !== "INIT") { report({ failed: `INIT did not complete: ${status.status} ${status.error}` }); }
-if (scenario.start) await page.evaluate((p) => { const t = window.__twin; t.state.pose = { x: p.xIn * 0.0254, z: p.zIn * 0.0254, heading: (p.headingDeg * Math.PI) / 180 }; t.robot.setPose(t.state.pose); }, scenario.start);
-const startSnapshot = await snapshot();
-await page.click('#panel button:has-text("START")');
-await page.waitForFunction(() => window.__twin.link.status === "RUNNING", null, { timeout: 10_000 }).catch(() => {});
-const simStart = await page.evaluate(() => window.__twin.match.now());
-
-// ---- 3. drive the scenario in simulated time
-const inputs = [...(scenario.inputs ?? [])].sort((a, b) => a.t - b.t);
-const samples = [];
-let nextSample = 0, idx = 0;
-const wallLimit = Date.now() + (60 + duration * 12) * 1000; // simulated time can run slowly headless, but never hang
-for (;;) {
-  if (pageErrors.length) { console.error(`twin-test: the twin threw in the browser: ${pageErrors[0]}`); break; }
-  if (Date.now() > wallLimit) { console.error("twin-test: simulated time stopped advancing (frame loop stalled?)"); break; }
-  const now = (await page.evaluate(() => window.__twin.match.now())) - simStart;
-  while (idx < inputs.length && inputs[idx].t <= now) { const inp = inputs[idx++]; await page.evaluate(({ pad, set }) => window.__twin.input.inject(pad ?? 1, set), inp); }
-  if (now >= nextSample) { samples.push({ t: +now.toFixed(2), ...(await snapshot(true)) }); nextSample += sampleEvery; }
-  const st = await page.evaluate(() => window.__twin.link.status);
-  if (st === "ERROR" || st === "STOPPED") break;
-  if (now >= duration) break;
-  await page.waitForTimeout(100);
+const results = [];
+for (let i = 0; i < scenarios.length; i++) {
+  const { path: scenarioPath, scenario } = scenarios[i];
+  const out = reportPathFor(scenarios[i], i);
+  if (scenarios.length > 1) console.log(`\n=== [${i + 1}/${scenarios.length}] ${scenario.name ?? scenarioPath ?? scenario.opMode}`);
+  let pass = false;
+  try { pass = await runScenario(scenario, scenarioPath, out); }
+  catch (e) { console.error(`twin-test: scenario crashed: ${e?.stack ?? e}`); writeReport(out, { scenario: scenario.name ?? scenarioPath, opMode: scenario.opMode, team, pass: false, failed: String(e), checks: [], samples: [], pageErrors: [], hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() }); }
+  results.push({ name: scenario.name ?? scenarioPath ?? scenario.opMode, pass, out });
 }
-await page.evaluate(() => window.__twin.input.clearInjected());
-const final = await snapshot();
-await page.click('#panel button:has-text("STOP")').catch(() => {});
-if (flag("--screenshot")) await page.screenshot({ path: resolve(flag("--screenshot")) });
 await browser.close();
-report({});
+if (results.length > 1) {
+  console.log(`\ntwin-test: ${results.filter((r) => r.pass).length}/${results.length} passed`);
+  for (const r of results) console.log(`  ${r.pass ? "✓" : "✗"} ${r.name}  (${r.out})`);
+}
+const allPass = results.every((r) => r.pass);
+console.log(allPass ? "PASS" : "FAIL");
+killSim();
+process.exit(allPass ? 0 : 1);
 
-async function snapshot(light = false) {
-  return page.evaluate((light) => {
+/** Run one scenario in a fresh page; prints its checks; returns pass. */
+async function runScenario(scenario, scenarioPath, out) {
+  const duration = scenario.durationS ?? 20;
+  const sampleEvery = scenario.sampleEveryS ?? 1;
+  const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+  const seed = {
+    alliance: scenario.alliance ?? "red",
+    opponents: scenario.opponents ?? true,
+    opponentsScore: scenario.opponentsScore ?? true,
+    pauseOpponents: false,
+    runtimeEnabled: true,
+    runtimeUrl: `ws://127.0.0.1:${hostPort}`,
+    assetOverrides: scenario.assetOverrides ?? {},
+    overlays: { fan: false, dispersion: false, hitmap: false, reach: false },
+    showPerf: false,
+    pip: false, // camera insets are extra renders; AprilTag detections do not need them
+  };
+  if (scenario.starts) seed.starts = scenario.starts;
+  await page.addInitScript((s) => { localStorage.setItem("biobuzz-twin", JSON.stringify(s)); }, seed);
+  await page.goto(`http://localhost:${port}/?ci=1${scenario.ignoreBindings ? "&nobind=1" : ""}`, { waitUntil: "networkidle" }); // ci=1: light rendering so the sim runs at full rate under software GL
+  await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus !== "loading", null, { timeout: 60_000 });
+  await page.waitForFunction(() => window.__twin.link.connected && window.__twin.link.opModes.length > 0, null, { timeout: 30_000 }).catch(() => {});
+  const opModes = await page.evaluate(() => window.__twin.link.opModes.map((o) => o.name));
+  const samples = [];
+  let startSnapshot, final, simStart = 0;
+  const snapshot = (light = false) => page.evaluate((light) => {
     const t = window.__twin, s = t.stats();
     const base = { status: t.link.status, error: t.link.statusError || undefined, telemetry: t.link.telemetry, poseIn: { x: +(t.state.pose.x / 0.0254).toFixed(1), z: +(t.state.pose.z / 0.0254).toFixed(1), headingDeg: +((t.state.pose.heading * 180) / Math.PI).toFixed(1) }, shotsFired: s.shotsFired, shotsHit: s.shotsHit };
     if (light) return base;
     const inv = t.playerAgent.inventory;
-    return { ...base, carrying: { pollen: inv.pollen, nectar: inv.nectar }, hives: Object.fromEntries(Object.entries(t.match.hives).map(([a, h]) => [a, { upCell: h.upCell, tips: h.tips, load: t.match.cellLoad(a) }])), fouls: Object.fromEntries(t.__pins.fouls), matchClock: t.state.matchClock, matchPhase: t.state.matchPhase, hardware: t.state.hardware.devices.map((d) => `${d.kind}:${d.name}`) };
+    return { ...base, carrying: { pollen: inv.pollen, nectar: inv.nectar }, hives: Object.fromEntries(Object.entries(t.match.hives).map(([a, h]) => [a, { upCell: h.upCell, tips: h.tips, load: t.match.cellLoad(a) }])), fouls: Object.fromEntries(t.__pins.fouls), matchClock: t.state.matchClock, matchPhase: t.state.matchPhase, score: t.score?.(), hardware: t.state.hardware.devices.map((d) => `${d.kind}:${d.name}`) };
   }, light);
+  const finish = async (failed) => {
+    await page.evaluate(() => window.__twin.input.clearInjected()).catch(() => {});
+    final = final ?? (await snapshot().catch(() => undefined));
+    await page.click('#panel button:has-text("STOP")').catch(() => {});
+    await page.waitForFunction(() => ["STOPPED", "IDLE", "ERROR", "DISCONNECTED"].includes(window.__twin.link.status), null, { timeout: 5_000 }).catch(() => {});
+    if (flag("--screenshot") && scenarios.length === 1) await page.screenshot({ path: resolve(flag("--screenshot")) }).catch(() => {});
+    await context.close();
+    return report(failed);
+  };
+  if (!opModes.includes(scenario.opMode)) { console.error(`twin-test: OpMode "${scenario.opMode}" not found. Available:\n  ${opModes.join("\n  ")}`); return finish(`OpMode "${scenario.opMode}" not found`); }
+  // robot / hardware presets through the panel so the same code paths run as for a human
+  if (scenario.robotPreset) await page.evaluate((id) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === id)); if (s) { s.value = id; s.dispatchEvent(new Event("change")); } }, scenario.robotPreset);
+  if (scenario.hardwarePreset) await page.evaluate((hp) => { const label = hp === "camelsHump" ? "Camels Hump" : "StarterBot names"; [...document.querySelectorAll("#panel button")].find((b) => b.textContent.includes(label))?.click(); }, scenario.hardwarePreset);
+  await page.waitForTimeout(400);
+  // INIT (parks everything at the start positions), then our custom start pose if given, then START
+  await page.evaluate((name) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === name)); s.value = name; s.dispatchEvent(new Event("change")); }, scenario.opMode);
+  await page.click('#panel button:has-text("INIT")');
+  await page.waitForFunction(() => ["INIT", "ERROR"].includes(window.__twin.link.status), null, { timeout: 20_000 }).catch(() => {});
+  const status = await page.evaluate(() => ({ status: window.__twin.link.status, error: window.__twin.link.statusError }));
+  if (status.status !== "INIT") return finish(`INIT did not complete: ${status.status} ${status.error}`);
+  if (scenario.start) await page.evaluate((p) => { const t = window.__twin; t.state.pose = { x: p.xIn * 0.0254, z: p.zIn * 0.0254, heading: (p.headingDeg * Math.PI) / 180 }; t.robot.setPose(t.state.pose); }, scenario.start);
+  startSnapshot = await snapshot();
+  await page.click('#panel button:has-text("START")');
+  await page.waitForFunction(() => window.__twin.link.status === "RUNNING", null, { timeout: 10_000 }).catch(() => {});
+  simStart = await page.evaluate(() => window.__twin.match.now());
+  const wallStart = Date.now();
+
+  // ---- 3. drive the scenario in simulated time
+  const inputs = [...(scenario.inputs ?? [])].sort((a, b) => a.t - b.t);
+  let nextSample = 0, idx = 0, now = 0;
+  const wallLimit = Date.now() + (60 + duration * 12) * 1000; // simulated time can run slowly headless, but never hang
+  let stall;
+  for (;;) {
+    if (pageErrors.length) { stall = `the twin threw in the browser: ${pageErrors[0]}`; break; }
+    if (Date.now() > wallLimit) { stall = "simulated time stopped advancing (frame loop stalled?)"; break; }
+    now = (await page.evaluate(() => window.__twin.match.now())) - simStart;
+    while (idx < inputs.length && inputs[idx].t <= now) { const inp = inputs[idx++]; await page.evaluate(({ pad, set }) => window.__twin.input.inject(pad ?? 1, set), inp); }
+    if (now >= nextSample) { samples.push({ t: +now.toFixed(2), ...(await snapshot(true)) }); nextSample += sampleEvery; }
+    const st = await page.evaluate(() => window.__twin.link.status);
+    if (st === "ERROR" || st === "STOPPED") break;
+    if (now >= duration) break;
+    await page.waitForTimeout(100);
+  }
+  const wall = (Date.now() - wallStart) / 1000;
+  console.log(`twin-test: simulated ${now.toFixed(1)} s in ${wall.toFixed(0)} s wall (${(now / Math.max(wall, 0.1)).toFixed(2)}x real time)`);
+  if (stall) console.error(`twin-test: ${stall}`);
+  final = await snapshot();
+  return finish(stall && !pageErrors.length ? stall : undefined);
+
+  function report(failed) {
+    const checks = [];
+    const e = scenario.expect ?? {};
+    const allLines = samples.flatMap((s) => s.telemetry ?? []).concat(final?.telemetry ?? []);
+    if (e.noErrors) checks.push({ check: "noErrors", pass: !final?.error && pageErrors.length === 0 && !failed, detail: final?.error || pageErrors[0] || failed || "" });
+    if (e.shotsFired) checks.push({ check: `shotsFired ${e.shotsFired}`, pass: cmp(e.shotsFired, final?.shotsFired ?? 0), detail: `fired ${final?.shotsFired ?? 0}` });
+    if (e.shotsHit) checks.push({ check: `shotsHit ${e.shotsHit}`, pass: cmp(e.shotsHit, final?.shotsHit ?? 0), detail: `hit ${final?.shotsHit ?? 0}` });
+    if (e.fouls) { const n = Object.values(final?.fouls ?? {}).reduce((a, b) => a + b, 0); checks.push({ check: `fouls ${e.fouls}`, pass: cmp(e.fouls, n), detail: `${n} fouls` }); }
+    for (const re of e.telemetryIncludes ?? []) checks.push({ check: `telemetry matches /${re}/ at some point`, pass: allLines.some((l) => new RegExp(re).test(l)), detail: "" });
+    for (const re of e.telemetryFinalIncludes ?? []) checks.push({ check: `final telemetry matches /${re}/`, pass: (final?.telemetry ?? []).some((l) => new RegExp(re).test(l)), detail: "" });
+    if (e.movedAtLeastIn !== undefined && final && startSnapshot) { const d = Math.hypot(final.poseIn.x - startSnapshot.poseIn.x, final.poseIn.z - startSnapshot.poseIn.z); checks.push({ check: `moved ≥ ${e.movedAtLeastIn} in`, pass: d >= e.movedAtLeastIn, detail: `${d.toFixed(1)} in` }); }
+    if (e.poseNear && final) { const d = Math.hypot(final.poseIn.x - e.poseNear.xIn, final.poseIn.z - e.poseNear.zIn); checks.push({ check: `ends within ${e.poseNear.tolIn ?? 12} in of (${e.poseNear.xIn}, ${e.poseNear.zIn})`, pass: d <= (e.poseNear.tolIn ?? 12), detail: `${d.toFixed(1)} in away` }); }
+    if (e.scoreAtLeast !== undefined && final?.score) { const mine = final.score[scenario.alliance ?? "red"]?.total ?? 0; checks.push({ check: `our score ≥ ${e.scoreAtLeast}`, pass: mine >= e.scoreAtLeast, detail: `${mine} pts` }); }
+    const pass = checks.every((c) => c.pass) && !failed;
+    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, pass, failed, checks, start: startSnapshot, final, samples, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
+    writeReport(out, rep);
+    console.log(`\ntwin-test: ${rep.scenario}`);
+    if (failed) console.log(`  ✗ ${failed}`);
+    for (const c of checks) console.log(`  ${c.pass ? "✓" : "✗"} ${c.check}${c.detail ? ` — ${c.detail}` : ""}`);
+    if (final) {
+      console.log(`  final: ${final.status}${final.error ? " " + final.error.split("\n")[0] : ""} · pose (${final.poseIn.x}, ${final.poseIn.z}) in @ ${final.poseIn.headingDeg}° · fired ${final.shotsFired}, hit ${final.shotsHit} · carrying ${final.carrying?.pollen} pollen + ${final.carrying?.nectar} nectar`);
+      console.log(`  telemetry (final):\n    ${(final.telemetry ?? []).join("\n    ")}`);
+    }
+    console.log(`  report: ${out}`);
+    return pass;
+  }
 }
+
+function writeReport(out, rep) { mkdirSync(dirname(out), { recursive: true }); writeFileSync(out, JSON.stringify(rep, null, 2)); }
 
 function cmp(expr, value) {
   const m = /^(>=|<=|==|!=|>|<)?\s*(-?\d+(?:\.\d+)?)$/.exec(String(expr).trim());
   if (!m) return false;
   const [, op = "==", n] = m; const x = parseFloat(n);
   return op === ">=" ? value >= x : op === "<=" ? value <= x : op === ">" ? value > x : op === "<" ? value < x : op === "!=" ? value !== x : value === x;
-}
-
-function report(extra) {
-  const checks = [];
-  const e = scenario.expect ?? {};
-  const allLines = samples.flatMap((s) => s.telemetry ?? []).concat(final?.telemetry ?? []);
-  if (e.noErrors) checks.push({ check: "noErrors", pass: !final?.error && pageErrors.length === 0 && !extra.failed, detail: final?.error || pageErrors[0] || extra.failed || "" });
-  if (e.shotsFired) checks.push({ check: `shotsFired ${e.shotsFired}`, pass: cmp(e.shotsFired, final?.shotsFired ?? 0), detail: `fired ${final?.shotsFired ?? 0}` });
-  if (e.shotsHit) checks.push({ check: `shotsHit ${e.shotsHit}`, pass: cmp(e.shotsHit, final?.shotsHit ?? 0), detail: `hit ${final?.shotsHit ?? 0}` });
-  if (e.fouls) { const n = Object.values(final?.fouls ?? {}).reduce((a, b) => a + b, 0); checks.push({ check: `fouls ${e.fouls}`, pass: cmp(e.fouls, n), detail: `${n} fouls` }); }
-  for (const re of e.telemetryIncludes ?? []) checks.push({ check: `telemetry matches /${re}/ at some point`, pass: allLines.some((l) => new RegExp(re).test(l)), detail: "" });
-  for (const re of e.telemetryFinalIncludes ?? []) checks.push({ check: `final telemetry matches /${re}/`, pass: (final?.telemetry ?? []).some((l) => new RegExp(re).test(l)), detail: "" });
-  if (e.movedAtLeastIn !== undefined && final && startSnapshot) { const d = Math.hypot(final.poseIn.x - startSnapshot.poseIn.x, final.poseIn.z - startSnapshot.poseIn.z); checks.push({ check: `moved ≥ ${e.movedAtLeastIn} in`, pass: d >= e.movedAtLeastIn, detail: `${d.toFixed(1)} in` }); }
-  if (e.poseNear && final) { const d = Math.hypot(final.poseIn.x - e.poseNear.xIn, final.poseIn.z - e.poseNear.zIn); checks.push({ check: `ends within ${e.poseNear.tolIn ?? 12} in of (${e.poseNear.xIn}, ${e.poseNear.zIn})`, pass: d <= (e.poseNear.tolIn ?? 12), detail: `${d.toFixed(1)} in away` }); }
-  const pass = checks.every((c) => c.pass) && !extra.failed;
-  const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, pass, failed: extra.failed, checks, start: startSnapshot, final, samples, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
-  mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, JSON.stringify(rep, null, 2));
-  console.log(`\ntwin-test: ${rep.scenario}`);
-  if (extra.failed) console.log(`  ✗ ${extra.failed}`);
-  for (const c of checks) console.log(`  ${c.pass ? "✓" : "✗"} ${c.check}${c.detail ? ` — ${c.detail}` : ""}`);
-  if (final) {
-    console.log(`  final: ${final.status}${final.error ? " " + final.error.split("\n")[0] : ""} · pose (${final.poseIn.x}, ${final.poseIn.z}) in @ ${final.poseIn.headingDeg}° · fired ${final.shotsFired}, hit ${final.shotsHit} · carrying ${final.carrying?.pollen} pollen + ${final.carrying?.nectar} nectar`);
-    console.log(`  telemetry (final):\n    ${(final.telemetry ?? []).join("\n    ")}`);
-  }
-  console.log(`  report: ${out}`);
-  console.log(pass ? "PASS" : "FAIL");
-  killSim();
-  process.exit(pass ? 0 : 1);
 }

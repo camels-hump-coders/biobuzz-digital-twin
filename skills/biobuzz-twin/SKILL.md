@@ -36,10 +36,16 @@ From the twin directory:
 
 ```bash
 pnpm twin-test --team <team repo root> --scenario <scenario.json> --out <report.json>
+pnpm twin-test --team <team repo root> --scenario a.json --scenario b.json --scenario c.json --out-dir <reports dir>
 ```
 
 - `--team` accepts the project root, the TeamCode module, or `TeamCode/src/main/java`.
-- The first run compiles the team code with Gradle (minutes); later runs take ~30 s plus the scenario length.
+- **Batch your scenarios in one call.** Starting the host (Gradle + JVM, ~10-40 s warm, minutes on the first compile)
+  is the expensive part; one call runs every scenario against the same host, each in a fresh page, writes
+  `<reports dir>/<scenario name>.json` per scenario, prints a summary and exits 0 only if all pass. Do not loop
+  `pnpm twin-test` per file, and do not sleep between calls: the run ends its own host and Vite.
+- Headless, the simulation runs at real time (each run prints `simulated N s in M s wall`); a scenario costs about its
+  `durationS` plus 5 s. If the ratio drops well below 1x, the machine is overloaded: run fewer things at once.
 - It uses ports 5190/8790, so a human's `pnpm sim` session on 5173/8765 is not disturbed.
 - Add `--headed` to watch the browser; `--screenshot out.png` for a final picture.
 - Exit code 0 means every `expect` check passed. The console prints each check, the final telemetry and the report path.
