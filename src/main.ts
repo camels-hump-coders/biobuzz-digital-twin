@@ -31,6 +31,7 @@ import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
 import { parseCalLines } from "./ballistics/calibration";
+import { Scoreboard, LOADING_ZONE, ballInGarden, describeScore, inZone, type RobotState } from "./sim/scoring";
 import { inferDevice, deviceHints } from "./runtime/hardwareConfig";
 import { buildDetections } from "./runtime/apriltags";
 import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
@@ -133,6 +134,13 @@ const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity:
 // scripted robots collect through a front mouth about two thirds of their width
 const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }, s.footprint, { side: "front", widthM: s.footprint.widthM * 0.65 }));
 const allAgents = [playerAgent, ...scriptedAgents];
+const scoreboard = new Scoreboard();
+function scoreRobots(): RobotState[] { return (state.opponents ? allAgents : [playerAgent]).map((a) => ({ id: a.id, alliance: a.alliance, pose: a.pose, footprint: a.footprint })); }
+function allianceScore(a: Alliance) {
+  let cell = 0, garden = 0;
+  for (const f of flying) { if (f.inCell && (f as any).cellOf === a) cell++; else if (ballInGarden(f.pos.x, f.pos.z, f.radius, a)) garden++; }
+  return scoreboard.score(a, scoreRobots(), match.hives[a].tips, cell, garden);
+}
 /** Partner is on our alliance, the two opponents on the other; colours and starting corners follow. */
 function assignAlliances() {
   const ours: Alliance = state.alliance, theirs: Alliance = ours === "red" ? "blue" : "red";
@@ -477,6 +485,7 @@ function snapshotContext() {
     cameras: state.robot.cameras.map((c) => ({ name: c.name, forwardIn: +(c.forwardM / 0.0254).toFixed(2), leftIn: +(c.leftM / 0.0254).toFixed(2), heightIn: +(c.heightM / 0.0254).toFixed(2), pitchDeg: c.pitchDeg, yawDeg: c.yawDeg })),
     launcher: { yawOffsetDeg: state.robot.launcher.yawOffsetDeg, elevationDeg: state.robot.launcher.elevationDeg, rpm: Math.round(state.robot.launcher.rpm) },
     hive: state.hive, matchPhase: state.matchPhase, startPositions: state.starts, keyboardPad: input.keyboardPad,
+    score: { red: allianceScore("red"), blue: allianceScore("blue"), robots: Object.fromEntries([...scoreboard.robots].map(([k, v]) => [k, { leave: v.leave, autoPark: v.autoPark, teleopPark: v.teleopPark }])) },
   };
 }
 setupUpdates();
@@ -655,6 +664,20 @@ function frame(now: number) {
       ag.pose = s.pose;
       ag.footprint = s.footprint;
       if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) { /* fired */ } } else ag.intakeActive = false;
+      // the last seconds: head for the LOADING ZONE for TELEOP PARK (5 pts), like a real drive team
+      if ((state.matchClock ?? 0) < 12) {
+        const z = LOADING_ZONE[ag.alliance];
+        s.brainDriven = true;
+        if (inZone(s.pose, s.footprint, z)) s.target = { x: s.pose.x, z: s.pose.z }; // partially in: hold, do not shove the partner
+        else {
+          // two spots along the zone (it is 23 in long): take the one farther from every other robot so both partners fit
+          const x = (z.xMin + z.xMax) / 2 + (z.xMin < 0 ? 0.12 : -0.12);
+          const spots = [{ x, z: (z.zMin + z.zMax) / 2 - 0.2 }, { x, z: (z.zMin + z.zMax) / 2 + 0.2 }];
+          const others = allAgents.filter((o) => o !== ag).map((o) => o.pose);
+          const room = (p: { x: number; z: number }) => Math.min(...others.map((o) => Math.hypot(o.x - p.x, o.z - p.z)), 9);
+          s.target = spots.sort((a, b) => room(b) - room(a))[0];
+        }
+      }
       // other scripted robots are obstacles too, so they route around and push off each other instead of overlapping
       const peers: Obstacle[] = scripted.filter((o) => o !== s).map((o) => ({ xMin: o.pose.x - o.footprint.widthM / 2, xMax: o.pose.x + o.footprint.widthM / 2, zMin: o.pose.z - o.footprint.lengthM / 2, zMax: o.pose.z + o.footprint.lengthM / 2 }));
       stepScripted(s, dt, peers, [me], match.now());
@@ -693,6 +716,7 @@ function frame(now: number) {
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
   perf.mark("robots");
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
+  scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   perf.mark("match");
 
   // shot analysis
@@ -792,6 +816,14 @@ function frame(now: number) {
     shotsFired, shotsHit,
     cellLoad: (() => { const c = match.cellLoad(state.alliance); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
     tips: match.hives[state.alliance].tips,
+    score: (() => {
+      const ours = allianceScore(state.alliance), theirs = allianceScore(state.alliance === "red" ? "blue" : "red");
+      const n = scoreRobots().filter((r) => r.alliance === state.alliance).length;
+      const you = scoreboard.robots.get(playerAgent.id);
+      const inAuto = state.matchPhase === "running" && (state.matchClock ?? 0) > MATCH_SECONDS - 30;
+      const mine = you ? `you: LEAVE ${you.leave ? "✓" : "✗"} · AUTO PARK ${you.autoPark ? "✓" : "✗"} · PARK ${you.teleopPark ? "✓" : "✗"}${you.inZoneNow ? " · in LOADING ZONE" : ""}${inAuto ? " (AUTO, assessed at 0:30)" : ""}` : "";
+      return `${state.alliance.toUpperCase()} ${ours.total} (auto ${ours.auto}) vs ${theirs.total} (auto ${theirs.auto}) · ${describeScore(ours, n)}${mine ? " · " + mine : ""}`;
+    })(),
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
@@ -861,7 +893,7 @@ function frame(now: number) {
   if (ciMode) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration } };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };

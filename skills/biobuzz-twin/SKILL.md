@@ -90,6 +90,11 @@ and hit, carried game pieces, hive loads/tips, fouls, and `pageErrors`/`hostLogT
   until calibrated) and supply `assetOverrides`.
 - `⚠ fps` / sim slower than real time: harmless headless rendering speed; inputs are scheduled in simulated time.
 
+Snapshots and the `__twin.score()` hook carry the match scoreboard (Competition Manual Table 10-2: HIVE TIP 20, LEAVE 3,
+AUTO PARK 5, TELEOP PARK 5, 2 per ball left in an up cell, 1 per GARDEN ball; FLOWER points not modelled). `score.robots`
+lists LEAVE / AUTO PARK / PARK per robot, so an autonomous scenario can assert `red.auto` or `robots.player.leave`.
+LEAVE and AUTO PARK latch when the clock passes 2:00 left; PARK latches when the match stops.
+
 ## 4. Keep robot measurements bound to the twin
 
 The twin is the single source of truth for the robot's physical facts. Any setting the code reads that describes

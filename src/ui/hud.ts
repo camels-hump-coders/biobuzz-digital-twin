@@ -34,6 +34,8 @@ export interface HudData {
   shotsHit: number;
   cellLoad: string;
   tips: number;
+  /** alliance totals and our robot's LEAVE / PARK status (Table 10-2) */
+  score: string;
   tipping?: string;
   carrying: string;
   supply: string;
@@ -85,6 +87,7 @@ export class Hud {
         <tr><td>Carrying · fired/hit</td><td class="${d.launchBlocked ? "bad" : ""}">${d.carrying} · ${d.shotsFired}/${d.shotsHit}</td></tr>
         <tr><td>Our up cell</td><td class="two ${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad} · ${d.tips} tip${d.tips === 1 ? "" : "s"} (${d.tips * 20} pts)</td></tr>
         <tr><td>Their hive</td><td>${d.theirHive}</td></tr>
+        <tr><td>Score</td><td class="two clamp">${d.score}</td></tr>
         <tr><td>Robot contact</td><td class="two ${d.contact ? (d.contactBad ? "bad" : "warn") : "quiet"}">${d.contact ?? "none"}</td></tr>
         <tr><td>Field supply</td><td class="two">${d.supply}</td></tr>
       </table>
