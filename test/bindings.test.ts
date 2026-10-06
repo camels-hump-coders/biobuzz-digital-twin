@@ -12,6 +12,7 @@ describe("binding expressions", () => {
     expect(evaluate("round(robot.wheelDiameterIn * 25.4, 1)", knobs)).toBe(96);
     expect(evaluate("upper(alliance)", knobs)).toBe("BLUE");
     expect(evaluate("(1 + 2) * 3 - 4 / 2", knobs)).toBe(7);
+    expect(evaluate("true", knobs)).toBe(true); expect(evaluate("false", knobs)).toBe(false); // literals for flags the sim satisfies by construction
   });
   it("rejects unknown knobs and bad syntax with a message", () => {
     expect(() => evaluate("robot.nope", knobs)).toThrow(/unknown twin knob/);

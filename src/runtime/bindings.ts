@@ -101,6 +101,7 @@ export function evaluate(expr: string, knobs: Knobs): Knob {
     if (t.t === "op" && t.v === "(") { const v = expression(); if (!isOp(")")) throw new Error("missing )"); next(); return v; }
     if (t.t === "op" && t.v === "-") return -num(primary(), "negation");
     if (t.t === "id") {
+      if (t.v === "true") return true; if (t.v === "false") return false; if (t.v === "null") return null as unknown as Knob; // literals
       if (isOp("(")) { next(); const args: Knob[] = []; if (!isOp(")")) { args.push(expression()); while (isOp(",")) { next(); args.push(expression()); } } if (!isOp(")")) throw new Error("missing )"); next(); const f = FUNCS[t.v]; if (!f) throw new Error(`unknown function ${t.v}`); return f(...args); }
       if (!(t.v in knobs)) throw new Error(`unknown twin knob '${t.v}'`);
       return knobs[t.v];
