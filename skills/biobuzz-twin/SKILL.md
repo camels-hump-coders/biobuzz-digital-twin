@@ -191,7 +191,7 @@ shooter direction, alliance, start pose. Rules:
 
 In server mode the twin's settings (robot preset and dimensions, cameras, launcher, hardware map, asset overrides,
 calibration, start positions, …) are saved to `TeamCode/twin-settings.json` (sorted JSON, next to
-`twin-bindings.json`) by *Session → Save to repo file* or `POST $A/api/settings {"save": true}`, and applied on
+`twin-bindings.json`) by *Settings & session → Save to repo file* or `POST $A/api/settings {"save": true}`, and applied on
 connect or with `{"load": true}`. Commit that file with the code when the robot's measured setup changes; `GET
 $A/api/settings` tells whether the browser differs from the file. Do not hand-edit numbers that have a bound asset
 key instead (see 4): bindings derive those from the twin, so change them in the twin and save.

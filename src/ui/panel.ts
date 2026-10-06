@@ -107,6 +107,41 @@ export class Panel {
   /** sections whose advanced rows were revealed with their "more" button (Essential mode) */
   private moreOpen = new Set<string>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
+  /** TeamCode settings editor dialog (full width): built from the latest render's closure */
+  private assetEditorBuilder?: () => HTMLElement | undefined;
+  private assetDialog?: HTMLDialogElement;
+  assetDialogOpen = false;
+  openAssetDialog() {
+    if (!this.assetDialog) {
+      const d = document.createElement("dialog"); d.className = "settings-dialog";
+      d.addEventListener("close", () => { this.assetDialogOpen = false; });
+      d.addEventListener("click", (e) => { if (e.target === d) d.close(); }); // backdrop click closes
+      document.body.append(d); this.assetDialog = d;
+    }
+    this.assetDialogOpen = true;
+    this.renderAssetDialog();
+    if (!this.assetDialog.open) this.assetDialog.showModal();
+  }
+  private renderAssetDialog() {
+    const d = this.assetDialog; if (!d) return;
+    const body = this.assetEditorBuilder?.();
+    const scroll = (d.querySelector(".sd-body") as HTMLElement | null)?.scrollTop ?? 0;
+    const focused = document.activeElement as HTMLInputElement | null;
+    const keepFilter = focused && d.contains(focused) && focused.type === "text" && focused.closest(".tools");
+    d.replaceChildren(
+      el("div", { class: "sd-head" }, el("h2", {}, "TeamCode settings"), el("span", { class: "note" }, "Simulator overrides for the JSON files your OpModes read. Save writes them back into the repo."), el("button", { class: "sd-close", title: "Close (Esc)", onclick: () => d.close() }, "×")),
+      el("div", { class: "sd-body" }, body ?? el("div", { class: "note" }, "Connect to the runtime host to edit TeamCode settings.")),
+    );
+    const sb = d.querySelector(".sd-body") as HTMLElement | null; if (sb) sb.scrollTop = scroll;
+    if (keepFilter) { const f = d.querySelector(".tools input[type=text]") as HTMLInputElement | null; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
+  }
+  /** short confirmation at the top of the panel (saves, loads, failures) */
+  toast(text: string, bad = false) {
+    document.getElementById("panel-toast")?.remove();
+    const t = el("div", { id: "panel-toast", class: bad ? "bad" : "" }, text);
+    document.body.append(t); // outside the panel: a re-render must not wipe it
+    setTimeout(() => t.remove(), bad ? 8000 : 4000);
+  }
   /** server mode: the twin's settings file on disk (set by main) */
   settingsFile?: { save: () => Promise<{ ok: boolean; path?: string; error?: string }>; load: () => { ok: boolean; error?: string }; differs: () => boolean; unsaved: () => boolean };
   private sessionFlashEl?: HTMLElement;
@@ -203,10 +238,14 @@ export class Panel {
     const ms = performance.now() - t0;
     if (ms > 120) this.recorder?.event(Date.now(), "note", `slow panel render ${ms.toFixed(0)} ms`);
   }
+  /** panel sections in display order: everyday controls first, housekeeping last */
+  private static readonly ORDER = ["Runtime — run your TeamCode", "Field & target", "Timeline & logs", "Robot", "Launcher", "Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "View & overlays", "Settings & session"];
   private renderInner() {
     // remember open/closed
     this.root.querySelectorAll("details").forEach((d) => this.openState.set(d.querySelector("summary")!.textContent!, d.open));
     this.root.replaceChildren();
+    const sections: HTMLElement[] = [];
+    const addSection = (d: HTMLElement) => { sections.push(d); };
     const st = this.state;
     const open = (t: string, def: boolean) => this.openState.get(t) ?? def;
     const change = (w: Parameters<Change>[0]) => { this.onChange(w); this.render(); };
@@ -227,20 +266,25 @@ export class Panel {
     if (this.link?.connected && this.link.settings && this.settingsFile) {
       const f = this.link.settings, sf = this.settingsFile;
       const differs = sf.differs(), unsaved = sf.unsaved();
+      // one state at a time: not created / in sync / unsaved here / file changed elsewhere
+      const state = !f.exists ? "none" : !differs ? "sync" : unsaved ? "unsaved" : "fileNewer";
+      const badge = { none: ["Not saved to the repo yet", "warn"], sync: ["In sync with the repo file", "ok"], unsaved: ["Unsaved changes in this browser", "warn"], fileNewer: ["The repo file changed; this browser is behind", "warn"] }[state];
       const fl = this.sessionFlash && this.sessionFlash.until > Date.now() ? this.sessionFlash : undefined;
       this.sessionFlashEl = el("span", { class: `note aflash${fl?.bad ? " bad" : ""}` }, fl?.text ?? "");
       settingsRows.push(el("div", { class: "sub" }, "Settings file (server mode)"));
-      settingsRows.push(el("div", { class: "note full" }, el("code", {}, f.path), f.exists ? ` · saved ${f.modified ? new Date(f.modified).toLocaleString() : ""}${differs ? " · differs from this browser" : " · matches this browser"}` : " · not created yet", unsaved && f.exists ? " · this browser has changes not in the file" : ""));
+      settingsRows.push(el("div", { class: `status-badge ${badge[1]} full` }, el("span", { class: "dot" }), badge[0]));
       settingsRows.push(el("div", { class: "row full", style: "align-items:center;gap:6px" },
-        el("button", { class: "primary", title: "Write every setting in this panel (robot, cameras, launcher, hardware map, overrides, calibration, starts…) to the file so it can be committed and shared", onclick: async () => { await sf.save(); } }, f.exists ? "Save to repo file" : "Create repo file"),
-        el("button", { ...(f.exists ? {} : { disabled: "" }), title: "Replace this browser's settings with the file's", onclick: () => { if (!sf.differs() || confirm("Replace this browser's settings with the repo file? Unsaved changes here are lost.")) { const r = sf.load(); if (!r.ok) alert(r.error); } } }, "Load from repo file"),
+        el("button", { class: state === "sync" ? "" : "primary", ...(state === "sync" ? { disabled: "" } : {}), title: "Write every setting in this panel (robot, cameras, launcher, hardware map, overrides, calibration, starts…) to the file so it can be committed and shared", onclick: async () => { await sf.save(); } }, state === "none" ? "Create repo file" : "Save to repo file"),
+        el("button", { class: state === "fileNewer" ? "primary" : "", ...(f.exists && differs ? {} : { disabled: "" }), title: f.exists ? "Replace this browser's settings with the file's" : "No file yet", onclick: () => { if (!sf.unsaved() || confirm("Replace this browser's settings with the repo file? Unsaved changes here are lost.")) { const r = sf.load(); if (!r.ok) alert(r.error); } } }, "Load from repo file"),
         this.sessionFlashEl));
-      settingsRows.push(chk("Load the repo file on connect", () => st.settingsAutoLoad, (v) => { st.settingsAutoLoad = v; change("view"); }));
-      settingsRows.push(el("div", { class: "note" }, "With the host running, the file is the shared, versioned copy of these settings; the browser's storage is only a cache. On connect the file is applied unless this browser has changes it never saved (then both buttons are offered)."));
+      settingsRows.push(adv(el("div", { class: "note full" }, el("code", {}, f.path), f.exists && f.modified ? ` · saved ${new Date(f.modified).toLocaleString()}` : ""),
+        chk("Load the repo file on connect", () => st.settingsAutoLoad, (v) => { st.settingsAutoLoad = v; change("view"); }),
+        el("div", { class: "note" }, "With the host running, the file is the shared, versioned copy of these settings; the browser's storage is only a cache. On connect the file is applied unless this browser has unsaved changes.")));
     }
-    this.root.append(section("Session", open("Session", false),
+    addSection(section("Settings & session", open("Settings & session", false),
       ...settingsRows,
-      adv(el("div", { class: "note" }, "Everything in this panel is saved in this browser's localStorage) and restored on reload. Robot config = robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings.")),
+      adv(el("div", { class: "note" }, "Everything in this panel is saved in this browser's localStorage and restored on reload. Robot config = robot preset, dimensions, cameras, launcher, shot variability, hardware map and game-piece settings.")),
+      el("div", { class: "sub" }, "Robot config file"),
       el("div", { class: "row full" },
         el("button", { class: "primary", onclick: () => download(`biobuzz-robot-${(st.robot.name || "robot").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.json`, { biobuzzRobotConfig: 1, robotPresetId: st.robotPresetId, robot: st.robot, hardware: st.hardware, noise: st.noise, capacity: st.capacity, canPollen: st.canPollen, canNectar: st.canNectar, alliance: st.alliance }) }, "Export robot config"),
         el("button", { onclick: () => upload((j) => { const src = j.biobuzzRobotConfig ? j : j.robot ? j : null; if (!src) { alert("No robot config in that file"); return; } if (src.robot) st.robot = src.robot; if (src.robotPresetId) st.robotPresetId = src.robotPresetId; if (src.hardware?.devices) st.hardware = src.hardware; if (src.noise) st.noise = { ...st.noise, ...src.noise }; if (src.capacity) st.capacity = src.capacity; if (typeof src.canPollen === "boolean") st.canPollen = src.canPollen; if (typeof src.canNectar === "boolean") st.canNectar = src.canNectar; st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; change("reset"); }) }, "Import robot config"),
@@ -249,6 +293,7 @@ export class Panel {
         el("button", { onclick: () => download("biobuzz-session.json", st) }, "Export whole session"),
         el("button", { onclick: () => upload((j) => { Object.assign(st, j); change("reset"); }) }, "Import whole session"),
       )),
+      adv(el("div", { class: "sub" }, "Danger zone"),
       el("div", { class: "row full" },
         el("button", { style: "border-color:#a33;color:#faa", onclick: () => {
           const keepAssets = !resetAssetsToo.checked && Object.keys(st.assetOverrides ?? {}).length > 0;
@@ -258,7 +303,7 @@ export class Panel {
         } }, "Reset session to defaults"),
         el("button", { onclick: () => { st.robot = clonePreset(st.robotPresetId); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; change("robot"); } }, "Reset robot to preset"),
       ),
-      el("div", { class: "row full", style: "align-items:center;gap:6px" }, resetAssetsToo, el("label", { style: "color:var(--muted)" }, "Reset also clears TeamCode asset overrides (otherwise they are kept)")),
+      el("div", { class: "row full", style: "align-items:center;gap:6px" }, resetAssetsToo, el("label", { style: "color:var(--muted)" }, "Reset also clears TeamCode asset overrides (otherwise they are kept)"))),
     ));
 
     // --- Runtime (TeamCode)
@@ -307,7 +352,7 @@ export class Panel {
     }
     if (this.recorder) rtRows.push(el("div", { class: `note full warn-note tl-replay-note${this.recorder.cursor === undefined ? " hidden" : ""}` }, "⏪ Replaying a past moment (Timeline below). INIT, START, Start match or Reset return to live automatically; so does driving."));
     rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead.")));
-    this.root.append(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
+    addSection(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", true), ...rtRows));
 
     // --- Timeline & logs: scrub back through what happened, copy a snapshot for a teammate or an agent
     if (this.recorder) {
@@ -332,7 +377,7 @@ export class Panel {
         try { await navigator.clipboard.writeText(text); flash(`Copied ${seconds} s snapshot (${(text.length / 1024).toFixed(0)} KB)`); } catch { dl(`twin-snapshot-${Date.now()}.md`, text); flash("Clipboard unavailable: downloaded instead"); }
       };
       this.timelineEl = el("div", { class: "timeline full" },
-        el("div", { class: "note" }, "Everything is recorded at 10 Hz: robots, balls, hive tilts, telemetry, status, gamepad, shots, score, host log lines, errors, fouls. Drag the slider (or step / play) to replay a moment on the field: the live simulation pauses while you look and resumes when you go live. The slider covers the latest INIT→STOP run by default. Copy a snapshot to paste into a chat or a bug report."),
+        el("div", { class: "note" }, "Drag or step to replay a moment on the field (the live sim pauses; Go live resumes). Copy a snapshot to paste into a chat."),
         el("div", { class: "row tl-scope", style: "gap:4px;align-items:center" },
           el("span", { class: "note" }, "Span:"),
           el("button", { "data-scope": "run", onclick: () => { this.tlScope = "run"; this.refreshTimeline(); } }, "Latest run"),
@@ -354,12 +399,14 @@ export class Panel {
         flashEl,
         el("div", { class: "tl-events" }),
       );
-      this.root.append(section("Timeline & logs", open("Timeline & logs", true), this.timelineEl));
+      addSection(section("Timeline & logs", open("Timeline & logs", true), this.timelineEl));
       this.refreshTimeline();
     }
 
-    // --- TeamCode settings: JSON assets the OpModes read (robot-profile.json, ...), editable here as sim-only overrides
-    if (link?.connected && link.assets.length) {
+    // --- TeamCode settings: JSON assets the OpModes read (robot-profile.json, ...), editable as sim-only overrides in a
+    // full-width dialog; the panel section only summarises and opens it
+    const buildAssetEditor = (): HTMLElement | undefined => {
+      if (!(link?.connected && link.assets.length)) return undefined;
       const total = Object.values(st.assetOverrides).reduce((n, o) => n + Object.keys(o).length, 0);
       const box = el("div", { class: "assets full" });
       const filter = el("input", { type: "text", placeholder: "Filter settings by name, description or value… e.g. autoShoot, start square, LEFT", value: this.assetFilter }) as HTMLInputElement;
@@ -523,7 +570,25 @@ export class Panel {
         if (q && !list.childElementCount) list.append(el("div", { class: "note" }, "No setting matches."));
       };
       renderFiles();
-      this.root.append(section("TeamCode settings (assets)", open("TeamCode settings (assets)", false), box));
+      return box;
+    };
+    this.assetEditorBuilder = buildAssetEditor;
+    if (link?.connected && link.assets.length) {
+      const files = link.assets.filter((a) => a.path.endsWith(".json") && !isSchemaFile(a.path));
+      const total = Object.values(st.assetOverrides).reduce((n, o) => n + Object.keys(o).length, 0);
+      const bound = Object.values(link.bound.overrides).reduce((n, o) => n + Object.keys(o).length, 0);
+      const changed = exportChangedAssets(link.assets, st.assetOverrides, link.bound.overrides);
+      let invalid = 0;
+      for (const f of files) { try { invalid += validateAll(JSON.parse(applyOverrides(f, st.assetOverrides[f.path], link.bound.overrides[f.path]).text), schemaFor(link.assets, f.path)).length; } catch { /* shown in the editor */ } }
+      const summaryRows: (Row | AdvGroup)[] = [
+        el("div", { class: "note full" }, `${files.length} file${files.length === 1 ? "" : "s"} · ${total} override${total === 1 ? "" : "s"} · ${bound} bound from the twin${invalid ? ` · ${invalid} invalid` : ""}${changed.length ? ` · ${changed.length} file${changed.length > 1 ? "s" : ""} differ${changed.length > 1 ? "" : "s"} from disk` : " · matches disk"}`),
+        el("div", { class: "row full", style: "gap:6px;align-items:center" },
+          el("button", { class: "primary", onclick: () => this.openAssetDialog() }, "Open settings editor"),
+          el("button", { ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets" : "Nothing differs from disk", onclick: async () => { const list = changed.map((c) => `${c.path}: ${c.changed.map((k) => k.key).join(", ")}`).join("\n"); if (confirm(`Write ${changed.length} file${changed.length > 1 ? "s" : ""} into the team repo?\n\n${list}`)) for (const c of changed) await this.saveAssetToRepo?.(c.path); } }, changed.length ? `Save ${changed.length} to repo` : "Save to repo")),
+        adv(el("div", { class: "note" }, "The OpModes read these JSON files from assets. Edits are simulator-only overrides until you Save them to the repo; bound values (⇐) come from the twin's measurements; a schema sidecar gives help, dropdowns, sliders and validation.")),
+      ];
+      if (invalid) summaryRows.push(el("div", { class: "status-badge bad full" }, el("span", { class: "dot" }), `${invalid} value${invalid > 1 ? "s" : ""} the code will reject at INIT — open the editor`));
+      addSection(section("TeamCode settings (assets)", open("TeamCode settings (assets)", false), ...summaryRows));
     }
 
     // --- Hardware map
@@ -558,11 +623,11 @@ export class Panel {
     )));
     hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "StarterBot names"), el("button", { title: "Hardware names/ports/polarity of the Camels Hump StarterBot, and the 6WD chassis preset (96 mm wheels, tank drive)", onclick: () => { st.hardware = camelsHumpHardwareConfig(); if (st.robotPresetId !== "starterbot6wd") { st.robotPresetId = "starterbot6wd"; st.robot = clonePreset("starterbot6wd"); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; } st.robot.drivetrain = "tank"; change("hardware"); change("robot"); } }, "Camels Hump tank bot names")));
     hwRows.push(adv(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 })));
-    this.root.append(section("Hardware map", open("Hardware map", false), ...hwRows));
+    addSection(section("Hardware map", open("Hardware map", false), ...hwRows));
 
     // --- Robot
     const r = st.robot;
-    this.root.append(section("Robot", open("Robot", true),
+    addSection(section("Robot", open("Robot", true),
       sel("Preset", Object.entries(ROBOT_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => st.robotPresetId, (v) => { st.robotPresetId = v; st.robot = clonePreset(v); change("robot"); }),
       sel("Drivetrain", [{ value: "mecanum", label: "Mecanum (holonomic)" }, { value: "tank", label: "Tank / 6WD (no strafe)" }], () => r.drivetrain, (v) => { r.drivetrain = v as any; change("robot"); }),
       adv(sel("Chassis model", [{ value: "starterbot-mecanum", label: "goBILDA StarterBot mecanum CAD" }, { value: "starterbot-6wd", label: "goBILDA StarterBot 6WD CAD" }, { value: "box", label: "Simple box" }], () => r.model, (v) => { r.model = v as any; change("robot"); }),
@@ -642,11 +707,11 @@ export class Panel {
     ));
     if (full) outerCamRows.push(el("div", { class: "note" }, "FTC rules allow a maximum of two cameras; remove one to add another."));
     outerCamRows.push(el("div", { class: "note" }, "Drag a camera's green body on the robot to move it (orbit view). Hold Alt while dragging to change height. Then fine-tune the numbers above."));
-    this.root.append(section("Cameras", open("Cameras", true), ...outerCamRows));
+    addSection(section("Cameras", open("Cameras", true), ...outerCamRows));
 
     // --- Launcher
     const l = r.launcher;
-    this.root.append(section("Launcher", open("Launcher", true),
+    addSection(section("Launcher", open("Launcher", true),
       sel("Preset", Object.entries(LAUNCHER_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => Object.entries(LAUNCHER_PRESETS).find(([, v]) => v.name === l.name)?.[0] ?? "custom", (v) => { r.launcher = { ...LAUNCHER_PRESETS[v] }; change("launcher"); }),
       sel("Ball", [{ value: "pollen", label: "POLLEN (2.8 in, 25 g)" }, { value: "nectar", label: "NECTAR (3.6 in, 41 g)" }], () => st.ballKind, (v) => { st.ballKind = v as any; change("launcher"); }),
       adv(num("Flywheel dia", () => l.wheelDiameterM * 1000, (v) => { l.wheelDiameterM = v / 1000; change("launcher"); }, { unit: "mm", min: 40, max: 200, step: 1 }),
@@ -685,9 +750,9 @@ export class Panel {
       cache: this.calCache, setCache: (c) => { this.calCache = c; },
     }) : [el("div", { class: "note" }, "Open to start.")]));
     calSec.ontoggle = () => { if ((calSec as HTMLDetailsElement).open !== calOpen) this.render(); }; // the wizard renders only while open (it runs the fitter)
-    this.root.append(calSec);
+    addSection(calSec);
 
-    this.root.append(section("Field & target", open("Field & target", true),
+    addSection(section("Field & target", open("Field & target", true),
       sel("Our alliance", [{ value: "red", label: "Red (left of audience)" }, { value: "blue", label: "Blue" }], () => st.alliance, (v) => { st.alliance = v as any; change("sim"); }),
       sel("Red hive up cell", [{ value: "audience", label: "Audience side (match start)" }, { value: "scoring", label: "Scoring side" }], () => st.hive.red, (v) => { st.hive.red = v as any; change("sim"); }),
       sel("Blue hive up cell", [{ value: "scoring", label: "Scoring side (match start)" }, { value: "audience", label: "Audience side" }], () => st.hive.blue, (v) => { st.hive.blue = v as any; change("sim"); }),
@@ -708,7 +773,7 @@ export class Panel {
         el("button", { ...(st.matchPhase !== "running" ? { disabled: "" } : {}), onclick: () => { st.matchRequest = "stop"; change("sim"); } }, "■ Stop"),
         el("button", { onclick: () => { st.resetMatchRequest = true; change("sim"); } }, "Reset to start"),
       ),
-      el("div", { class: "note" }, "Reset parks every robot on its starting mark with the field at match start; Start releases the 2:30 clock and the other robots. With TeamCode connected, INIT resets and START/STOP do the same for the whole field."),
+      adv(el("div", { class: "note" }, "Reset parks every robot on its starting mark with the field at match start; Start releases the 2:30 clock and the other robots. With TeamCode connected, INIT resets and START/STOP do the same for the whole field.")),
       adv(el("div", { class: "sub" }, "Starting positions (red frame, inches; mirrored when you play blue)"),
         chk("Start on our raised cell's side", () => st.starts.followUpCell ?? true, (v) => { st.starts.followUpCell = v; change("sim"); }),
         el("div", { class: "note" }, "On: you start on the half of the field our hive's raised cell faces (the z values below are used as distances from the centre line), the partner takes the other half, and the opponents do the same for theirs. Off: the z values are used as given."),
@@ -723,7 +788,7 @@ export class Panel {
 
     // --- View / overlays
     const o = st.overlays;
-    this.root.append(section("View & overlays", open("View & overlays", false),
+    addSection(section("View & overlays", open("View & overlays", false),
       sel("Main view", [{ value: "orbit", label: "Orbit (1)" }, { value: "top", label: "Top-down (2)" }, { value: "chase", label: "Chase (3)" }, { value: "robot", label: "Robot camera (4)" }], () => st.view, (v) => { st.view = v as any; change("view"); }),
       chk("Camera insets (all cameras)", () => st.pip, (v) => { st.pip = v; change("view"); }),
       adv(chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
@@ -735,11 +800,17 @@ export class Panel {
       chk("Target opening", () => o.target, (v) => { o.target = v; change("overlays"); }),
       chk("Aim line", () => o.aim, (v) => { o.aim = v; change("overlays"); })),
       chk("Reachability map (RPM by position)", () => o.reach, (v) => { o.reach = v; change("overlays"); }),
-      el("div", { class: "note" }, "Reachability colours the mat by the flywheel RPM needed to hit the target cell from each 6 in square with the current launcher (green = low, red = near max, dark = cannot reach). Recomputed when launcher or target change."),
+      adv(el("div", { class: "note" }, "Reachability colours the mat by the flywheel RPM needed to hit the target cell from each 6 in square with the current launcher (green = low, red = near max, dark = cannot reach). Recomputed when launcher or target change.")),
       chk("Hit-probability map (aimed from each square)", () => o.hitmap, (v) => { o.hitmap = v; change("overlays"); }),
-      el("div", { class: "note" }, "For every 6 in square: aim at the target cell, use the hood/RPM the launcher would need from there, and fire 40 simulated shots with the configured shot variability. Green = always in, red = never. Squares are dimmed where the selected camera would not see any of the target cell's AprilTags, so auto-aim could not lock on. Fills in over a few seconds and recomputes as you change the launcher, variability, hood, cameras or target."),
+      adv(el("div", { class: "note" }, "For every 6 in square: aim at the target cell, use the hood/RPM the launcher would need from there, and fire 40 simulated shots with the configured shot variability. Green = always in, red = never. Squares are dimmed where the selected camera would not see any of the target cell's AprilTags, so auto-aim could not lock on. Fills in over a few seconds and recomputes as you change the launcher, variability, hood, cameras or target.")),
       adv(chk("Performance stats", () => st.showPerf, (v) => { st.showPerf = v; change("view"); }),
-      el("div", { class: "note" }, "Export, import and reset live in the Session section at the top.")),
+      el("div", { class: "note" }, "Export, import and reset live in Settings & session at the bottom.")),
     ));
+    // lay the sections out in ORDER (anything new goes last), then refresh the bits that read the DOM
+    const title = (d: HTMLElement) => d.querySelector("summary")?.textContent ?? "";
+    sections.sort((a, b) => { const ia = Panel.ORDER.indexOf(title(a)), ib = Panel.ORDER.indexOf(title(b)); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+    this.root.append(...sections);
+    this.refreshTimeline();
+    if (this.assetDialogOpen) this.renderAssetDialog();
   }
 }

@@ -469,7 +469,8 @@ function loadSettingsFromFile(): { ok: boolean; error?: string } {
   try { applySettingsJson(JSON.parse(f.text)); } catch (e) { return { ok: false, error: `settings file is not valid: ${e}` }; }
   localStorage.setItem(SYNC_KEY, f.text);
   recorder.event(Date.now(), "note", `settings loaded from ${f.path}`);
-  panel.flashSession(`Loaded settings from ${f.path.split("/").pop()}`);
+  panel.flashSession(`Loaded ${new Date().toLocaleTimeString()}`);
+  panel.toast(`Settings loaded from ${f.path.split("/").pop()}`);
   return { ok: true };
 }
 function saveSettingsToFile(): Promise<{ ok: boolean; path?: string; error?: string }> {
@@ -485,7 +486,8 @@ link.onSettingsSaved = (r) => {
   recorder.event(Date.now(), r.ok ? "note" : "error", r.ok ? `settings saved to ${r.path}` : `settings not saved: ${r.error}`);
   settingsPending?.(r); settingsPending = undefined;
   panel.render();
-  panel.flashSession(r.ok ? `Saved settings to ${r.path?.split("/").pop()}` : `Not saved: ${r.error}`, !r.ok);
+  panel.flashSession(r.ok ? `Saved ${new Date().toLocaleTimeString()}` : `Not saved: ${r.error}`, !r.ok);
+  panel.toast(r.ok ? `Settings saved to ${r.path?.split("/").pop()}` : `Settings not saved: ${r.error}`, !r.ok);
 };
 let settingsAutoLoaded = false;
 link.onSettings = (f) => {
@@ -506,6 +508,7 @@ link.onAssetWritten = (r) => {
   pendingWrites.get(r.path)?.(r); pendingWrites.delete(r.path);
   panel.render(); // rebuilds the panel (new flash element), so flash afterwards
   panel.flashAssets(r.ok ? `Saved ${r.path.split("/").pop()} to ${r.file}` : `Not saved: ${r.error}`, !r.ok);
+  panel.toast(r.ok ? `${r.path.split("/").pop()} written to the repo` : `${r.path.split("/").pop()} not written: ${r.error}`, !r.ok);
 };
 /** Write an asset with the current overrides applied; resolves with the host's answer. */
 function saveAssetToRepo(path: string): Promise<{ ok: boolean; file?: string; error?: string }> {
