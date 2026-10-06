@@ -13,7 +13,7 @@
  * the TeamCode module folder, or the java source folder itself.
  */
 import { execSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, watch as watchFs, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -133,7 +133,6 @@ if (bindingsFile && existsSync(bindingsFile)) gradleArgs.push(`-PsimBindings=${b
 // bindings so they are versioned with the code; without a team they stay under runtime/
 const settingsFile = team ? join(resolve(team, "../../.."), "twin-settings.json") : join(root, "runtime", "twin-settings.json");
 gradleArgs.push(`-PsimSettings=${settingsFile}`);
-if (watch) gradleArgs.push("--continuous");
 
 console.log(`sim: TeamCode  ${team ?? "(none — sample OpModes only; pass --team <path>)"}`);
 if (exclude) console.log(`sim: excluding ${exclude}`);
@@ -149,7 +148,19 @@ console.log(`sim: twin      http://localhost:${port}/?runtime=1${built ? "  (bui
 const children = [];
 const prefix = (name, color) => { let buf = ""; return (chunk) => { buf += chunk.toString(); const lines = buf.split(/\r?\n/); buf = lines.pop() ?? ""; for (const line of lines) if (line.trim()) process.stdout.write(`\x1b[${color}m[${name}]\x1b[0m ${line}\n`); }; };
 
-const host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}) }, shell: isWin });
+// The host is a Gradle `run` task that never ends, and Gradle's --continuous build never interrupts a running task, so
+// the launcher does the watching itself: on a source change it ends the host JVM and runs the task again (the Gradle
+// daemon makes the recompile a few seconds). The browser reconnects by itself; INIT the OpMode again to run new code.
+let host;
+let restarting = false;
+let shuttingDown = false;
+const startHost = () => {
+  host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}) }, shell: isWin });
+  host.stdout.on("data", hostOut);
+  host.stderr.on("data", hostOut);
+  host.on("exit", (code) => { if (!restarting && !shuttingDown && code && code !== 130) console.log(`\x1b[33m[host]\x1b[0m exited with code ${code}`); });
+  return host;
+};
 const errFiles = new Set();
 let hostPid; // the host JVM itself (announced on its first stdout line), distinct from the gradlew client we spawned
 // one line buffer for the whole stream: a buffer per chunk (the old code) dropped every line split across two pipe
@@ -169,9 +180,7 @@ const hostOut = (chunk) => {
     errFiles.clear();
   }
 };
-host.stdout.on("data", hostOut);
-host.stderr.on("data", hostOut);
-children.push(host);
+startHost();
 
 // run Vite's own entry point rather than `pnpm exec vite`, so the pid we hold is Vite itself and a signal reaches it
 const viteBin = join(root, "node_modules", "vite", "bin", "vite.js");
@@ -228,10 +237,10 @@ const hostPids = () => {
   return found;
 };
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-let shuttingDown = false;
 const shutdown = async () => {
   if (shuttingDown) return; shuttingDown = true;
   for (const c of children) try { c.kill("SIGINT"); } catch {}
+  try { host?.kill("SIGINT"); } catch {}
   // the host JVM runs under the Gradle daemon, so it must be stopped explicitly: TERM, wait, then KILL
   const pids = hostPids().filter(alive);
   if (vite.pid && alive(vite.pid)) pids.push(vite.pid);
@@ -243,5 +252,31 @@ const shutdown = async () => {
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
-host.on("exit", (code) => { if (code && code !== 130) console.log(`\x1b[33m[host]\x1b[0m exited with code ${code}`); });
+// ---- watch the sources the host is built from and restart it on change
+if (watch) {
+  const watchDirs = [team, simDir, assetsDir, join(root, "runtime", "sdk-shim", "src"), join(root, "runtime", "host", "src"), join(root, "runtime", "samples", "src")].filter((d) => d && existsSync(d));
+  const watchFiles = [bindingsFile].filter((f) => f && existsSync(f));
+  let timer;
+  const relevant = (f) => !f || /\.(java|kt|json|properties)$/.test(f);
+  const onChange = (what) => {
+    if (!relevant(what)) return;
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (shuttingDown) return;
+      restarting = true;
+      console.log(`\x1b[33m[host]\x1b[0m change in ${what ?? "sources"} — recompiling and restarting the host (re-INIT your OpMode when it is back)`);
+      const pids = hostPids().filter(alive);
+      try { host.kill("SIGINT"); } catch {}
+      for (const pid of pids) try { process.kill(pid, "SIGTERM"); } catch {}
+      const until = Date.now() + 4000;
+      while (Date.now() < until && pids.some(alive)) await new Promise((r) => setTimeout(r, 100));
+      for (const pid of pids.filter(alive)) { try { process.kill(pid, "SIGKILL"); } catch {} }
+      hostPid = undefined;
+      restarting = false;
+      startHost();
+    }, 500);
+  };
+  for (const d of watchDirs) { try { watchFs(d, { recursive: true }, (_ev, f) => onChange(f ? `${d.split("/").pop()}/${f}` : d)); } catch (e) { console.log(`sim: cannot watch ${d}: ${e.message}`); } }
+  for (const f of watchFiles) { try { watchFs(f, () => onChange(f.split("/").pop())); } catch {} }
+}
 vite.on("exit", () => shutdown());
