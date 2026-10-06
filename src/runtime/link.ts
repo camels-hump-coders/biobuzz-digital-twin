@@ -106,7 +106,13 @@ export class RuntimeLink {
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
       case "log": this.onLog(msg.level ?? "out", msg.text ?? "", msg.millis ?? Date.now()); break;
-      case "assets": this.assets = msg.files ?? []; this.bindings = msg.bindings && msg.bindings.text ? msg.bindings : undefined; this.onChange(); break;
+      case "assets": {
+        // Panels' web UI files are not robot settings (older hosts still send them)
+        this.assets = (msg.files ?? []).filter((f: { path: string }) => !/^web\/(app|plugins|biobuzz-)/.test(f.path));
+        this.bindings = msg.bindings && msg.bindings.text ? msg.bindings : undefined;
+        this.onChange();
+        break;
+      }
     }
   }
   private send(o: unknown) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }

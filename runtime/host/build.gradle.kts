@@ -15,6 +15,7 @@ tasks.named<JavaExec>("run") {
     // asset roots: the team\'s assets first, then Panels\' unpacked web UI so its StaticServer can list and serve it
     val panelsAssets = project(":panels").layout.buildDirectory.dir("panels/assets").get().asFile.path
     systemProperty("sim.assets", listOfNotNull((findProperty("simAssets") as String?)?.takeIf { it.isNotBlank() }, panelsAssets).joinToString(","))
+    systemProperty("sim.panelsAssets", panelsAssets) // not a team asset: hidden from the TeamCode settings panel
     systemProperty("sim.panels", (findProperty("simPanels") as String?) ?: "true")
     systemProperty("sim.runs", rootProject.file("runs").absolutePath) // finished runs from the browser, for agents and later sessions
     systemProperty("sim.bindings", (findProperty("simBindings") as String?) ?: "")

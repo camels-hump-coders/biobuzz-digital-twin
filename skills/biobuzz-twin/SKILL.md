@@ -161,21 +161,38 @@ shooter direction, alliance, start pose. Rules:
    file's key order and indentation so only the changed values show in the diff. From a script: `applyOverrides` /
    `exportChangedAssets` in `src/runtime/assetExport.ts` with `link.assets`, `state.assetOverrides`, `link.bound.overrides`.
 
-## 4a. Describe every setting in the asset's schema sidecar
+## 4a. Every JSON asset gets a schema sidecar; you create and maintain it
 
-Each JSON asset has (or should get) a JSON Schema sidecar next to it: `robot-profile.schema.json` for
-`robot-profile.json`. The twin's settings panel renders it (help text, dropdowns for `enum`, sliders for
-`minimum`/`maximum`, red flags for violations) and `GET /api/schema?file=robot-profile.json` returns it with the
-current violations. Rules:
+Each JSON asset the OpModes read (`TeamCode/src/main/assets/**/*.json`) must have a JSON Schema sidecar next to it,
+`<name>.schema.json` (`robot-profile.schema.json` for `robot-profile.json`). The twin's TeamCode settings panel renders
+it: `description` becomes help text (and is searchable), `enum` a dropdown, `minimum`/`maximum` a slider, `default` is
+shown, violations turn red, and the file badge reads "schema ✓", "N invalid" or "no schema". Agents read the same via
+`GET /api/schema` (per file: has a schema? current violations) and `GET /api/schema?file=<name>.json`.
 
-1. When you add, rename or re-range a setting in the Java that parses it (`number(a,"key",fallback,min,max)`,
-   `valueOf(...)` enums, `validate()` ranges), update the sidecar in the same change: `description` (what it does, units,
-   sign convention, what happens at the extremes), `type`, `enum`, `minimum`/`maximum`, `default`, `"type": ["number","null"]`
-   when null is meaningful. Keep the schema's ranges identical to the Java's; the schema is documentation of the code,
-   not a second source of truth.
-2. Nested objects use `properties`; arrays use `items`; maps of similar entries use `additionalProperties`.
-3. Before INIT, run `curl -s "$A/api/schema?file=robot-profile.json" | jq .invalid` (or read the file badge) so a
-   value the code will reject at startup is caught here first.
+**Creating a schema for a file that has none ("no schema" badge, or `schema: false` in /api/schema):**
+
+1. Find the Java that parses the file (`grep -rn '"<someKey>"' TeamCode/src/main/java`). Read every accessor: the
+   `number(a,"key",fallback,min,max)` helpers give `default`, `minimum`, `maximum`; `optBoolean(...,false)` gives a
+   boolean with its default; `valueOf(...)` / `switch` on strings give `enum`; `validate()` methods and `throw new
+   IllegalArgumentException` guards give the real ranges and cross-field rules (put those in the description);
+   `isNull`-tolerant reads mean `"type": ["number","null"]`.
+2. Write draft-07 JSON: top-level `title`, `description` (one paragraph: what the file is for and which classes parse
+   it), `$comment` with the date and "written from <classes>", then `properties`. Nested objects use `properties`;
+   arrays use `items`; maps of similar entries (`bindings.*`, `servos.*`) use `additionalProperties`.
+3. Every leaf gets `type` and a `description` in plain words: what it does, units, sign convention, what happens at
+   the extremes, which other settings it depends on. Add `enum`, `minimum`/`maximum` (or `exclusiveMinimum`), `default`,
+   `"type": "integer"` where the code rounds, `readOnly`/`deprecated` where true, `const` for format versions.
+4. Check it: open the panel (or `curl -s "$A/api/schema?file=<name>.json" | jq .invalid`) and make sure the committed
+   file validates; a violation means the schema is wrong, not the file.
+5. Commit the sidecar with the code it documents.
+
+**Keeping it in step:** whenever you add, rename or re-range a setting in the parsing Java, change the sidecar in the
+same commit. The schema's ranges must equal the Java's; it documents the code and is not a second source of truth.
+Before INIT in a scenario, read `.invalid` so a value the code will reject at startup is caught here first.
+
+**Panels, dashboards and other non-robot JSON** (web UI layouts, plugin configs) are not settings; the host already
+hides Panels' files from the panel. If the team adds a JSON file that is not read by robot code, say so in `_not_bound`
+of twin-bindings.json rather than writing a schema for it.
 
 ## 4b. Shooter calibration: make the twin shoot like the robot
 

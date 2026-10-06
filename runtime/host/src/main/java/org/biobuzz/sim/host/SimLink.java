@@ -227,10 +227,15 @@ public class SimLink extends WebSocketServer {
     private JsonObject assetsMessage() {
         JsonObject m = new JsonObject(); m.addProperty("type", "assets");
         JsonArray files = new JsonArray();
+        String panelsRoot = System.getProperty("sim.panelsAssets", "");
         for (String root : System.getProperty("sim.assets", "").split(",")) {
             if (root.isBlank()) continue;
             java.io.File dir = new java.io.File(root.trim());
             if (!dir.isDirectory()) continue;
+            // Panels' unpacked web UI lives on the same asset path so its StaticServer can serve it, but it is not a
+            // robot setting: keep it out of the TeamCode settings panel
+            if (!panelsRoot.isBlank() && dir.getAbsolutePath().equals(new java.io.File(panelsRoot).getAbsolutePath())) continue;
+            if (dir.getAbsolutePath().replace('\\', '/').endsWith("/panels/build/panels/assets")) continue;
             try (java.util.stream.Stream<java.nio.file.Path> walk = java.nio.file.Files.walk(dir.toPath())) {
                 walk.filter(p -> p.toString().endsWith(".json") && !p.toString().endsWith(".sim.json") && java.nio.file.Files.isRegularFile(p)).sorted().forEach(p -> {
                     try {
