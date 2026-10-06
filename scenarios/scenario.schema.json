@@ -26,7 +26,7 @@
         "starterbotMecanum",
         "custom18"
       ],
-      "description": "chassis preset; omit to keep the browser's saved robot"
+      "description": "chassis preset; omit to keep the browser's saved robot Overrides twinSettings."
     },
     "hardwarePreset": {
       "enum": [
@@ -161,6 +161,13 @@
       "type": "boolean",
       "default": false,
       "description": "do not apply TeamCode/twin-bindings.json for this run (assets as committed)"
+    },
+    "twinSettings": {
+      "type": [
+        "string",
+        "boolean"
+      ],
+      "description": "Run the robot the human runs: true loads TeamCode/twin-settings.json from the team repo (the file the twin's Session section saves), or give a path relative to --team. Its robot, intake side, cameras, launcher, hardware map, calibration and asset overrides are applied first; the scenario's alliance, opponents, starts and assetOverrides override, and robotPreset/hardwarePreset (if given) replace the file's robot."
     }
   }
 }

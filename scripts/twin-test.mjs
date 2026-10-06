@@ -118,15 +118,27 @@ async function runScenario(scenario, scenarioPath, out) {
   const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
+  // twinSettings: run the robot the human runs. The file the Session section saves (robot preset and dimensions,
+  // intake side, cameras, launcher, hardware map with free RPMs and mirrored side, calibration, asset overrides) is
+  // applied first; the scenario's own fields then override, and its assetOverrides sit on top of the file's.
+  const settingsFile = scenario.twinSettings === true ? findTeamFile(team, "twin-settings.json") : scenario.twinSettings ? findTeamFile(team, scenario.twinSettings) : undefined;
+  let fileSettings = {};
+  if (scenario.twinSettings) {
+    if (!settingsFile) { console.error(`twin-test: twinSettings ${scenario.twinSettings === true ? "twin-settings.json" : scenario.twinSettings} not found under ${team ?? "(no --team)"}`); }
+    else { try { fileSettings = JSON.parse(readFileSync(settingsFile, "utf8")); delete fileSettings.biobuzzTwinSettings; for (const k of ["pose", "matchPhase", "matchClock", "matchRequest", "aimRequest", "resetMatchRequest", "runtimeEnabled", "runtimeUrl", "pip", "settingsAutoLoad", "view"]) delete fileSettings[k]; console.log(`twin-test: robot and settings from ${settingsFile}`); } catch (e) { console.error(`twin-test: cannot read ${settingsFile}: ${e}`); } }
+  }
+  const mergedOverrides = {};
+  for (const src of [fileSettings.assetOverrides ?? {}, scenario.assetOverrides ?? {}]) for (const [path, vals] of Object.entries(src)) mergedOverrides[path] = { ...(mergedOverrides[path] ?? {}), ...vals };
   const seed = {
-    alliance: scenario.alliance ?? "red",
+    ...fileSettings,
+    alliance: scenario.alliance ?? fileSettings.alliance ?? "red",
     opponents: scenario.opponents ?? true,
     opponentsScore: scenario.opponentsScore ?? true,
     pauseOpponents: false,
     runtimeEnabled: true,
     runtimeUrl: `ws://127.0.0.1:${hostPort}`,
-    assetOverrides: scenario.assetOverrides ?? {},
-    overlays: { fan: false, dispersion: false, hitmap: false, reach: false },
+    assetOverrides: mergedOverrides,
+    overlays: { ...(fileSettings.overlays ?? {}), fan: false, dispersion: false, hitmap: false, reach: false },
     showPerf: false,
     pip: false, // camera insets are extra renders; AprilTag detections do not need them
     settingsAutoLoad: false, // the scenario is the source of truth: never let the repo's twin-settings.json replace it
@@ -147,7 +159,8 @@ async function runScenario(scenario, scenarioPath, out) {
     const base = { status: t.link.status, error: t.link.statusError || undefined, telemetry: t.link.telemetry, poseIn: { x: +(t.state.pose.x / 0.0254).toFixed(1), z: +(t.state.pose.z / 0.0254).toFixed(1), headingDeg: +((t.state.pose.heading * 180) / Math.PI).toFixed(1) }, shotsFired: s.shotsFired, shotsHit: s.shotsHit };
     if (light) return base;
     const inv = t.playerAgent.inventory;
-    return { ...base, carrying: { pollen: inv.pollen, nectar: inv.nectar }, hives: Object.fromEntries(Object.entries(t.match.hives).map(([a, h]) => [a, { upCell: h.upCell, tips: h.tips, load: t.match.cellLoad(a) }])), fouls: Object.fromEntries(t.__pins.fouls), matchClock: t.state.matchClock, matchPhase: t.state.matchPhase, score: t.score?.(), hardware: t.state.hardware.devices.map((d) => `${d.kind}:${d.name}`) };
+    const r = t.state.robot, fly = t.state.hardware.devices.find((d) => d.role === "flywheel");
+    return { ...base, robot: { preset: t.state.robotPresetId, drivetrain: r.drivetrain, intakeSide: r.intake?.side, cameras: r.cameras.map((c) => `${c.name} pitch ${c.pitchDeg} yaw ${c.yawDeg}`), launcher: { yawOffsetDeg: r.launcher.yawOffsetDeg, elevationDeg: r.launcher.elevationDeg, efficiency: r.launcher.efficiency }, flywheelFreeRpm: fly?.freeRpm, mirroredSide: t.state.hardware.mirroredSide }, carrying: { pollen: inv.pollen, nectar: inv.nectar }, hives: Object.fromEntries(Object.entries(t.match.hives).map(([a, h]) => [a, { upCell: h.upCell, tips: h.tips, load: t.match.cellLoad(a) }])), fouls: Object.fromEntries(t.__pins.fouls), matchClock: t.state.matchClock, matchPhase: t.state.matchPhase, score: t.score?.(), hardware: t.state.hardware.devices.map((d) => `${d.kind}:${d.name}`) };
   }, light);
   const finish = async (failed) => {
     await page.evaluate(() => window.__twin.input.clearInjected()).catch(() => {});
@@ -159,7 +172,7 @@ async function runScenario(scenario, scenarioPath, out) {
     return report(failed);
   };
   if (!opModes.includes(scenario.opMode)) { console.error(`twin-test: OpMode "${scenario.opMode}" not found. Available:\n  ${opModes.join("\n  ")}`); return finish(`OpMode "${scenario.opMode}" not found`); }
-  // robot / hardware presets through the panel so the same code paths run as for a human
+  // robot / hardware presets through the panel so the same code paths run as for a human (they override twinSettings)
   if (scenario.robotPreset) await page.evaluate((id) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === id)); if (s) { s.value = id; s.dispatchEvent(new Event("change")); } }, scenario.robotPreset);
   if (scenario.hardwarePreset) await page.evaluate((hp) => { const label = hp === "camelsHump" ? "Camels Hump" : "StarterBot names"; [...document.querySelectorAll("#panel button")].find((b) => b.textContent.includes(label))?.click(); }, scenario.hardwarePreset);
   await page.waitForTimeout(400);
@@ -230,7 +243,7 @@ async function runScenario(scenario, scenarioPath, out) {
     if (e.poseNear && final) { const d = Math.hypot(final.poseIn.x - e.poseNear.xIn, final.poseIn.z - e.poseNear.zIn); checks.push({ check: `ends within ${e.poseNear.tolIn ?? 12} in of (${e.poseNear.xIn}, ${e.poseNear.zIn})`, pass: d <= (e.poseNear.tolIn ?? 12), detail: `${d.toFixed(1)} in away` }); }
     if (e.scoreAtLeast !== undefined && final?.score) { const mine = final.score[scenario.alliance ?? "red"]?.total ?? 0; checks.push({ check: `our score ≥ ${e.scoreAtLeast}`, pass: mine >= e.scoreAtLeast, detail: `${mine} pts` }); }
     const pass = checks.every((c) => c.pass) && !failed;
-    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, pass, failed, checks, start: startSnapshot, final, samples, telemetryChanges, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
+    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, twinSettings: settingsFile, pass, failed, checks, start: startSnapshot, final, samples, telemetryChanges, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
     writeReport(out, rep);
     console.log(`\ntwin-test: ${rep.scenario}`);
     if (failed) console.log(`  ✗ ${failed}`);
@@ -242,6 +255,17 @@ async function runScenario(scenario, scenarioPath, out) {
     console.log(`  report: ${out}`);
     return pass;
   }
+}
+
+/** A team file by relative path: under --team as given (root, TeamCode module or java folder), under its TeamCode
+ * module, or up to three parents above it; absolute paths are used as they are. */
+function findTeamFile(teamPath, rel) {
+  if (!rel) return undefined;
+  if (rel.startsWith("/") || /^[A-Za-z]:[\\/]/.test(rel)) return existsSync(rel) ? rel : undefined;
+  const bases = [];
+  if (teamPath) { let d = resolve(teamPath); for (let i = 0; i < 4; i++) { bases.push(d, resolve(d, "TeamCode")); d = dirname(d); } }
+  for (const b of bases) { const f = resolve(b, rel); if (existsSync(f)) return f; }
+  return undefined;
 }
 
 function writeReport(out, rep) { mkdirSync(dirname(out), { recursive: true }); writeFileSync(out, JSON.stringify(rep, null, 2)); }

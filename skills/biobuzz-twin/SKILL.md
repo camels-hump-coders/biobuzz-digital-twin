@@ -70,6 +70,12 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
 }
 ```
 
+- `"twinSettings": true` makes the scenario run the robot the human runs: the team's `TeamCode/twin-settings.json`
+  (saved from the twin's Session section: robot preset and dimensions, intake side, cameras, launcher, hardware map,
+  calibration, asset overrides) is applied first, then the scenario's alliance, opponents, starts and assetOverrides.
+  Use it for every team scenario once that file is committed; without it scenarios run the stock preset and can pass
+  where the human's robot fails (intake at the other end, camera pitch, free RPM). `robotPreset` / `hardwarePreset`
+  in the scenario override the file's robot, so leave them out when using twinSettings.
 - `expect.telemetryIncludes` and `expect.telemetrySequence` (regexes that must first appear in that order) are checked
   against the 10 Hz telemetry change log, so routine states that last under a second count; the report keeps 1 Hz
   samples plus `telemetryChanges` (every moment the telemetry changed, with the lines). `expect.scoreAtLeast` checks our
