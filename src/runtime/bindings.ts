@@ -38,7 +38,20 @@ export function solverCalibration(state: AppState): SolverCalibration | undefine
   calCache = { key, value };
   return value;
 }
-function solverCalibrationUncached(state: AppState): SolverCalibration | undefined {
+function solverCalibrationUncached(state: AppState): SolverCalibration | undefined { return solverCalibrationSide(state, 1); }
+let calBehindCache: { key: string; value: SolverCalibration | undefined } | undefined;
+/** Same, for a robot on the pivot side of the hive (lobbing over the cell's roof into the opening from behind). */
+export function solverCalibrationBehind(state: AppState): SolverCalibration | undefined {
+  const l = state.robot.launcher;
+  const fly0 = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
+  const key = JSON.stringify([l.elevationDeg, l.efficiency, l.exitHeightM, l.wheelDiameterM, l.maxRpm, l.spinFraction, state.alliance, state.hive, state.ballKind, state.drag, fly0?.freeRpm]);
+  if (calBehindCache && calBehindCache.key === key) return calBehindCache.value;
+  const value = solverCalibrationSide(state, -1);
+  calBehindCache = { key, value };
+  return value;
+}
+/** sideSign +1: in front of the opening (normal approach); -1: on the pivot side. */
+function solverCalibrationSide(state: AppState, sideSign: 1 | -1): SolverCalibration | undefined {
   const l = state.robot.launcher;
   const frame = upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] }), aim = aimPoint(frame);
   const nh = Math.hypot(frame.normal.x, frame.normal.z) || 1, nx = frame.normal.x / nh, nz = frame.normal.z / nh;
@@ -48,7 +61,7 @@ function solverCalibrationUncached(state: AppState): SolverCalibration | undefin
   const freeRpm = fly?.freeRpm ?? l.maxRpm;
   const maxSpeed = (Math.PI * l.wheelDiameterM * l.maxRpm) / 60 * l.efficiency;
   const tryRange = (rangeIn: number) => {
-    const ad = solveSpeedAdaptive(ball, { x: aim.x + nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + nz * rangeIn * IN }, frame, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2, spinRate(l));
+    const ad = solveSpeedAdaptive(ball, { x: aim.x + sideSign * nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + sideSign * nz * rangeIn * IN }, frame, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2, spinRate(l));
     const sol = ad.result;
     if (!sol || !sol.hit) return undefined;
     const rpm = rpmForExitSpeed(l, sol.speed);
@@ -111,6 +124,10 @@ export function twinKnobs(state: AppState): Knobs {
   // aim height: the opening centre pushed inside by a depth that follows the entry angle at the reference range (steep
   // arcs aim at the centre, flat ones deeper); hive.openingCenterHeightIn is the fixed geometry
   const cal2 = (() => { try { return solverCalibration(state); } catch { return undefined; } })();
+  try {
+    const cb = solverCalibrationBehind(state);
+    if (cb) { k["launcher.calibrationBehind.rangeIn"] = cb.rangeIn; k["launcher.calibrationBehind.power"] = cb.power; k["launcher.calibrationBehind.rpm"] = cb.rpm; k["launcher.calibrationBehind.entryAngleDeg"] = cb.entryAngleDeg; k["launcher.calibrationBehind.legal"] = cb.legal; k["launcher.calibrationBehind.aimHeightIn"] = cb.aimHeightIn; if (cb.minRangeIn !== undefined) k["launcher.calibrationBehind.minRangeIn"] = cb.minRangeIn; if (cb.powerTable?.length) k["launcher.calibrationBehind.powerTable"] = cb.powerTable; }
+  } catch { /* as above */ }
   k["hive.openingCenterHeightIn"] = Math.round((upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] }).openingCenter.y / IN) * 100) / 100;
   k["hive.aimHeightIn"] = cal2 ? cal2.aimHeightIn : Math.round((aimPoint(upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] })).y / IN) * 100) / 100;
   k["hive.aimInsideIn"] = cal2 ? cal2.aimInsideIn : 2;

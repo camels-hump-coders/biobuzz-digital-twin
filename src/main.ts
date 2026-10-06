@@ -351,7 +351,8 @@ link.onAgent = async (action, params) => {
       // two answers per range: the twin's full solver (any entry that moves into the tilted opening, rising or falling,
       // inside the opening polygon shrunk by the ball) and the descending-only arc that TeamCode's ShotPower assumes
       const frame = targetFrame(), aim = aimPoint(frame);
-      const nh = Math.hypot(frame.normal.x, frame.normal.z) || 1, nx = frame.normal.x / nh, nz = frame.normal.z / nh; // outward, toward the shooter
+      const sideSign = String(params.side ?? "front") === "behind" ? -1 : 1; // behind = on the pivot side, lobbing over the cell
+      const nh = Math.hypot(frame.normal.x, frame.normal.z) || 1, nx = (frame.normal.x / nh) * sideSign, nz = (frame.normal.z / nh) * sideSign; // toward the shooter
       const elevRad = (prm.elevationDeg * Math.PI) / 180;
       const rows = ranges.map((rangeIn) => {
         const rangeM = rangeIn * IN;
@@ -362,7 +363,7 @@ link.onAgent = async (action, params) => {
         const desc = v === undefined ? { reachable: false } : (() => { const rpm = rpmForExitSpeed(l, v); return { reachable: rpm <= l.maxRpm, exitSpeedMps: +v.toFixed(2), rpm: Math.round(rpm), power: +(rpm / model.freeRpm).toFixed(3) }; })();
         return { rangeIn, twinSolver: twin, descendingArc: desc };
       });
-      return { result: { target: `${state.alliance} hive, ${state.hive[state.alliance]} cell`, targetHeightIn: +(targetHeightM / IN).toFixed(1), hoodDeg: prm.elevationDeg, exitHeightIn: +(l.exitHeightM / IN).toFixed(1), flywheelFreeRpm: model.freeRpm, launcher: { efficiency: l.efficiency, wheelDiameterMm: Math.round(l.wheelDiameterM * 1000), maxRpm: l.maxRpm }, rows, note: "power = rpm / flywheel free RPM (Hardware map), i.e. the setPower a no-load motor needs. twinSolver: lowest speed whose arc crosses the opening polygon moving into the cell (rising entries count, as on the tilted opening); descendingArc: the stricter model TeamCode's ShotPower uses (apex before the opening). The live value for the current pose is in /api/state → shot" } };
+      return { result: { target: `${state.alliance} hive, ${state.hive[state.alliance]} cell`, side: sideSign === 1 ? "front" : "behind", targetHeightIn: +(targetHeightM / IN).toFixed(1), hoodDeg: prm.elevationDeg, exitHeightIn: +(l.exitHeightM / IN).toFixed(1), flywheelFreeRpm: model.freeRpm, launcher: { efficiency: l.efficiency, wheelDiameterMm: Math.round(l.wheelDiameterM * 1000), maxRpm: l.maxRpm }, rows, note: "power = rpm / flywheel free RPM (Hardware map), i.e. the setPower a no-load motor needs. twinSolver: lowest speed whose arc crosses the opening polygon moving into the cell (rising entries count, as on the tilted opening); descendingArc: the stricter model TeamCode's ShotPower uses (apex before the opening). The live value for the current pose is in /api/state → shot" } };
     }
     case "save": { // write the merged asset(s) back into the team repo: {file} or {all:true}
       const targets = params.all ? exportChangedAssets(link.assets, state.assetOverrides, link.bound.overrides).map((c) => c.path) : [String(params.file ?? "")].map((f) => link.assets.find((a) => a.path === f || a.path.endsWith("/" + f))?.path ?? f);

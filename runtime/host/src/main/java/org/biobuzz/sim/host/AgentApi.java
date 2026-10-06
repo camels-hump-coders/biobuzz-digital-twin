@@ -105,7 +105,7 @@ public final class AgentApi {
         e.addProperty("GET /api/state", "pose, match phase/clock, score, inventories, hive states, selected OpMode, alliance");
         e.addProperty("GET /api/knobs", "twin knob catalogue (what twin-bindings.json can reference) with values");
         e.addProperty("GET /api/overrides", "asset overrides: manual (panel) and bound (twin bindings)");
-        e.addProperty("GET /api/shot?rangeIn=68", "required exit speed / RPM / flywheel power to score in the up cell at that horizontal range (or rangesIn=48,60,72 for a table; hoodDeg= to try another angle); the live value for the current pose is /api/state -> shot");
+        e.addProperty("GET /api/shot?rangeIn=68", "required exit speed / RPM / flywheel power to score in the up cell at that horizontal range (or rangesIn=48,60,72 for a table; hoodDeg= to try another angle; side=behind for a robot on the pivot side lobbing over the cell); the live value for the current pose is /api/state -> shot");
         e.addProperty("GET /api/run", "recorded runs (INIT->STOP) in the browser session, the latest one, and the replay cursor");
         e.addProperty("GET /api/replay?offset=12.5", "the recorded sample 12.5 s into the latest run (pose, other robots, balls, hive tilts, telemetry, sticks, score); offset<0 counts from the run's end; t=<ms> or step=<n> also work; add scrub=false to not move the human's view");
         e.addProperty("POST /api/replay", "{\"offset\": 12.5} | {\"step\": -1} | {\"t\": 1791...} scrub the human's field to that moment (live sim pauses); {\"live\": true} resumes");

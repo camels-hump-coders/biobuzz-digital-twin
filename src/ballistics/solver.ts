@@ -1,5 +1,5 @@
 /** Find launch parameters that put a ball through the up-cell opening. */
-import { type CellFrame, type Vec3, dot, pointInOpening, sub } from "../field/hive";
+import { type CellFrame, type Vec3, dot, openingProfile, pointInOpening, sub } from "../field/hive";
 import { type BallProps, simulate, velocityFrom, type TrajectorySample } from "./projectile";
 
 /** radius of the coloured frame tubes around the CELL opening (m) */
@@ -17,6 +17,8 @@ export interface ShotResult {
   heightError: number;
   /** angle between incoming velocity and the opening plane, rad (larger = steeper entry) */
   entryAngleRad?: number;
+  /** launched from the pivot side and the arc would pass through the cell's roof before dropping in */
+  blockedByCell?: boolean;
 }
 
 export interface ShotRequest {
@@ -78,6 +80,7 @@ export function evaluateVelocity(req: ShotRequest, vel: Vec3, elevationRad = Mat
   const cross = planeCrossing(samples, req.frame);
   let hit = false;
   let entryAngleRad: number | undefined;
+  let blockedByCell = false;
   if (cross) {
     // the opening is framed by ~12 mm tubes; the ball centre must clear them too
     const inside = pointInOpening(req.frame, cross.p, req.ball.diameterM / 2 + LIP_TUBE_RADIUS);
@@ -85,9 +88,32 @@ export function evaluateVelocity(req: ShotRequest, vel: Vec3, elevationRad = Mat
     const vl = Math.hypot(cross.v.x, cross.v.y, cross.v.z) || 1e-9;
     entryAngleRad = Math.asin(Math.max(-1, Math.min(1, vn / vl)));
     hit = inside && vn > 0;
+    // Launched from the pivot side ("behind" the hive): only the opening face is open, so the arc must clear the cell's
+    // roof over its whole depth before it drops in over the top lip. The cell is a pentagonal prism: roof height = the
+    // opening profile's apex along the frame's up axis, for the full cell depth behind the opening plane.
+    if (hit && launchedFromBehind(req.launchPos, req.frame)) {
+      const depth = cellDepthM();
+      const roofU = openingApexU() + req.ball.diameterM / 2 + LIP_TUBE_RADIUS;
+      let wasFront = false;
+      for (const smp of samples) {
+        const d = dot(sub(smp.pos, req.frame.openingCenter), req.frame.normal);
+        if (d > 0) { wasFront = true; continue; } // over the lip and in front of the plane
+        if (wasFront) break; // the inward crossing: everything after is inside the cell, as intended
+        if (d > -depth - 0.03) { const u = dot(sub(smp.pos, req.frame.floorCenterAtOpening), req.frame.up); if (u < roofU) { blockedByCell = true; hit = false; break; } }
+      }
+    }
   }
-  return { elevationRad, speed, samples, crossing: cross?.p, hit, heightError, entryAngleRad };
+  return { elevationRad, speed, samples, crossing: cross?.p, hit, heightError, entryAngleRad, blockedByCell };
 }
+/** "Behind" is decided horizontally (the opening plane leans back, so a close shot in front of the cell can sit behind
+ * the infinite plane while still being in front of the hive). */
+export function launchedFromBehind(launchPos: Vec3, frame: CellFrame): boolean {
+  const nh = Math.hypot(frame.normal.x, frame.normal.z) || 1e-9;
+  return ((launchPos.x - frame.openingCenter.x) * frame.normal.x + (launchPos.z - frame.openingCenter.z) * frame.normal.z) / nh < 0;
+}
+function cellDepthM(): number { return (HIVE_CELL_DEPTH_IN * 0.0254); }
+function openingApexU(): number { return Math.max(...openingProfile().map((q) => q.u)); }
+const HIVE_CELL_DEPTH_IN = 12.04;
 
 /** For a fixed elevation, bisection on speed so the arc passes through the target point. */
 export function solveSpeedForElevation(req: ShotRequest, elevationRad: number, maxSpeed = 25): ShotResult | undefined {
@@ -141,6 +167,12 @@ export function adaptiveAimInsideM(entryAngleRad: number): number {
 /** Solve the exit speed for a fixed elevation with the aim depth adapted to the resulting entry angle (two passes
  * converge in practice). Returns the final target used, so callers evaluate against the same point. */
 export function solveSpeedAdaptive(ball: BallProps, launchPos: Vec3, frame: CellFrame, elevationRad: number, maxSpeed: number, spin = 0): { result?: ShotResult; target: Vec3; insideM: number } {
+  // From the pivot side the ball clears the roof and drops onto the leaning opening plane at a shallow angle; any
+  // depth offset moves the crossing by depth / sin(entry), so aim at the plane's centre itself (depth 0).
+  if (launchedFromBehind(launchPos, frame)) {
+    const target = aimPointInside(frame, 0);
+    return { result: solveSpeedForElevation({ ball, launchPos, target, frame, spin }, elevationRad, maxSpeed), target, insideM: 0 };
+  }
   let insideM = 0.05;
   let target = aimPointInside(frame, insideM);
   let result = solveSpeedForElevation({ ball, launchPos, target, frame, spin }, elevationRad, maxSpeed);

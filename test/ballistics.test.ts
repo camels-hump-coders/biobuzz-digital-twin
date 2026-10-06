@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { simulate, velocityFrom } from "../src/ballistics/projectile";
-import { adaptiveAimInsideM, scanElevations, solveSpeedAdaptive, solveSpeedForElevation, vacuumSpeed } from "../src/ballistics/solver";
+import { adaptiveAimInsideM, evaluateShot, scanElevations, solveSpeedAdaptive, solveSpeedForElevation, vacuumSpeed } from "../src/ballistics/solver";
 import { LAUNCHER_PRESETS, exitSpeed, rpmForExitSpeed } from "../src/ballistics/launcher";
 import { aimPoint, upCellFrame } from "../src/field/hive";
 import { BALL, m } from "../src/field/fieldSpec";
@@ -79,5 +79,24 @@ describe("adaptive aim depth", () => {
     const centre = frame.openingCenter;
     const dist = (p: { x: number; y: number; z: number }) => Math.hypot(p.x - centre.x, p.y - centre.y, p.z - centre.z);
     expect(dist(ad.target)).toBeLessThan(dist(target)); // nearer the opening centre than the old fixed 2 in aim
+  });
+});
+
+describe("shots from behind the hive", () => {
+  const frame = upCellFrame({ alliance: "red", upCell: "audience" });
+  const drag = { massKg: BALL.pollen.massKg, diameterM: m(BALL.pollen.diaIn), cd: 0.45, cl: 0.2 };
+  const nh = Math.hypot(frame.normal.x, frame.normal.z), nx = frame.normal.x / nh, nz = frame.normal.z / nh;
+  const aim = aimPoint(frame);
+  it("a front shot is never flagged as blocked by the cell", () => {
+    const ad = solveSpeedAdaptive(drag, { x: aim.x + nx * 1.8, y: 0.31, z: aim.z + nz * 1.8 }, frame, (55 * Math.PI) / 180, 20, 157);
+    expect(ad.result?.hit).toBe(true); expect(ad.result?.blockedByCell).toBe(false);
+  });
+  it("from the pivot side, a flat arc through the cell is rejected as blocked and a drop-in over the lip meets the plane shallowly", () => {
+    const behind = { x: aim.x - nx * 1.8, y: 0.31, z: aim.z - nz * 1.8 };
+    // a flat, fast shot aimed at the opening centre from behind would go through the back skin and roof
+    const flat = evaluateShot({ ball: drag, launchPos: behind, target: frame.openingCenter, frame, spin: 157 }, (35 * Math.PI) / 180, 20);
+    expect(flat.hit).toBe(false);
+    const results = [70, 80, 85].map((deg) => ({ deg, ad: solveSpeedAdaptive(drag, behind, frame, (deg * Math.PI) / 180, 25, 157) }));
+    for (const { ad } of results) { expect(ad.insideM).toBe(0); if (ad.result?.blockedByCell) expect(ad.result.hit).toBe(false); if (ad.result?.hit) expect(ad.result.entryAngleRad!).toBeLessThan((35 * Math.PI) / 180); }
   });
 });
