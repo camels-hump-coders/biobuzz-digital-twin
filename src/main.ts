@@ -414,7 +414,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM))|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM))|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }
@@ -806,7 +806,10 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ, spin: spinRate(l) };
   const draw = perturb(nominal, state.noise, rng((Math.random() * 2 ** 32) >>> 0));
   const vel = draw.vel;
+  // practice mode: top the magazine up so the launch always has a ball of the selected kind (the field's supply is untouched)
+  if (state.infiniteAmmo && playerAgent.inventory[state.ballKind] < 1) playerAgent.inventory[state.ballKind] = 1;
   const ball = match.launch(playerAgent, state.ballKind, new THREE.Vector3(exit.x, exit.y, exit.z), new THREE.Vector3(vel.x, vel.y, vel.z), draw.spin, robot.group);
+  if (state.infiniteAmmo && ball && playerAgent.inventory[state.ballKind] < 1) playerAgent.inventory[state.ballKind] = 1; // stays loaded
   if (!ball) { launchBlockedUntil = performance.now() + 1500; launchBlockedMsg = "nothing to launch — pick up balls"; return; }
   if (nominal.speed < 1.5) { launchBlockedUntil = performance.now() + 3000; launchBlockedMsg = `flywheel at ${Math.round(l.rpm)} RPM — ball just dropped out (${link.running ? "your code must spin the flywheel first" : "turn on Auto-RPM or set a commanded RPM"})`; }
   (ball as any).owner = "player";
@@ -1141,7 +1144,7 @@ function frame(now: number) {
       return `${state.alliance.toUpperCase()} ${ours.total} (auto ${ours.auto}) vs ${theirs.total} (auto ${theirs.auto}) · ${describeScore(ours, n)}${mine ? " · " + mine : ""}`;
     })(),
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
-    carrying: `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
+    carrying: state.infiniteAmmo ? `∞ ${state.ballKind} (practice: infinite ammo)` : `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),

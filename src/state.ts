@@ -64,6 +64,8 @@ export interface AppState {
   calibration: CalibrationSession;
   /** server mode: apply the repo's twin-settings.json when the host connects (unless the browser has unsaved changes) */
   settingsAutoLoad: boolean;
+  /** practice mode: our robot always has a ball of the selected kind to launch; intake and capacity still work */
+  infiniteAmmo: boolean;
 }
 
 export function defaultState(): AppState {
@@ -103,6 +105,7 @@ export function defaultState(): AppState {
     assetOverrides: {},
     calibration: defaultCalibration(robot.launcher.exitHeightM),
     settingsAutoLoad: true,
+    infiniteAmmo: false,
   };
 }
 
