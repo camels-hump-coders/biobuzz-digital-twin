@@ -11,15 +11,14 @@
  * agent's uncommitted edits never run here (--wip builds the working tree, --dev uses the dev server, --rebuild forces). Other flags: --port 5190 --host-port 8790 --headed --screenshot shot.png --host-timeout 600.
  */
 import { spawn, execSync } from "node:child_process";
-import os from "node:os";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// a headless run is background work: lower our own priority so the launcher, Vite and the browser we spawn inherit it
-// and the human's session (and the desktop) stay responsive; the Gradle daemon gets --priority=low separately
-try { os.setPriority(process.pid, 10); } catch {}
+// NOT niced: the browser's 50 Hz sensor sender and the host's WebSocket ingest are latency-sensitive; at low priority
+// next to a busy desktop their packets arrived in bursts and the OpMode's encoder deltas became lumpy. The Gradle
+// build itself is capped in runtime/gradle.properties instead (workers, heap).
 const args = process.argv.slice(2);
 const flag = (name, def) => { const i = args.indexOf(name); return i >= 0 && i + 1 < args.length ? args[i + 1] : def; };
 const flags = (name) => args.map((a, i) => (a === name && i + 1 < args.length ? args[i + 1] : undefined)).filter(Boolean);
@@ -62,7 +61,6 @@ if (process.platform !== "win32") {
 // the twin's sources; --dev opts back into the dev server, --rebuild forces a fresh build
 const simArgs = [resolve(root, "scripts/sim.mjs"), "--no-browser", "--no-watch", "--no-panels", "--port", port, "--host-port", hostPort]; // no Panels: its fixed ports belong to the human's session
 if (!has("--dev")) simArgs.push("--built");
-simArgs.push("--low-priority");
 if (has("--wip")) simArgs.push("--wip");       // build the working tree instead of the committed tree
 if (has("--rebuild")) simArgs.push("--rebuild");
 if (team) simArgs.push("--team", team);
@@ -96,7 +94,7 @@ console.log(`twin-test: host ready after ${((Date.now() - t0) / 1000).toFixed(0)
 // ---- 2. browser (one per run; a fresh page per scenario)
 // software GL renders on every core by default; two raster threads and one renderer are plenty for the twin's
 // 4-frames-a-second headless render and leave the CPU to the simulation, the host and the human
-const browser = await playwright.chromium.launch({ headless: !headed, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--num-raster-threads=2", "--renderer-process-limit=2", "--disable-gpu-compositing"] });
+const browser = await playwright.chromium.launch({ headless: !headed, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--num-raster-threads=2", "--renderer-process-limit=2"] });
 const results = [];
 for (let i = 0; i < scenarios.length; i++) {
   const { path: scenarioPath, scenario } = scenarios[i];
@@ -174,7 +172,7 @@ async function runScenario(scenario, scenarioPath, out) {
     final = final ?? (await snapshot().catch(() => undefined));
     await page.click('#panel button:has-text("STOP")').catch(() => {});
     await page.waitForFunction(() => ["STOPPED", "IDLE", "ERROR", "DISCONNECTED"].includes(window.__twin.link.status), null, { timeout: 5_000 }).catch(() => {});
-    if (flag("--screenshot") && scenarios.length === 1) await page.screenshot({ path: resolve(flag("--screenshot")) }).catch(() => {});
+    if (flag("--screenshot") && scenarios.length === 1) { await page.evaluate(() => window.__twinRenderNow?.()).catch(() => {}); await page.waitForTimeout(400); await page.screenshot({ path: resolve(flag("--screenshot")) }).catch(() => {}); }
     await context.close();
     return report(failed);
   };

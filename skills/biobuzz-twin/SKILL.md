@@ -51,8 +51,12 @@ pnpm twin-test --team <team repo root> --scenario a.json --scenario b.json --sce
   the committed twin, not at someone's edits.
 - Headless, the simulation runs at real time (each run prints `simulated N s in M s wall`); a scenario costs about its
   `durationS` plus 5 s. If the ratio drops well below 1x, the machine is overloaded: run fewer things at once.
-- Be a good neighbour on a shared laptop: twin-test already runs itself, the host and the headless browser at low
-  priority, but never start a second headless run while one is going, and prefer one batched call over several.
+- Be a good neighbour on a shared laptop: never start a second headless run while one is going, and prefer one
+  batched call over several. (twin-test is deliberately not niced: its sensor packets are latency-sensitive.)
+- Precedence of TeamCode settings at INIT: twin bindings (⇐) win over a scenario's assetOverrides and over panel
+  overrides, as they do for a human. A binding that fails to evaluate (missing knob, e.g. no legal shot for the
+  current hood) leaves the key to the scenario value; the report's context lists bindingErrors, check it when a
+  bound value seems ignored.
 - It uses ports 5190/8790, so a human's `pnpm sim` session on 5173/8765 is not disturbed.
 - Add `--headed` to watch the browser; `--screenshot out.png` for a final picture.
 - Exit code 0 means every `expect` check passed. The console prints each check, the final telemetry and the report path.

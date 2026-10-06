@@ -81,7 +81,7 @@ See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings
 
 **Long sessions next to an editing agent:** `pnpm sim --built` serves a production build of the *committed* tree (HEAD, exported with `git archive` and cached per commit) instead of the dev server, so edits to the twin's sources, committed or not, cannot change or hot-reload the page under a running OpMode (`--wip` builds the working tree, `--rebuild` forces a build). `pnpm twin-test` does this by default (`--dev` opts out).
 
-**If the machine stalls while `pnpm sim` starts:** the first seconds compile the host with Gradle while the browser loads the twin; the build is capped at four workers and a 1 GB daemon heap (`runtime/gradle.properties`), the host JVM at 768 MB, and headless `pnpm twin-test` runs at low scheduling priority with a two-thread software renderer so agents' runs do not starve your session. Running several headless runs at once, or a second Gradle daemon from Android Studio, is what usually hurts; `ps -axo pid,pcpu,command | grep -E "java|chrome-headless"` shows who is busy.
+**If the machine stalls while `pnpm sim` starts:** the first seconds compile the host with Gradle while the browser loads the twin; the build is capped at four workers and a 1 GB daemon heap (`runtime/gradle.properties`), the host JVM at 768 MB, and headless `pnpm twin-test` renders with a two-thread software renderer at 4 frames a second (it is not niced: its 50 Hz sensor packets need normal priority or they arrive in bursts). Running several headless runs at once, or a second Gradle daemon from Android Studio, is what usually hurts; `ps -axo pid,pcpu,command | grep -E "java|chrome-headless"` shows who is busy.
 
 ## Test bed for coding agents (and CI)
 

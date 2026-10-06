@@ -53,7 +53,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 // simulation loop; render the view only every few ticks at low resolution and drive the loop with a timer so the
 // physics, sensors and the OpMode see the same cadence as on a real display.
 const ciMode = new URLSearchParams(location.search).get("ci") === "1";
-renderer.setPixelRatio(ciMode ? 0.35 : Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(ciMode ? 0.25 : Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -780,7 +780,8 @@ let analysisTick = 0;
 let lastRenderAt = 0;
 let lastSlowNote = 0;
 let lastShotInfo: Record<string, unknown> = {};
-let renderCount = 0; // the first render compiles every shader (a 0.5-1 s stall under software GL); test harnesses wait for it before INIT
+let renderCount = 0;
+let renderRequested = false; // the first render compiles every shader (a 0.5-1 s stall under software GL); test harnesses wait for it before INIT
 
 function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } {
   const l = state.robot.launcher;
@@ -888,8 +889,9 @@ function frame(now: number) {
   // simulation therefore runs slower than real time; the HUD says so.
   // scrubbing the timeline freezes the live simulation (dt 0) and draws the recorded moment instead
   let replaying = recorder.cursor !== undefined;
-  // headless: a software-GL render tick can exceed 100 ms; letting one step cover it keeps the sim at real time
-  const dt = replaying ? 0 : Math.min(ciMode ? 0.25 : 0.1, real);
+  // one step never covers more than 100 ms: longer steps make encoder deltas jump beyond what wheels can do in one
+  // OpMode loop (team dead-reckoning rejects them). Headless renders are lean enough (4 fps, low resolution) to fit.
+  const dt = replaying ? 0 : Math.min(0.1, real);
   const fps = 1 / Math.max(frameInterval, 1e-3);
   const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
 
@@ -1172,7 +1174,12 @@ function frame(now: number) {
   robot.cameraGizmos.visible = showGizmos;
   robot.launcherMarker.visible = showGizmos;
   for (const a of allAgents) a.carryGroup.visible = showGizmos;
-  const renderThisFrame = !ciMode || now - lastRenderAt >= 250; // headless: a few frames per second is plenty for screenshots
+  // headless: rendering is pure overhead for a test (nobody watches), and a software-GL render of the field can block
+  // the main thread, and with it the 50 Hz sensor sender, for a second on a loaded machine. Render the first frames
+  // (shader compilation, so it does not land inside a run), then one frame a second; scripts call __twin.renderNow()
+  // before a screenshot.
+  const renderThisFrame = !ciMode || renderCount < 3 || now - lastRenderAt >= 1000 || renderRequested;
+  renderRequested = false;
   if (renderThisFrame) { lastRenderAt = now; renderCount++; }
   if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
@@ -1211,6 +1218,7 @@ function frame(now: number) {
 }
 // debugging hook for scripts / console
 Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
+(window as any).__twinRenderNow = () => { renderRequested = true; };
 (window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
