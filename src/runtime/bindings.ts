@@ -26,7 +26,7 @@ const IN = 0.0254;
  * target cell: the reference range (72 in when the shot is legal there, otherwise the nearest legal range) and the
  * flywheel power (required RPM / the flywheel motor's free RPM) that scores there. Bound into TeamCode's
  * shotRangeIn/shotPower, a hood sweep in the twin re-anchors the team's arc model automatically. */
-export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; minRangeIn?: number }
+export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; minRangeIn?: number; powerTable?: { rangeIn: number; power: number }[] }
 let calCache: { key: string; value: SolverCalibration | undefined } | undefined;
 export function solverCalibration(state: AppState): SolverCalibration | undefined {
   const l = state.robot.launcher;
@@ -59,15 +59,22 @@ function solverCalibrationUncached(state: AppState): SolverCalibration | undefin
   let minRangeIn: number | undefined;
   for (let r = 24; r <= 144; r += 6) { if (legalAt(r)) { minRangeIn = r; break; } }
   if (minRangeIn !== undefined) while (minRangeIn - 2 >= 6 && legalAt(minRangeIn - 2)) minRangeIn -= 2;
+  // power table for TeamCode's interpolation: the minimum range, then every 12 in up to 120 in, legal shots only
+  const powerTable: { rangeIn: number; power: number }[] = [];
+  if (minRangeIn !== undefined) {
+    const rows = [minRangeIn, ...Array.from({ length: 11 }, (_, i) => i * 12 + 12).filter((r) => r > minRangeIn && r <= 120)];
+    for (const r of rows) { const s = legalAt(r); if (s) powerTable.push({ rangeIn: r, power: s.power }); }
+  }
   const preferred = 72;
   const first = tryRange(preferred);
-  if (first && first.legal) return { ...first, minRangeIn };
+  if (first && first.legal) return { ...first, minRangeIn, powerTable };
   // nearest legal range to 72 in, 6 in steps, outward both ways
-  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = legalAt(r); if (s) return { ...s, minRangeIn }; }
-  return first ? { ...first, minRangeIn } : undefined;
+  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = legalAt(r); if (s) return { ...s, minRangeIn, powerTable }; }
+  return first ? { ...first, minRangeIn, powerTable } : undefined;
 }
 export type Knob = number | string | boolean;
-export type Knobs = Record<string, Knob>;
+/** a knob is usually a scalar; a few (tables) are JSON values passed through untouched when a binding names them directly */
+export type Knobs = Record<string, Knob | unknown[] | Record<string, unknown>>;
 
 export interface Binding { asset: string; key: string; twin: string; map?: Record<string, Knob>; round?: number; note?: string }
 export interface BindingsFile { version?: number; bindings: Binding[] }
@@ -99,7 +106,7 @@ export function twinKnobs(state: AppState): Knobs {
   // solver-derived calibration for the current hood (see solverCalibration); absent keys when nothing scores
   try {
     const cal = solverCalibration(state);
-    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; if (cal.minRangeIn !== undefined) k["launcher.calibration.minRangeIn"] = cal.minRangeIn; }
+    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; if (cal.minRangeIn !== undefined) k["launcher.calibration.minRangeIn"] = cal.minRangeIn; if (cal.powerTable?.length) k["launcher.calibration.powerTable"] = cal.powerTable; }
   } catch { /* geometry not available (tests with partial state) */ }
   k["hive.aimHeightIn"] = Math.round((aimPoint(upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] })).y / IN) * 100) / 100;
   k["noise.speedPct"] = state.noise.speedFrac * 100; k["noise.elevationDeg"] = state.noise.elevationDeg; k["noise.yawDeg"] = state.noise.yawDeg;
@@ -159,7 +166,7 @@ export function evaluate(expr: string, knobs: Knobs): Knob {
       if (t.v === "true") return true; if (t.v === "false") return false; if (t.v === "null") return null as unknown as Knob; // literals
       if (isOp("(")) { next(); const args: Knob[] = []; if (!isOp(")")) { args.push(expression()); while (isOp(",")) { next(); args.push(expression()); } } if (!isOp(")")) throw new Error("missing )"); next(); const f = FUNCS[t.v]; if (!f) throw new Error(`unknown function ${t.v}`); return f(...args); }
       if (!(t.v in knobs)) throw new Error(`unknown twin knob '${t.v}'`);
-      return knobs[t.v];
+      return knobs[t.v] as Knob; // tables pass through when the binding is just the knob name
     }
     throw new Error(`unexpected '${(t as any).v}'`);
   }

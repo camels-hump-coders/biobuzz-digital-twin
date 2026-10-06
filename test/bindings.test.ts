@@ -72,6 +72,10 @@ describe("solver calibration knobs", () => {
     expect(k55["launcher.calibration.power"]).toBeGreaterThan(0.3); expect(k55["launcher.calibration.power"]).toBeLessThan(0.8);
     expect(k55["launcher.calibration.legal"]).toBe(true);
     expect(k55["hive.aimHeightIn"]).toBeGreaterThan(50);
+    const table = k55["launcher.calibration.powerTable"] as { rangeIn: number; power: number }[];
+    expect(table.length).toBeGreaterThanOrEqual(5); expect(table[0].rangeIn).toBe(k55["launcher.calibration.minRangeIn"]);
+    for (let i = 1; i < table.length; i++) expect(table[i].rangeIn).toBeGreaterThan(table[i - 1].rangeIn);
+    expect(computeBindings({ bindings: [{ asset: "a.json", key: "t", twin: "launcher.calibration.powerTable" }] }, k55).overrides["a.json"].t).toEqual(table);
     const minR = k55["launcher.calibration.minRangeIn"] as number;
     expect(minR).toBeGreaterThanOrEqual(24); expect(minR).toBeLessThanOrEqual(72); expect(minR % 2).toBe(0);
     st.robot.launcher.elevationDeg = 80;
