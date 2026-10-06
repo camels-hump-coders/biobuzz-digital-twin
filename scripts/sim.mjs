@@ -99,7 +99,10 @@ if (!javaOk(javaHome)) {
 
 const isWin = process.platform === "win32";
 const gradlew = join(root, "runtime", isWin ? "gradlew.bat" : "gradlew");
-const gradleArgs = [":host:run", "--console=plain", "-q", `--args=${hostPort}`];
+// --low-priority (twin-test uses it): the Gradle daemon and everything it launches, including the host JVM, run at
+// low scheduling priority so a headless test never starves the human's session or the desktop
+const lowPriority = has("--low-priority");
+const gradleArgs = [":host:run", "--console=plain", "-q", "--max-workers=4", ...(lowPriority ? ["--priority=low"] : []), `--args=${hostPort}`];
 // Files that import Android-only or robot-only packages can never compile on the desktop. Skip them
 // automatically unless a sim override with the same relative path exists in <TeamCode>/src/sim/java.
 const ANDROID_ONLY = /^import (android\.|androidx\.|org\.opencv\.|fi\.iki\.elonen|com\.qualcomm\.ftccommon|org\.firstinspires\.ftc\.ftccommon|org\.firstinspires\.ftc\.robotcore\.internal|com\.acmerobotics\.dashboard)/m;

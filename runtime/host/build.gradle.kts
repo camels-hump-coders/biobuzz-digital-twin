@@ -27,5 +27,7 @@ tasks.named<JavaExec>("run") {
 
 application {
     mainClass.set("org.biobuzz.sim.host.Main")
-    applicationDefaultJvmArgs = listOf("-Dorg.slf4j.simpleLogger.defaultLogLevel=warn")
+    // a modest heap and a two-thread collector: the host is light, and it shares the machine with the browser, Gradle
+    // and possibly a headless twin-test run
+    applicationDefaultJvmArgs = listOf("-Dorg.slf4j.simpleLogger.defaultLogLevel=warn", "-Xmx768m", "-XX:+UseParallelGC", "-XX:ParallelGCThreads=2", "-XX:TieredStopAtLevel=1")
 }
