@@ -37,7 +37,7 @@ const shot = async (page, name) => { await page.screenshot({ path: OUT + name + 
   await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus === "loaded", null, { timeout: 90_000 });
   const t = (fn, arg) => page.evaluate(fn, arg);
   await t(() => { const t = window.__twin; t.state.aimRequest = true; document.getElementById("panel").classList.add("hidden"); });
-  const dismissToasts = () => t(() => { [...document.querySelectorAll("body > div, body > aside, body > section")].filter((e) => e.id !== "app" && /offline|reload/i.test(e.textContent || "")).forEach((e) => e.remove()); });
+  const dismissToasts = () => t(() => { document.getElementById("update-toast")?.remove(); }); // the PWA "ready to work offline" / "reload" toast
   await dismissToasts();
   await page.waitForTimeout(1500);
   if (want("overview")) {
