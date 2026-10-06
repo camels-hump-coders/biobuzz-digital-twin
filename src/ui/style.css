@@ -92,6 +92,15 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .quick { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 10px; }
 #panel .quick .chip { padding: 4px 10px; font-size: 12px; border-radius: 14px; white-space: nowrap; border-color: #3a434e; }
 #panel .quick .chip.on { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+#panel .quick.seg-row { align-items: center; gap: 8px; }
+#panel .seg { display: inline-flex; }
+#panel .seg .chip { border-radius: 0; margin-left: -1px; }
+#panel .seg .chip:first-child { border-radius: 14px 0 0 14px; margin-left: 0; }
+#panel .seg .chip:last-child { border-radius: 0 14px 14px 0; }
+#panel .seg .chip.on { position: relative; z-index: 1; }
+#panel .quick .chip.red.on { background: #d6453a; border-color: #d6453a; color: #fff; }
+#panel .quick .chip.blue.on { background: #3b7ddd; border-color: #3b7ddd; color: #fff; }
+#panel .seg-label { color: var(--muted); font-size: 11px; }
 #panel .intro { position: relative; background: #1a2230; border: 1px solid #2f3b4d; border-radius: 6px; padding: 8px 10px 8px; margin: 0 0 10px; font-size: 12px; color: var(--fg); line-height: 1.5; }
 #panel .intro kbd { background: #0b0e13; border: 1px solid #3a434e; border-radius: 3px; padding: 0 4px; font: 11px ui-monospace, Menlo, monospace; }
 #panel .intro .dismiss { display: block; margin: 6px 0 0 auto; padding: 2px 10px; font-size: 11px; }

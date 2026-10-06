@@ -230,6 +230,11 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
     assignAlliances();
     playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar };
     if (state.resetMatchRequest) { state.resetMatchRequest = false; resetBoard(); }
+    if (state.placeAtStartRequest) { // quick-bar start buttons: back on the mark, field and clock untouched
+      state.placeAtStartRequest = false;
+      state.pose = startPose(state.starts, "you", state.alliance, state.hive);
+      if (state.matchPhase !== "running") parkScripted();
+    }
     if (state.matchRequest === "start") startMatch(); else if (state.matchRequest === "stop") stopMatch();
     state.matchRequest = undefined;
     robot.setPose(state.pose);

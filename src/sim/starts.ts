@@ -41,3 +41,20 @@ export function startPose(starts: StartPositions, key: StartKey, alliance: Allia
   const p: Pose = { x: m(s.xIn), z: m(zIn), heading: (s.headingDeg * Math.PI) / 180 };
   return alliance === "red" ? p : { x: -p.x, z: -p.z, heading: p.heading + Math.PI };
 }
+
+/** Which start square our robot uses: the one next to our LOADING ZONE (scoring-side half, red-frame z < 0) or the far one. */
+export type StartSide = "loading" | "far";
+export function startSideOf(starts: StartPositions, alliance: Alliance, hive: Record<Alliance, CellSide>): StartSide {
+  const p = startPose(starts, "you", alliance, hive);
+  const redFrameZ = alliance === "red" ? p.z : -p.z;
+  return redFrameZ < 0 ? "loading" : "far";
+}
+/** Pin our start to one side (turning off follow-the-up-cell); the partner takes the other square. Returns the same object. */
+export function setStartSide(starts: StartPositions, side: StartSide): StartPositions {
+  const you = starts.you ?? defaultStarts().you, partner = starts.partner ?? defaultStarts().partner;
+  const mag = Math.abs(you.zIn) || 36;
+  starts.followUpCell = false;
+  starts.you = { ...you, zIn: side === "loading" ? -mag : mag };
+  starts.partner = { ...partner, zIn: side === "loading" ? Math.abs(partner.zIn) || mag : -(Math.abs(partner.zIn) || mag) };
+  return starts;
+}

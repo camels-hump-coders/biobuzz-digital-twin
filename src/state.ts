@@ -29,6 +29,8 @@ export interface AppState {
   aimRequest?: boolean;
   /** transient: put every game piece back to match start */
   resetMatchRequest?: boolean;
+  /** put our robot (and, outside a running match, the scripted robots) back on the starting marks */
+  placeAtStartRequest?: boolean;
   overlays: { trajectory: boolean; actualArc: boolean; dispersion: boolean; fan: boolean; footprint: boolean; frustum: boolean; target: boolean; aim: boolean; reach: boolean; hitmap: boolean };
   /** show per-frame timing of the main loop sections */
   showPerf: boolean;
@@ -114,7 +116,7 @@ export function defaultState(): AppState {
 
 const KEY = "biobuzz-twin";
 /** Fields that describe the moment, not the setup: never saved to the settings file, never restored from it. */
-export const TRANSIENT_KEYS = ["pose", "aimRequest", "resetMatchRequest", "matchPhase", "matchClock", "matchRequest"] as const;
+export const TRANSIENT_KEYS = ["pose", "aimRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchRequest"] as const;
 /** Deterministic JSON of the settings (sorted keys, transient fields dropped) so a committed file diffs cleanly. */
 export function serializeSettings(s: AppState): string {
   const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])])) : v;

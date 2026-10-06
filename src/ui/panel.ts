@@ -6,7 +6,7 @@ import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
 import { intrinsicsFor } from "../robot/robot";
 import type { RuntimeLink } from "../runtime/link";
-import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/starts";
+import { START_LABELS, defaultStarts, startPose, type StartKey, startSideOf, setStartSide } from "../sim/starts";
 import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
 import { applyOverrides, downloadText, exportChangedAssets, guessAssetFor, parsePastedSettings } from "../runtime/assetExport";
@@ -268,6 +268,18 @@ export class Panel {
       chip("Other robots", "Three simulated robots on their starting marks: partner and two opponents.", () => st.opponents, (v) => { st.opponents = v; change("sim"); }),
       chip("Camera insets", "Show what each robot camera sees in the corner of the view.", () => st.pip, (v) => { st.pip = v; change("view"); }),
       chip("Top view", "Look straight down at the field (key 2); off = orbit camera (key 1).", () => st.view === "top", (v) => { st.view = v ? "top" : "orbit"; change("view"); }),
+    ));
+    // Alliance and start square: colour-matched segments; pressing the start you are already on puts the robot back on it
+    const startSide = startSideOf(st.starts, st.alliance, st.hive);
+    const pickStart = (side: "loading" | "far") => { setStartSide(st.starts, side); st.placeAtStartRequest = true; change("sim"); };
+    this.root.append(el("div", { class: "quick seg-row" },
+      el("div", { class: "seg", role: "group", "aria-label": "Alliance" },
+        el("button", { class: st.alliance === "red" ? "chip red on" : "chip red", title: "Play as the red alliance (left of the audience)", onclick: () => { if (st.alliance !== "red") { st.alliance = "red"; change("sim"); } } }, "Red"),
+        el("button", { class: st.alliance === "blue" ? "chip blue on" : "chip blue", title: "Play as the blue alliance", onclick: () => { if (st.alliance !== "blue") { st.alliance = "blue"; change("sim"); } } }, "Blue")),
+      el("span", { class: "seg-label" }, "Start"),
+      el("div", { class: "seg", role: "group", "aria-label": "Start square" },
+        el("button", { class: startSide === "loading" ? "chip on" : "chip", title: "Start on the square next to our LOADING ZONE (scoring-side half). Press again to put the robot back on it.", onclick: () => pickStart("loading") }, "Loading zone"),
+        el("button", { class: startSide === "far" ? "chip on" : "chip", title: "Start on the far square beyond the FLOWER (audience-side half). Press again to put the robot back on it.", onclick: () => pickStart("far") }, "Far side")),
     ));
     if (!st.introSeen) {
       this.root.append(el("div", { class: "intro" },
