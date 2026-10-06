@@ -50,3 +50,15 @@ describe("twin knob catalogue", () => {
     expect(k["launcher.yawOffsetDeg"]).toBe(st.robot.launcher.yawOffsetDeg);
   });
 });
+
+describe("intake heading knob", () => {
+  it("maps the intake side to a heading left of forward", () => {
+    const st = defaultState();
+    st.robot.intake = { side: "rear", widthM: 0.3 };
+    expect(twinKnobs(st)["robot.intakeHeadingDeg"]).toBe(180);
+    st.robot.intake.side = "right";
+    expect(twinKnobs(st)["robot.intakeHeadingDeg"]).toBe(-90);
+    st.robot.intake.side = "front";
+    expect(twinKnobs(st)["robot.intakeHeadingDeg"]).toBe(0);
+  });
+});

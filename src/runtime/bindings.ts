@@ -36,6 +36,8 @@ export function twinKnobs(state: AppState): Knobs {
   k["robot.wheelDiameterIn"] = r.wheelDiameterM / IN; k["robot.wheelDiameterMm"] = r.wheelDiameterM * 1000; k["robot.wheelRpm"] = r.wheelRpm;
   k["robot.trackWidthIn"] = (r.widthM * 0.9) / IN; k["robot.wheelbaseIn"] = (r.lengthM * 0.75) / IN; // what the twin's kinematics use
   k["robot.intakeSide"] = r.intake?.side ?? "front"; k["robot.intakeWidthIn"] = (r.intake?.widthM ?? 0.3) / IN;
+  // which end collects, as a heading left of drive-forward (same convention as launcher.yawOffsetDeg): front 0, rear 180, left 90, right -90
+  k["robot.intakeHeadingDeg"] = ({ front: 0, rear: 180, left: 90, right: -90 } as Record<string, number>)[r.intake?.side ?? "front"] ?? 0;
   k["robot.maxSpeedInPerSec"] = (Math.PI * r.wheelDiameterM * r.wheelRpm) / 60 / IN;
   const sp = startPose(state.starts, "you", state.alliance, state.hive);
   k["start.xIn"] = sp.x / IN; k["start.zIn"] = sp.z / IN; k["start.headingDeg"] = (sp.heading * 180) / Math.PI;
