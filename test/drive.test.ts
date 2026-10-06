@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WALL_MU, commandToVelocity, forwardVector, headingToward, maxLinearSpeed, stepPose, flowerObstacles, type DriveParams } from "../src/sim/drive";
+import { WALL_MU, separateFromBox, hiveFrameObstacles, commandToVelocity, forwardVector, headingToward, maxLinearSpeed, stepPose, flowerObstacles, type DriveParams } from "../src/sim/drive";
 import { m } from "../src/field/fieldSpec";
 
 const p: DriveParams = { drivetrain: "mecanum", wheelRpm: 312, wheelDiameterM: 0.104, trackWidthM: 0.33, wheelbaseM: 0.3, fieldCentric: false };
@@ -72,5 +72,33 @@ describe("wall friction", () => {
     expect(stepPose(mid, { vx: 0.5, vz: 0.5, yawRate: 0 }, 1, fp, [], WALL_MU.tank).z).toBeCloseTo(0.5, 3);
     const away = stepPose(atWall, { vx: -0.5, vz: 0.5, yawRate: 0 }, 0.1, fp, [], WALL_MU.tank);
     expect(away.z - atWall.z).toBeCloseTo(0.05, 3);
+  });
+});
+
+describe("rotated chassis vs obstacles", () => {
+  const IN = 0.0254, fp = { lengthM: 18 * IN, widthM: 18 * IN };
+  const leg = hiveFrameObstacles()[1]; // x = +hx strip, z from -hz to hz
+  const drive = (start: { x: number; z: number; heading: number }, v: { vx: number; vz: number }, seconds: number) => {
+    let p = start; for (let t = 0; t < seconds; t += 0.02) p = stepPose(p, { ...v, yawRate: 0 }, 0.02, fp, [leg]); return p;
+  };
+  it("an axis-aligned robot stops with its side on the leg strip", () => {
+    const p = drive({ x: leg.xMin - fp.widthM / 2 - 0.3, z: 0, heading: 0 }, { vx: 1, vz: 0 }, 1);
+    expect(p.x).toBeCloseTo(leg.xMin - fp.widthM / 2, 3);
+  });
+  it("a robot turned 45° approaching the leg's end gets closer than its bounding box would allow", () => {
+    const corner = { x: leg.xMin, z: leg.zMax };
+    const heading = Math.PI / 4;
+    const bboxHalf = (fp.lengthM / 2) * (Math.abs(Math.cos(heading)) + Math.abs(Math.sin(heading))); // old test: half extent of the bounding box
+    // drive straight at the corner from the outside diagonal
+    const p = drive({ x: corner.x - 0.7, z: corner.z + 0.7, heading }, { vx: 0.5, vz: -0.5 }, 1.2);
+    const dist = Math.hypot(p.x - corner.x, p.z - corner.z);
+    expect(dist).toBeLessThan(bboxHalf * Math.SQRT2 * 0.75); // clearly closer than the bounding-box contact distance
+    expect(separateFromBox(p.x, p.z, heading, fp, leg)).toBeUndefined(); // and not overlapping
+  });
+  it("reports no push when apart and the shortest push when overlapping, even when the robot spans the whole box", () => {
+    expect(separateFromBox(0, 0, 0.3, fp, { xMin: 1, xMax: 1.1, zMin: -1, zMax: 1 })).toBeUndefined();
+    const push = separateFromBox(0.95, 0, 0, fp, { xMin: 1, xMax: 1.1, zMin: -1, zMax: 1 })!;
+    expect(push.x).toBeLessThan(0); expect(Math.abs(push.z)).toBeLessThan(1e-9);
+    expect(0.95 + push.x).toBeCloseTo(1 - fp.widthM / 2, 6);
   });
 });

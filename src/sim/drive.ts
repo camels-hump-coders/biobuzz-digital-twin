@@ -152,18 +152,42 @@ export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obs
   // perimeter by another robot, never through it)
   for (let pass = 0; pass < 2; pass++) {
     for (const o of obstacles) {
-      // expanded obstacle vs robot centre; push out along the axis of least penetration
-      const ex0 = o.xMin - hx, ex1 = o.xMax + hx, ez0 = o.zMin - hz, ez1 = o.zMax + hz;
-      if (x > ex0 && x < ex1 && z > ez0 && z < ez1) {
-        const dxl = x - ex0, dxr = ex1 - x, dzl = z - ez0, dzr = ez1 - z;
-        const mn = Math.min(dxl, dxr, dzl, dzr);
-        if (mn === dxl) x = ex0; else if (mn === dxr) x = ex1; else if (mn === dzl) z = ez0; else z = ez1;
-      }
+      const push = separateFromBox(x, z, heading, fp, o);
+      if (push) { x += push.x; z += push.z; }
     }
     x = clamp(x, -half + hx, half - hx);
     z = clamp(z, -half + hz, half - hz);
   }
   return { x, z, heading };
+}
+
+/** Minimum translation that moves the ROTATED chassis rectangle out of an axis-aligned box (separating-axis test over
+ * the box's two axes and the robot's two axes), or undefined when they do not overlap. Using the real outline instead
+ * of its bounding box lets a turned robot get as close to a hive leg or flower cage as it really can. */
+export function separateFromBox(x: number, z: number, heading: number, fp: Footprint, o: Obstacle): { x: number; z: number } | undefined {
+  const f = forwardVector(heading), l = leftVector(heading);
+  const hl = fp.lengthM / 2, hw = fp.widthM / 2;
+  const robot = [
+    { x: x + f.x * hl + l.x * hw, z: z + f.z * hl + l.z * hw }, { x: x + f.x * hl - l.x * hw, z: z + f.z * hl - l.z * hw },
+    { x: x - f.x * hl + l.x * hw, z: z - f.z * hl + l.z * hw }, { x: x - f.x * hl - l.x * hw, z: z - f.z * hl - l.z * hw },
+  ];
+  const box = [{ x: o.xMin, z: o.zMin }, { x: o.xMax, z: o.zMin }, { x: o.xMin, z: o.zMax }, { x: o.xMax, z: o.zMax }];
+  let best: { x: number; z: number } | undefined, bestOverlap = Infinity;
+  for (const a of [{ x: 1, z: 0 }, { x: 0, z: 1 }, f, l]) {
+    let rMin = Infinity, rMax = -Infinity, bMin = Infinity, bMax = -Infinity;
+    for (const p of robot) { const d = p.x * a.x + p.z * a.z; rMin = Math.min(rMin, d); rMax = Math.max(rMax, d); }
+    for (const p of box) { const d = p.x * a.x + p.z * a.z; bMin = Math.min(bMin, d); bMax = Math.max(bMax, d); }
+    // the two ways to separate along this axis: move the robot back (-a) by rMax - bMin, or forward (+a) by bMax - rMin
+    const back = rMax - bMin, fwd = bMax - rMin;
+    if (back <= 0 || fwd <= 0) return undefined; // a separating axis: no contact
+    const overlap = Math.min(back, fwd);
+    if (overlap < bestOverlap) {
+      bestOverlap = overlap;
+      const sign = back < fwd ? -1 : 1;
+      best = { x: a.x * overlap * sign, z: a.z * overlap * sign };
+    }
+  }
+  return best;
 }
 
 export function robotToWorld(pose: Pose, forwardM: number, leftM: number): { x: number; z: number } {
