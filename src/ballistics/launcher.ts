@@ -59,6 +59,9 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     maxRpm: 6000,
     efficiency: 0.45,
     rpm: 3600,
+    // 55 is an assumption, not a goBILDA number. The ramp plate in goBILDA's CAD measures 35 deg from horizontal (about
+    // 700 cm2 of plate at 34-36 deg, 22 cm up); the ball may leave steeper than the plate because the Hogback wheel
+    // throws it off the plate's end. Measure the real exit angle with the Shooter calibration wizard before trusting either.
     elevationDeg: 55,
     elevationMinDeg: 55,
     elevationMaxDeg: 55,
