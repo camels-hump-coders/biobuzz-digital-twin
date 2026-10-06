@@ -1,6 +1,8 @@
 # BIOBUZZ Digital Twin
 
-A browser-based 3D digital twin of the FIRST Tech Challenge 2026-27 **BIOBUZZ** field and of our robot, plus a virtual runtime that runs the team's unmodified Java TeamCode against it. MIT licensed.
+<a href="https://camelshumpcoders.org"><img src="public/chc-logo.png" alt="Camels Hump Coders logo" width="120" align="right"></a>
+
+A browser-based 3D digital twin of the FIRST Tech Challenge 2026-27 **BIOBUZZ** field and of our robot, plus a virtual runtime that runs the team's unmodified Java TeamCode against it. Built and shared by the [Camels Hump Coders](https://camelshumpcoders.org), FTC Team #36682, a rookie team of middle- and high-school students from Huntington, Vermont. MIT licensed.
 
 **Standalone, in any browser (no install):**
 
@@ -43,7 +45,7 @@ pnpm test         # unit tests for geometry, ballistics, kinematics, camera math
 pnpm build        # static site in dist/ (also deployed to GitHub Pages, see Hosting)
 ```
 
-The side panel on the right holds the settings. A **quick bar** at the top has the switches most people reach for first: *Infinite ammo*, *Hit map*, *Reachability*, *Other robots*, *Camera insets* and *Top view*, then a colour-matched **Red / Blue** alliance toggle and the two start squares, **Loading zone** and **Far side**. Pressing a start square moves the robot there (and parks the other robots on their marks when no match is running); pressing the one you are already on puts the robot back on its mark. A **Stadium** switch (on by default) surrounds the field with tiered audience stands, a BIOBUZZ banner, a lighting truss whose fixtures slowly cycle colour and two coloured spots that sweep the crowd; it is decoration only (the mat keeps its neutral light and nothing is added to the AprilTag occluders), so turn it off for a plain backdrop or on a slow machine. A short getting-started note under the bar explains the keys until you dismiss it, and **About** next to the title says who built the twin, with links to the Camels Hump Coders site and this repository. The panel opens in **Essential** mode with only *Field & target* and *Launcher* expanded (plus *Runtime* once a host is enabled); every other section is collapsed with a one-line summary of its current state (robot preset, RPM and hood, alliance and target cell), each section has a *Show N more settings* button for its less common settings, and the expert sections (cameras, shooter calibration, hardware map, TeamCode settings, session) sit together under a collapsed *More sections* group. **All settings** at the top shows everything flat. The HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; in server mode they also live in a versioned file (see *Saving, sharing and resetting*).
+The side panel on the right holds the settings. A **quick bar** at the top has the switches most people reach for first: *Infinite ammo*, *Hit map*, *Reachability*, *Other robots*, *Camera insets* and *Top view*, then a colour-matched **Red / Blue** alliance toggle and the two start squares, **Loading zone** and **Far side**. Pressing a start square moves the robot there (and parks the other robots on their marks when no match is running); pressing the one you are already on puts the robot back on its mark. A **Stadium** switch (on by default) surrounds the field with tiered audience stands, a BIOBUZZ banner, a lighting truss whose fixtures slowly cycle colour and two coloured spots that sweep the crowd; it is decoration only (the mat keeps its neutral light and nothing is added to the AprilTag occluders), so turn it off for a plain backdrop or on a slow machine. A short getting-started note under the bar explains the keys until you dismiss it, and **About** next to the title says who built the twin, with links to the Camels Hump Coders (FTC Team #36682) site and this repository. The panel opens in **Essential** mode with only *Field & target* and *Launcher* expanded (plus *Runtime* once a host is enabled); every other section is collapsed with a one-line summary of its current state (robot preset, RPM and hood, alliance and target cell), each section has a *Show N more settings* button for its less common settings, and the expert sections (cameras, shooter calibration, hardware map, TeamCode settings, session) sit together under a collapsed *More sections* group. **All settings** at the top shows everything flat. The HUD on the left reads out the shot analysis. Press **H** to hide the panel, **1**–**4** to switch views, and see [Controls](#controls) for driving. Your settings persist in the browser; in server mode they also live in a versioned file (see *Saving, sharing and resetting*).
 
 ## Gallery
 
@@ -272,6 +274,10 @@ What works on the hosted page: everything except running Java TeamCode. The virt
 ## Repository upkeep
 
 `.claude/skills/readme-upkeep/SKILL.md` is a repo-local skill (not installed into team repos) that tells an agent working here to update this README and the team-facing skill with every user-visible change, and to regenerate the gallery with `pnpm gallery` only after major visual changes.
+
+## Who made this
+
+The twin is built and maintained by the **Camels Hump Coders, FTC Team #36682**, a rookie FIRST Tech Challenge team of middle- and high-school students from Huntington, Vermont, who moved up from FIRST LEGO League, with their mentors. We share it so other teams can test code before the robot is built. Team site: [camelshumpcoders.org](https://camelshumpcoders.org). Not affiliated with FIRST or goBILDA; BIOBUZZ and FIRST Tech Challenge are trademarks of FIRST.
 
 ## License
 

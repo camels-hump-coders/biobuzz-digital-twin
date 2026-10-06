@@ -118,7 +118,7 @@ export class Panel {
         el("img", { class: "logo", src: base + "chc-logo.png", alt: "Camels Hump Coders logo", width: "128", height: "128" }),
         el("h2", {}, "BIOBUZZ Digital Twin"),
         el("p", {}, "A browser 3D twin of the FIRST Tech Challenge 2026-27 BIOBUZZ field and robot, with a virtual runtime that runs a team's unmodified Java TeamCode against it."),
-        el("p", {}, "Built by the ", el("a", { href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "Camels Hump Coders"), ", a rookie FIRST Tech Challenge team of middle- and high-school students from Huntington, Vermont, who moved up from FIRST LEGO League. We share it so other teams can test code before the robot is built."),
+        el("p", {}, "Built by the ", el("a", { href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "Camels Hump Coders"), ", FIRST Tech Challenge Team #36682, a rookie team of middle- and high-school students from Huntington, Vermont, who moved up from FIRST LEGO League. We share it so other teams can test code before the robot is built."),
         el("div", { class: "links" },
           el("a", { class: "button-link", href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "camelshumpcoders.org"),
           el("a", { class: "button-link", href: "https://github.com/camels-hump-coders/biobuzz-digital-twin", target: "_blank", rel: "noopener" }, "Source on GitHub")),
@@ -307,7 +307,7 @@ export class Panel {
     ));
     if (!st.introSeen) {
       this.root.append(el("div", { class: "intro" },
-        el("b", {}, "New here? "), "Drive with ", el("kbd", {}, "W A S D"), ", turn with ", el("kbd", {}, "Q E"), ", launch with ", el("kbd", {}, "Space"), ". ",
+        el("b", {}, "New here? "), "Drive with ", el("kbd", {}, "W A S D"), ", turn with ", el("kbd", {}, "Q E"), ", press ", el("kbd", {}, "Space"), " to shoot a ball at the hive (", el("kbd", {}, "R"), " aims first). ",
         "The buttons above switch the most-used options; open a section below for its everyday settings, or pick ", el("b", {}, "All settings"), " to see everything. ", el("kbd", {}, "H"), " hides this panel.",
         el("button", { class: "dismiss", title: "Hide this note", onclick: () => { st.introSeen = true; change("view"); } }, "Got it"),
       ));
