@@ -68,7 +68,7 @@ The host also runs the **real FTC Panels dashboard** (com.bylazar, the same libr
 
 See `runtime/README.md` for the hardware-map setup, keyboard-as-gamepad bindings, what the shim covers and the wire protocol. Three sample OpModes ship with it: a mecanum TeleOp, an AprilTag auto-aim autonomous and the shooter-calibration OpMode (see *Launcher model*).
 
-**Long sessions next to an editing agent:** `pnpm sim --built` serves a production build instead of the dev server, so edits to the twin's sources cannot hot-reload the page under a running OpMode (`--rebuild` forces a fresh build). `pnpm twin-test` does this by default (`--dev` opts out).
+**Long sessions next to an editing agent:** `pnpm sim --built` serves a production build of the *committed* tree (HEAD, exported with `git archive` and cached per commit) instead of the dev server, so edits to the twin's sources, committed or not, cannot change or hot-reload the page under a running OpMode (`--wip` builds the working tree, `--rebuild` forces a build). `pnpm twin-test` does this by default (`--dev` opts out).
 
 ## Test bed for coding agents (and CI)
 

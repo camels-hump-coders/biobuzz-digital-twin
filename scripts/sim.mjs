@@ -6,13 +6,14 @@
  *   pnpm sim                                           # afterwards
  *   pnpm sim --team <path> --exclude "**\/roadrunner/**,**\/Old*.java"
  *   pnpm sim --no-watch --no-browser --no-panels --port 5173 --host-port 8765
- *   pnpm sim --built            # serve a production build: no hot reload while someone edits the twin (--rebuild forces a build)
+ *   pnpm sim --built            # serve a production build of the COMMITTED tree (HEAD): no hot reload, no half-edited sources
+ *   pnpm sim --built --wip      # …of the working tree instead (--rebuild forces a build in either mode)
  *
  * --team accepts either the FtcRobotController project root (TeamCode/src/main/java is appended),
  * the TeamCode module folder, or the java source folder itself.
  */
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { execSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,17 +175,42 @@ children.push(host);
 
 // run Vite's own entry point rather than `pnpm exec vite`, so the pid we hold is Vite itself and a signal reaches it
 const viteBin = join(root, "node_modules", "vite", "bin", "vite.js");
+let previewDir = join(root, "dist");
 if (built) {
-  const newest = (dir) => { let t = 0; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = join(d, e.name); if (e.isDirectory()) walk(f); else t = Math.max(t, statSync(f).mtimeMs); } }; if (existsSync(dir)) walk(dir); return t; };
-  const distIndex = join(root, "dist", "index.html");
-  const stale = forceRebuild || !existsSync(distIndex) || statSync(distIndex).mtimeMs < Math.max(newest(join(root, "src")), newest(join(root, "public")), statSync(join(root, "index.html")).mtimeMs, statSync(join(root, "vite.config.ts")).mtimeMs);
-  if (stale) {
-    console.log("sim: building the twin (vite build) …");
-    const b = spawnSync(process.execPath, [viteBin, "build"], { cwd: root, stdio: "inherit", env: { ...process.env, BASE_PATH: "/" } });
-    if (b.status !== 0) { console.error("sim: vite build failed"); process.exit(1); }
-  } else console.log("sim: serving the existing build in dist/ (newer than src/; --rebuild forces a build)");
+  // Build from the COMMITTED tree, not the working tree: another agent may be mid-edit in this checkout, and a build
+  // of half-finished sources would silently become what every headless run executes. `git archive HEAD` is exported
+  // to a cache dir keyed by the commit, built once there, and served with `vite preview --outDir`. --wip builds the
+  // working tree into dist/ instead (for checking uncommitted twin changes).
+  const wip = has("--wip");
+  const head = (() => { try { return execSync("git rev-parse --short HEAD", { cwd: root, encoding: "utf8" }).trim(); } catch { return ""; } })();
+  if (wip || !head) {
+    const newest = (dir) => { let t = 0; const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = join(d, e.name); if (e.isDirectory()) walk(f); else t = Math.max(t, statSync(f).mtimeMs); } }; if (existsSync(dir)) walk(dir); return t; };
+    const distIndex = join(root, "dist", "index.html");
+    const stale = forceRebuild || !existsSync(distIndex) || statSync(distIndex).mtimeMs < Math.max(newest(join(root, "src")), newest(join(root, "public")), statSync(join(root, "index.html")).mtimeMs, statSync(join(root, "vite.config.ts")).mtimeMs);
+    if (stale) {
+      console.log("sim: building the twin from the WORKING TREE (vite build) …");
+      const b = spawnSync(process.execPath, [viteBin, "build"], { cwd: root, stdio: "inherit", env: { ...process.env, BASE_PATH: "/" } });
+      if (b.status !== 0) { console.error("sim: vite build failed"); process.exit(1); }
+    } else console.log("sim: serving the existing working-tree build in dist/ (--rebuild forces a build)");
+  } else {
+    const cache = join(root, "node_modules", ".cache", "twin-dist", head);
+    previewDir = join(cache, "dist");
+    const dirty = (() => { try { return execSync("git status --porcelain -- src public index.html vite.config.ts", { cwd: root, encoding: "utf8" }).trim().length > 0; } catch { return false; } })();
+    if (forceRebuild || !existsSync(join(previewDir, "index.html"))) {
+      console.log(`sim: building the twin from commit ${head} (vite build of \`git archive HEAD\`) …`);
+      rmSync(cache, { recursive: true, force: true }); mkdirSync(cache, { recursive: true });
+      const src = join(cache, "src-tree"); mkdirSync(src);
+      const ar = spawnSync("sh", ["-c", `git archive HEAD | tar -x -C "${src}"`], { cwd: root, stdio: "inherit" });
+      if (ar.status !== 0) { console.error("sim: git archive failed"); process.exit(1); }
+      try { symlinkSync(join(root, "node_modules"), join(src, "node_modules"), "dir"); } catch {}
+      const b = spawnSync(process.execPath, [viteBin, "build", "--outDir", previewDir, "--emptyOutDir"], { cwd: src, stdio: "inherit", env: { ...process.env, BASE_PATH: "/" } });
+      if (b.status !== 0) { console.error("sim: vite build failed"); process.exit(1); }
+      rmSync(src, { recursive: true, force: true });
+    } else console.log(`sim: serving the cached build of commit ${head}`);
+    if (dirty) console.log("sim: note — this checkout has uncommitted twin changes; they are NOT in the served build (pass --wip to build the working tree)");
+  }
 }
-const viteArgs = built ? [viteBin, "preview", "--port", port, "--strictPort"] : [viteBin, "--port", port, "--strictPort"];
+const viteArgs = built ? [viteBin, "preview", "--port", port, "--strictPort", "--outDir", previewDir] : [viteBin, "--port", port, "--strictPort"];
 if (openBrowser) viteArgs.push("--open", "/?runtime=1");
 const vite = spawn(process.execPath, viteArgs, { cwd: root, env: process.env });
 vite.stdout.on("data", prefix("twin", "36"));

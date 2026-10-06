@@ -44,10 +44,11 @@ pnpm twin-test --team <team repo root> --scenario a.json --scenario b.json --sce
   is the expensive part; one call runs every scenario against the same host, each in a fresh page, writes
   `<reports dir>/<scenario name>.json` per scenario, prints a summary and exits 0 only if all pass. Do not loop
   `pnpm twin-test` per file, and do not sleep between calls: the run ends its own host and Vite.
-- twin-test serves a production build of the twin (built once, reused while `dist/` is newer than `src/`), so edits to
-  the twin's sources by another agent cannot hot-reload the page mid-run. A crash of the shape "window.__twin is
-  undefined" or "Execution context was destroyed" means the page reloaded: with `--dev` that is the dev server; with
-  the default build it should not happen.
+- twin-test serves a production build of the twin's COMMITTED tree (HEAD, cached per commit), so another agent's edits
+  to the twin's sources, committed or not, cannot change or hot-reload the page mid-run (`--wip` builds the working
+  tree when you are testing uncommitted twin changes yourself). A crash of the shape "window.__twin is undefined" or
+  "Execution context was destroyed" means the page reloaded or failed to start; with the default build that points at
+  the committed twin, not at someone's edits.
 - Headless, the simulation runs at real time (each run prints `simulated N s in M s wall`); a scenario costs about its
   `durationS` plus 5 s. If the ratio drops well below 1x, the machine is overloaded: run fewer things at once.
 - It uses ports 5190/8790, so a human's `pnpm sim` session on 5173/8765 is not disturbed.

@@ -74,9 +74,7 @@ public class SimLink extends WebSocketServer {
         String type = msg.has("type") ? msg.get("type").getAsString() : "";
         switch (type) {
             case "sensors":
-                noteSensorPacket();
-                lastSensorsMsg = msg;
-                state.ingest(msg);
+                synchronized (sensorLock) { noteSensorPacket(); lastSensorsMsg = msg; state.ingest(msg); }
                 runner.updateGamepads(msg.getAsJsonObject("gamepad1"), msg.getAsJsonObject("gamepad2"));
                 break;
             case "hardware": { // the browser's hardware map: [{name, kind, ticksPerRev, port}] plus preset hints
@@ -248,11 +246,15 @@ public class SimLink extends WebSocketServer {
     /** The browser's main thread can stall for a few hundred ms (a software-GL render, a big panel rebuild). The
      * simulated world does not advance during a stall, so the sensors are still true; re-stamping the last packet is
      * what a real camera does when it keeps seeing an unchanged scene. Held only for short stalls. */
+    private final Object sensorLock = new Object();
     private void holdSensorsIfStalled() {
-        JsonObject m = lastSensorsMsg;
-        if (m == null || lastSensorNanos == 0) return;
-        long gap = System.nanoTime() - lastSensorNanos;
-        if (gap > 60_000_000L && gap < 2_000_000_000L) { state.ingest(m); heldFrames++; }
+        // under the same lock as the ws thread's ingest, so a held (older) packet can never land after a newer one
+        synchronized (sensorLock) {
+            JsonObject m = lastSensorsMsg;
+            if (m == null || lastSensorNanos == 0) return;
+            long gap = System.nanoTime() - lastSensorNanos;
+            if (gap > 60_000_000L && gap < 2_000_000_000L) { state.ingest(m); heldFrames++; }
+        }
     }
     private void noteSensorPacket() {
         long now = System.nanoTime();
