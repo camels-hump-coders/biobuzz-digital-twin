@@ -155,3 +155,4 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #panel .tl-mode .tl-golive { flex: 0 0 auto; font-weight: 700; }
 #panel .warn-note { color: #ffd54a; }
 #panel .tl-replay-note.hidden { display: none; }
+#panel .assets .aflash { color: #8fd18f; } #panel .assets .aflash.bad { color: #ff8a8a; }

@@ -96,6 +96,31 @@ public class SimLink extends WebSocketServer {
             case "start": runner.start(); break;
             case "stop": runner.stop(); break;
             case "list": send(conn, opModesMessage()); send(conn, assetsMessage()); break;
+            case "writeAsset": { // {path, text}: save the merged settings file where the robot build reads it (team assets root)
+                String path = msg.has("path") ? msg.get("path").getAsString().replace('\\', '/') : "";
+                String text = msg.has("text") ? msg.get("text").getAsString() : null;
+                JsonObject r = new JsonObject(); r.addProperty("type", "assetWritten"); r.addProperty("path", path);
+                try {
+                    if (path.isBlank() || path.contains("..") || path.startsWith("/") || text == null || !path.endsWith(".json")) throw new IllegalArgumentException("refusing: path must be a relative .json asset");
+                    new JsonParser().parse(text); // must still be JSON
+                    java.io.File target = null;
+                    String panelsRoot = System.getProperty("sim.panelsAssets", "");
+                    for (String root : System.getProperty("sim.assets", "").split(",")) {
+                        if (root.isBlank()) continue;
+                        java.io.File dir = new java.io.File(root.trim());
+                        if (!panelsRoot.isBlank() && dir.getAbsolutePath().equals(new java.io.File(panelsRoot).getAbsolutePath())) continue;
+                        java.io.File f = new java.io.File(dir, path);
+                        if (f.isFile() && f.getCanonicalPath().startsWith(dir.getCanonicalPath())) { target = f; break; }
+                    }
+                    if (target == null) throw new java.io.FileNotFoundException("no existing asset " + path + " under the team assets roots (only files that already exist are written)");
+                    java.nio.file.Files.writeString(target.toPath(), text);
+                    r.addProperty("ok", true); r.addProperty("file", target.getAbsolutePath());
+                    System.out.println("asset written: " + target.getPath());
+                } catch (Exception e) { r.addProperty("ok", false); r.addProperty("error", String.valueOf(e.getMessage() != null ? e.getMessage() : e)); }
+                send(conn, r);
+                broadcastJson(assetsMessage()); // every browser sees the new committed values
+                break;
+            }
             case "run": { // a finished run from the browser: keep it under runtime/runs/ for agents and later sessions
                 try {
                     java.io.File dir = new java.io.File(System.getProperty("sim.runs", "runs")); dir.mkdirs();

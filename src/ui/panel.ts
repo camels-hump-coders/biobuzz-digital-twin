@@ -106,6 +106,10 @@ export class Panel {
   /** sections whose advanced rows were revealed with their "more" button (Essential mode) */
   private moreOpen = new Set<string>();
   /** cheap per-frame refresh of the telemetry box without re-rendering the panel */
+  /** server mode: write a merged asset file back into the team repo (set by main) */
+  saveAssetToRepo?: (path: string) => Promise<{ ok: boolean; file?: string; error?: string }>;
+  private assetFlashEl?: HTMLElement;
+  flashAssets(text: string, bad = false) { const e = this.assetFlashEl; if (!e) return; e.textContent = text; e.classList.toggle("bad", bad); setTimeout(() => { if (e.textContent === text) e.textContent = ""; }, 6000); }
   /** shooter calibration wizard: the shot being typed, the cached fit and the last simulated impact */
   private calForm: CalForm | undefined;
   private calCache: { key: string; fit: FitResult } | undefined;
@@ -349,10 +353,18 @@ export class Panel {
           // export: the committed files with every override and twin-bound value applied, in the file's own format
           const changed = exportChangedAssets(link.assets, st.assetOverrides, link.bound.overrides);
           const nKeys = changed.reduce((n, c) => n + c.changed.length, 0);
+          this.assetFlashEl = el("span", { class: "note aflash" }, "");
+          const saveAll = async () => {
+            const list = changed.map((c) => `${c.path}:\n${c.changed.map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}${k.source === "twin" ? " (twin)" : ""}`).join("\n")}`).join("\n");
+            if (!confirm(`Write ${changed.length} file${changed.length > 1 ? "s" : ""} into the team repo's assets folder (the files the robot build uses)?\n\n${list}\n\nOverrides for these files are cleared afterwards (the values are in the files). Commit with git when you are happy.`)) return;
+            for (const c of changed) await this.saveAssetToRepo?.(c.path);
+          };
           return el("div", { class: "arow tools" },
+            el("button", { class: "primary", ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets on disk (server mode)" : "No file differs from what is on disk", onclick: saveAll }, changed.length ? `Save ${changed.length} changed file${changed.length > 1 ? "s" : ""} to repo` : "Save to repo"),
+            this.assetFlashEl,
             el("button", { ...(changed.length ? {} : { disabled: "" }), title: changed.map((c) => `${c.path}: ${c.changed.map((k) => k.key).join(", ")}`).join("\n") || "No file differs from what is committed", onclick: () => { for (const c of changed) downloadText(c.path.split("/").pop()!, c.text); } },
               changed.length ? `Export ${changed.length} changed file${changed.length > 1 ? "s" : ""} (${nKeys} value${nKeys > 1 ? "s" : ""})` : "Export changed files"),
-            el("span", { class: "note" }, changed.length ? "Downloads the files with your overrides and the twin-bound values written in (original key order and indentation). Drop each into TeamCode/src/main/assets/<path> and commit." : "When settings here differ from the committed files, export them to commit back into TeamCode."));
+            el("span", { class: "note" }, changed.length ? "Save writes the files with your overrides and the twin-bound values into the team repo (original key order and indentation), ready to commit; Export downloads them instead." : "When settings here differ from the files on disk, Save writes them back into the repo (Export downloads them)."));
         })(),
         list,
       );
@@ -456,6 +468,7 @@ export class Panel {
           const det = el("details", { class: "afile", ...(openIt ? { open: "" } : {}) },
             el("summary", {}, el("span", { class: "name" }, file.path), n ? el("span", { class: "badge" }, `${n} override${n > 1 ? "s" : ""}`) : "",
               schema ? el("span", { class: `badge ${problems.length ? "bad" : "ok"}`, title: problems.length ? problems.map((x) => `${x.key}: ${x.error}`).join("\n") : `${file.path.replace(/\.json$/, ".schema.json")} describes these settings` }, problems.length ? `${problems.length} invalid` : "schema ✓") : file.path.startsWith("web/") ? "" : el("span", { class: "badge quiet", title: `Add ${file.path.replace(/\.json$/, ".schema.json")} next to the asset (JSON Schema: description, enum, minimum/maximum, type) to get help text, dropdowns, sliders and validation here` }, "no schema"),
+              el("button", { class: "primary", ...(diff && this.saveAssetToRepo ? {} : { disabled: "" }), title: diff ? `Write ${file.path} on disk with these values (${exported!.changed.map((c) => c.key).join(", ")}) — the file the robot build uses` : "Matches the file on disk", onclick: (e: Event) => { stop(e); if (!exported) return; const list = exported.changed.map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}${k.source === "twin" ? " (twin)" : ""}`).join("\n"); if (confirm(`Write ${file.path} into the team repo?\n\n${list}\n\nIts overrides are cleared afterwards (the values are in the file). Commit with git when you are happy.`)) this.saveAssetToRepo?.(file.path); } }, "Save"),
               el("button", { ...(diff ? {} : { disabled: "" }), title: diff ? `Download ${file.path} with these values written in (${exported!.changed.map((c) => c.key).join(", ")}); put it at TeamCode/src/main/assets/${file.path}` : "Matches the committed file", onclick: (e: Event) => { stop(e); if (exported) downloadText(file.path.split("/").pop()!, exported.text); } }, "Export"),
               el("button", { ...(diff ? {} : { disabled: "" }), title: "Copy the merged file to the clipboard", onclick: (e: Event) => { stop(e); if (exported) navigator.clipboard?.writeText(exported.text); } }, "Copy"),
               el("button", { ...(n ? {} : { disabled: "" }), onclick: (e: Event) => { stop(e); delete st.assetOverrides[file.path]; change("assets"); } }, "Clear")),

@@ -156,10 +156,11 @@ shooter direction, alliance, start pose. Rules:
    set per run in the TeamCode settings panel or stay in the asset.
 4. After changing bindings, run a scenario: binding errors appear in the twin-test report's telemetry/pageErrors and in
    the panel; unknown knob names are the usual mistake.
-5. The committed asset values still drive the real robot. When the twin's measurement changes, export the merged file
-   from the TeamCode settings panel (*Export* per file, or *Export N changed files*) and commit it; the export keeps the
-   file's key order and indentation so only the changed values show in the diff. From a script: `applyOverrides` /
-   `exportChangedAssets` in `src/runtime/assetExport.ts` with `link.assets`, `state.assetOverrides`, `link.bound.overrides`.
+5. The committed asset values still drive the real robot. When the twin's measurement changes, write the merged file
+   back into the repo: `curl -s -X POST $A/api/save -d '{"file": "robot-profile.json"}'` (or `{"all": true}`), or the
+   *Save to repo* button in the TeamCode settings panel. The host patches the file in place (key order and indentation
+   kept, only changed values differ), then the overrides for it are cleared because the values are now in the file.
+   Review `git diff` and commit. Without a host, *Export* downloads the files instead.
 
 ## 4a. Every JSON asset gets a schema sidecar; you create and maintain it
 

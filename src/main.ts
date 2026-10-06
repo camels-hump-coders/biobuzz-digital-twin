@@ -32,7 +32,7 @@ import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
 import { parseCalLines } from "./ballistics/calibration";
 import { isSchemaFile, schemaFor, schemaPathFor, validateAll } from "./runtime/assetSchema";
-import { applyOverrides } from "./runtime/assetExport";
+import { applyOverrides, exportChangedAssets } from "./runtime/assetExport";
 import { Scoreboard, LOADING_ZONE, ballInGarden, describeScore, inZone, type RobotState } from "./sim/scoring";
 import { inferDevice, deviceHints } from "./runtime/hardwareConfig";
 import { buildDetections } from "./runtime/apriltags";
@@ -332,6 +332,14 @@ link.onAgent = async (action, params) => {
       scripted: scripted.map((r, i) => ({ name: r.name, alliance: scriptedAgents[i].alliance, xIn: +(r.pose.x / IN).toFixed(1), zIn: +(r.pose.z / IN).toFixed(1) })),
     } };
     case "knobs": return { result: twinKnobs(state) };
+    case "save": { // write the merged asset(s) back into the team repo: {file} or {all:true}
+      const targets = params.all ? exportChangedAssets(link.assets, state.assetOverrides, link.bound.overrides).map((c) => c.path) : [String(params.file ?? "")].map((f) => link.assets.find((a) => a.path === f || a.path.endsWith("/" + f))?.path ?? f);
+      if (!targets.length) return { result: { saved: [], note: "nothing differs from the committed files" } };
+      const results = [];
+      for (const t of targets) results.push({ path: t, ...(await saveAssetToRepo(t)) });
+      if (results.some((r) => !r.ok)) throw new Error(results.filter((r) => !r.ok).map((r) => `${r.path}: ${r.error}`).join("; "));
+      return { result: { saved: results } };
+    }
     case "schema": { // the JSON Schema sidecar of an asset (descriptions, enums, ranges) and the current violations
       const file = String(params.file ?? "");
       const files = link.assets.filter((a) => !isSchemaFile(a.path) && a.path.endsWith(".json"));
@@ -416,6 +424,27 @@ link.onAgent = async (action, params) => {
     default: throw new Error(`unknown action ${action}; GET / on the agent API lists them`);
   }
 };
+// the host wrote a settings file back to the repo: the manual overrides for it are now in the file, so drop them
+const pendingWrites = new Map<string, (r: { ok: boolean; file?: string; error?: string }) => void>();
+link.onAssetWritten = (r) => {
+  if (r.ok) { delete state.assetOverrides[r.path]; saveState(state); if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); }
+  recorder.event(Date.now(), r.ok ? "note" : "error", r.ok ? `saved ${r.path} to the repo (${r.file})` : `could not save ${r.path}: ${r.error}`);
+  pendingWrites.get(r.path)?.(r); pendingWrites.delete(r.path);
+  panel.render(); // rebuilds the panel (new flash element), so flash afterwards
+  panel.flashAssets(r.ok ? `Saved ${r.path.split("/").pop()} to ${r.file}` : `Not saved: ${r.error}`, !r.ok);
+};
+/** Write an asset with the current overrides applied; resolves with the host's answer. */
+function saveAssetToRepo(path: string): Promise<{ ok: boolean; file?: string; error?: string }> {
+  const asset = link.assets.find((a) => a.path === path);
+  if (!asset) return Promise.resolve({ ok: false, error: `unknown asset ${path}` });
+  if (!link.connected) return Promise.resolve({ ok: false, error: "not connected to the host (server mode only)" });
+  const merged = applyOverrides(asset, state.assetOverrides[path], link.bound.overrides[path]);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { pendingWrites.delete(path); resolve({ ok: false, error: "host did not answer" }); }, 5000);
+    pendingWrites.set(path, (r) => { clearTimeout(timer); resolve(r); });
+    link.writeAsset(path, merged.text);
+  });
+}
 let lastLinkStatus = link.status;
 link.onChange = () => {
   if (link.statusError && link.status === "ERROR") recorder.event(Date.now(), "error", link.statusError.split("\n")[0]);
@@ -434,6 +463,7 @@ link.onChange = () => {
   panel.render();
 };
 panel = new Panel(state, onChange);
+panel.saveAssetToRepo = saveAssetToRepo;
 panel.link = link;
 syncRuntime();
 Object.assign(overlays.show, state.overlays);

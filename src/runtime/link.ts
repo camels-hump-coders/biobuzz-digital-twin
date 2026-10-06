@@ -53,6 +53,8 @@ export class RuntimeLink {
   assets: { path: string; text: string }[] = [];
   /** host console lines (OpMode prints, RobotLog, exceptions) */
   onLog: (level: string, text: string, millis: number) => void = () => {};
+  /** the host wrote (or refused to write) an asset file back to the team repo */
+  onAssetWritten: (r: { path: string; ok: boolean; file?: string; error?: string }) => void = () => {};
   /** TeamCode/twin-bindings.json from the team repo, when present */
   bindings?: { path: string; text: string };
   /** latest evaluation of the bindings (filled by the app) */
@@ -105,6 +107,7 @@ export class RuntimeLink {
       case "status": { const prev = this.status; this.status = msg.status; this.currentOpMode = msg.opMode ?? ""; this.statusError = msg.error ?? ""; if (prev !== this.status) this.statusSince = performance.now(); this.onChange(); break; }
       case "telemetry": this.telemetry = msg.lines ?? []; break;
       case "missingDevice": this.onMissingDevice(msg.name, msg.requested); break;
+      case "assetWritten": this.onAssetWritten({ path: msg.path, ok: !!msg.ok, file: msg.file, error: msg.error }); break;
       case "log": this.onLog(msg.level ?? "out", msg.text ?? "", msg.millis ?? Date.now()); break;
       case "assets": {
         // Panels' web UI files are not robot settings (older hosts still send them)
@@ -121,6 +124,8 @@ export class RuntimeLink {
   sendAssetOverrides(overrides: Record<string, Record<string, unknown>>) { this.send({ type: "assetOverrides", overrides }); }
   /** a finished run (samples + events + context) for the host to keep under runtime/runs/ */
   sendRun(run: unknown) { this.send({ type: "run", run }); }
+  /** server mode: ask the host to write the merged settings file into the team's assets folder */
+  writeAsset(path: string, text: string) { this.send({ type: "writeAsset", path, text }); }
   sendSensors(p: SensorPacket) { const now = performance.now(); if (now - this.lastSend < 15) return; this.lastSend = now; this.send(p); }
   init(opMode: string) { this.send({ type: "init", opMode }); }
   start() { this.send({ type: "start" }); }
