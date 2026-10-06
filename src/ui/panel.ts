@@ -10,6 +10,7 @@ import { START_LABELS, defaultStarts, startPose, type StartKey } from "../sim/st
 import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
 import { applyOverrides, downloadText, exportChangedAssets, guessAssetFor, parsePastedSettings } from "../runtime/assetExport";
+import { constraintText, hasRange, isInteger, isNumeric, isSchemaFile, nodeAt, nullable, schemaFor, searchText, validate, validateAll } from "../runtime/assetSchema";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
 import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
@@ -310,7 +311,7 @@ export class Panel {
     if (link?.connected && link.assets.length) {
       const total = Object.values(st.assetOverrides).reduce((n, o) => n + Object.keys(o).length, 0);
       const box = el("div", { class: "assets full" });
-      const filter = el("input", { type: "text", placeholder: "Filter settings… e.g. autoShoot", value: this.assetFilter }) as HTMLInputElement;
+      const filter = el("input", { type: "text", placeholder: "Filter settings by name, description or value… e.g. autoShoot, start square, LEFT", value: this.assetFilter }) as HTMLInputElement;
       filter.oninput = () => { this.assetFilter = filter.value; renderFiles(); };
       const list = el("div", {});
       const boundCount = Object.values(link.bound.overrides).reduce((n, o) => n + Object.keys(o).length, 0);
@@ -363,24 +364,27 @@ export class Panel {
         list.replaceChildren();
         const q = this.assetFilter.trim().toLowerCase();
         for (const file of link.assets) {
+          if (isSchemaFile(file.path)) continue; // sidecars describe their asset; they are not settings
           let json: unknown;
           try { json = JSON.parse(file.text); } catch { list.append(el("div", { class: "note" }, `${file.path}: not valid JSON`)); continue; }
+          const schema = schemaFor(link.assets, file.path);
           const ov = st.assetOverrides[file.path] ?? {};
           const n = Object.keys(ov).length;
           const body = el("div", { class: "abody" });
           let shown = 0;
           // walk the tree: objects become indented group headings, everything else a row
           const walk = (v: unknown, key: string, name: string, depth: number) => {
+            const node = nodeAt(schema, key);
             if (v && typeof v === "object" && !Array.isArray(v)) {
               const entries = Object.entries(v as Record<string, unknown>);
-              const head = key ? el("div", { class: "agroup", style: `padding-left:${depth * 10}px` }, name) : null;
+              const head = key ? el("div", { class: "agroup", style: `padding-left:${depth * 10}px`, title: node?.description ?? "" }, name, node?.description ? el("span", { class: "adesc" }, ` — ${node.description}`) : "") : null;
               const before = shown;
               if (head) body.append(head);
               for (const [k, x] of entries) walk(x, key ? `${key}.${k}` : k, k, key ? depth + 1 : depth);
               if (head && shown === before) head.remove(); // nothing matched the filter in this group
               return;
             }
-            if (q && !key.toLowerCase().includes(q)) return;
+            if (q && !searchText(key, node).includes(q)) return;
             shown++;
             const boundSrc = link.bound.sources[file.path]?.[key];
             if (boundSrc !== undefined) {
@@ -391,14 +395,33 @@ export class Panel {
             }
             const has = key in ov;
             const value = has ? ov[key] : v;
-            const label = el("label", { title: key }, name);
-            const row = el("div", { class: `arow${has ? " over" : ""}`, style: `padding-left:${depth * 10}px` }, label);
+            const problem = validate(node, value);
+            const label = el("label", { title: `${key}${node?.description ? "\n" + node.description : ""}` }, name);
+            const row = el("div", { class: `arow${has ? " over" : ""}${problem ? " invalid" : ""}`, style: `padding-left:${depth * 10}px` }, label);
             let control: HTMLElement;
-            if (typeof value === "boolean") {
-              const c = el("input", { type: "checkbox" }) as HTMLInputElement; c.checked = value; c.onchange = () => setOv(file.path, key, c.checked, v); control = c;
-            } else if (typeof value === "number" || (value === null && typeof v === "number")) {
-              const i = el("input", { type: "number", step: "any", value: value === null ? "" : String(value), placeholder: "null" }) as HTMLInputElement;
-              i.onchange = () => { const x = parseFloat(i.value); setOv(file.path, key, Number.isNaN(x) ? null : x, v); }; control = i;
+            const commit = (x: unknown) => setOv(file.path, key, x, v);
+            if (node?.enum && !(typeof value === "boolean")) {
+              // enumerated setting: a select listing the allowed values (plus the current one if it is not allowed)
+              const sel = el("select") as HTMLSelectElement;
+              const opts = [...node.enum];
+              if (!opts.some((o) => JSON.stringify(o) === JSON.stringify(value))) opts.unshift(value);
+              for (const o of opts) sel.append(el("option", { value: JSON.stringify(o), selected: JSON.stringify(o) === JSON.stringify(value) ? "" : undefined }, o === null ? "null" : typeof o === "string" ? o : JSON.stringify(o)));
+              sel.onchange = () => commit(JSON.parse(sel.value)); control = sel;
+            } else if (typeof value === "boolean") {
+              const c = el("input", { type: "checkbox" }) as HTMLInputElement; c.checked = value; c.onchange = () => commit(c.checked); control = c;
+            } else if (node && hasRange(node) && (typeof value === "number" || value === null) && isNumeric(node)) {
+              // ranged number: slider + exact box
+              const lo = node.minimum ?? node.exclusiveMinimum!, hi = node.maximum ?? node.exclusiveMaximum!;
+              const step = isInteger(node) ? 1 : node.multipleOf ?? Math.max(0.001, +((hi - lo) / 200).toPrecision(1));
+              const range = el("input", { type: "range", min: String(lo), max: String(hi), step: String(step), value: value === null ? String(lo) : String(value), class: "arange" }) as HTMLInputElement;
+              const box = el("input", { type: "number", step: isInteger(node) ? "1" : "any", value: value === null ? "" : String(value), placeholder: nullable(node) ? "null" : "", class: "anum" }) as HTMLInputElement;
+              range.oninput = () => { box.value = range.value; };
+              range.onchange = () => commit(isInteger(node) ? Math.round(+range.value) : +range.value);
+              box.onchange = () => { const x = parseFloat(box.value); commit(Number.isNaN(x) ? null : isInteger(node) ? Math.round(x) : x); };
+              control = el("div", { class: "aranged" }, range, box);
+            } else if (typeof value === "number" || (value === null && (typeof v === "number" || (node && isNumeric(node))))) {
+              const i = el("input", { type: "number", step: node && isInteger(node) ? "1" : "any", value: value === null ? "" : String(value), placeholder: "null" }) as HTMLInputElement;
+              i.onchange = () => { const x = parseFloat(i.value); commit(Number.isNaN(x) ? null : x); }; control = i;
             } else if (typeof value === "string" || value === null) {
               const i = el("input", { type: "text", value: value ?? "", placeholder: value === null ? "null — type a number, true/false or text" : "", class: "atext" }) as HTMLInputElement;
               i.onchange = () => { const t = i.value; let x: unknown = t; if (t === "") x = null; else if (t === "true" || t === "false") x = t === "true"; else if (/^-?\d+(\.\d+)?$/.test(t)) x = parseFloat(t); setOv(file.path, key, x, v); }; control = i;
@@ -410,7 +433,13 @@ export class Panel {
             row.append(control);
             if (has) row.append(el("button", { class: "reset", title: `Back to the file's value: ${fmt(v)}`, onclick: () => setOv(file.path, key, v, v) }, "↺"));
             body.append(row);
-            if (has) body.append(el("div", { class: "ahint", style: `padding-left:${depth * 10}px` }, `file: ${fmt(v)}`));
+            // help: description and constraints from the schema, the file's value when overridden, the problem if any
+            const hints: string[] = [];
+            if (node?.description) hints.push(node.description);
+            const c = constraintText(node); if (c) hints.push(c);
+            if (has) hints.push(`file: ${fmt(v)}`);
+            if (problem) hints.push(`⚠ ${problem}`);
+            if (hints.length) body.append(el("div", { class: `ahint${problem ? " bad" : ""}`, style: `padding-left:${depth * 10}px` }, hints.join(" · ")));
           };
           walk(json, "", "", 0);
           if (q && !shown) continue;
@@ -419,8 +448,11 @@ export class Panel {
           try { exported = applyOverrides(file, ov, link.bound.overrides[file.path]); } catch { /* shown as invalid above */ }
           const diff = exported?.changed.length ?? 0;
           const stop = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+          const merged = (() => { try { return JSON.parse(exported?.text ?? file.text); } catch { return json; } })();
+          const problems = validateAll(merged, schema);
           const det = el("details", { class: "afile", ...(openIt ? { open: "" } : {}) },
             el("summary", {}, el("span", { class: "name" }, file.path), n ? el("span", { class: "badge" }, `${n} override${n > 1 ? "s" : ""}`) : "",
+              schema ? el("span", { class: `badge ${problems.length ? "bad" : "ok"}`, title: problems.length ? problems.map((x) => `${x.key}: ${x.error}`).join("\n") : `${file.path.replace(/\.json$/, ".schema.json")} describes these settings` }, problems.length ? `${problems.length} invalid` : "schema ✓") : file.path.startsWith("web/") ? "" : el("span", { class: "badge quiet", title: `Add ${file.path.replace(/\.json$/, ".schema.json")} next to the asset (JSON Schema: description, enum, minimum/maximum, type) to get help text, dropdowns, sliders and validation here` }, "no schema"),
               el("button", { ...(diff ? {} : { disabled: "" }), title: diff ? `Download ${file.path} with these values written in (${exported!.changed.map((c) => c.key).join(", ")}); put it at TeamCode/src/main/assets/${file.path}` : "Matches the committed file", onclick: (e: Event) => { stop(e); if (exported) downloadText(file.path.split("/").pop()!, exported.text); } }, "Export"),
               el("button", { ...(diff ? {} : { disabled: "" }), title: "Copy the merged file to the clipboard", onclick: (e: Event) => { stop(e); if (exported) navigator.clipboard?.writeText(exported.text); } }, "Copy"),
               el("button", { ...(n ? {} : { disabled: "" }), onclick: (e: Event) => { stop(e); delete st.assetOverrides[file.path]; change("assets"); } }, "Clear")),

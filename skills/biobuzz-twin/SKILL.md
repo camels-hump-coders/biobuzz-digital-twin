@@ -161,6 +161,22 @@ shooter direction, alliance, start pose. Rules:
    file's key order and indentation so only the changed values show in the diff. From a script: `applyOverrides` /
    `exportChangedAssets` in `src/runtime/assetExport.ts` with `link.assets`, `state.assetOverrides`, `link.bound.overrides`.
 
+## 4a. Describe every setting in the asset's schema sidecar
+
+Each JSON asset has (or should get) a JSON Schema sidecar next to it: `robot-profile.schema.json` for
+`robot-profile.json`. The twin's settings panel renders it (help text, dropdowns for `enum`, sliders for
+`minimum`/`maximum`, red flags for violations) and `GET /api/schema?file=robot-profile.json` returns it with the
+current violations. Rules:
+
+1. When you add, rename or re-range a setting in the Java that parses it (`number(a,"key",fallback,min,max)`,
+   `valueOf(...)` enums, `validate()` ranges), update the sidecar in the same change: `description` (what it does, units,
+   sign convention, what happens at the extremes), `type`, `enum`, `minimum`/`maximum`, `default`, `"type": ["number","null"]`
+   when null is meaningful. Keep the schema's ranges identical to the Java's; the schema is documentation of the code,
+   not a second source of truth.
+2. Nested objects use `properties`; arrays use `items`; maps of similar entries use `additionalProperties`.
+3. Before INIT, run `curl -s "$A/api/schema?file=robot-profile.json" | jq .invalid` (or read the file badge) so a
+   value the code will reject at startup is caught here first.
+
 ## 4b. Shooter calibration: make the twin shoot like the robot
 
 The twin's launcher knobs (`launcher.efficiency`, `launcher.elevationDeg`, `launcher.exitHeightIn`, backspin, the

@@ -31,6 +31,8 @@ import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
 import { parseCalLines } from "./ballistics/calibration";
+import { isSchemaFile, schemaFor, schemaPathFor, validateAll } from "./runtime/assetSchema";
+import { applyOverrides } from "./runtime/assetExport";
 import { Scoreboard, LOADING_ZONE, ballInGarden, describeScore, inZone, type RobotState } from "./sim/scoring";
 import { inferDevice, deviceHints } from "./runtime/hardwareConfig";
 import { buildDetections } from "./runtime/apriltags";
@@ -329,6 +331,17 @@ link.onAgent = async (action, params) => {
       scripted: scripted.map((r, i) => ({ name: r.name, alliance: scriptedAgents[i].alliance, xIn: +(r.pose.x / IN).toFixed(1), zIn: +(r.pose.z / IN).toFixed(1) })),
     } };
     case "knobs": return { result: twinKnobs(state) };
+    case "schema": { // the JSON Schema sidecar of an asset (descriptions, enums, ranges) and the current violations
+      const file = String(params.file ?? "");
+      const files = link.assets.filter((a) => !isSchemaFile(a.path) && a.path.endsWith(".json"));
+      const mergedJson = (a: typeof files[number]) => { try { return JSON.parse(applyOverrides(a, state.assetOverrides[a.path], link.bound.overrides[a.path]).text); } catch { return JSON.parse(a.text); } };
+      if (!file) return { result: { files: files.map((a) => ({ path: a.path, schema: !!schemaFor(link.assets, a.path), invalid: validateAll(mergedJson(a), schemaFor(link.assets, a.path)) })) } };
+      const asset = files.find((a) => a.path === file || a.path.endsWith("/" + file) || a.path.endsWith(file));
+      if (!asset) throw new Error(`unknown asset ${file}; known: ${files.map((a) => a.path).join(", ")}`);
+      const schema = schemaFor(link.assets, asset.path);
+      const merged = applyOverrides(asset, state.assetOverrides[asset.path], link.bound.overrides[asset.path]);
+      return { result: { path: asset.path, schemaPath: schemaPathFor(asset.path), schema: schema ?? null, invalid: validateAll(JSON.parse(merged.text), schema) } };
+    }
     case "run": return { result: { runs: recorder.runs.map((r) => ({ ...r, durationS: +(((r.end ?? Date.now()) - r.start) / 1000).toFixed(1), samples: recorder.samples.filter((x) => x.t >= r.start && x.t <= (r.end ?? Infinity)).length })), latest: recorder.latestRun(), cursor: recorder.cursor, recordedFrom: recorder.start, recordedTo: recorder.end, sampleMs: 100 } };
     case "replay": {
       // GET: the sample at a moment. POST with the same parameters scrubs the human's view there (live sim paused).
