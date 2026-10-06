@@ -54,7 +54,7 @@ public class SimLink extends WebSocketServer {
         runner = new OpModeRunner(state, lines -> { lastTelemetry = lines; broadcastJson(telemetryMessage(lines)); }, s -> broadcastJson(statusMessage()));
         panels = PanelsBoot.start(runner, opModes, () -> hardwareMap);
         setReuseAddr(true);
-        exec.scheduleAtFixedRate(() -> { if (!clients.isEmpty()) broadcastJson(state.actuatorMessage()); }, 20, 20, TimeUnit.MILLISECONDS);
+        exec.scheduleAtFixedRate(() -> { if (!clients.isEmpty()) { broadcastJson(state.actuatorMessage()); holdSensorsIfStalled(); } }, 20, 20, TimeUnit.MILLISECONDS);
     }
 
     @Override public void onOpen(WebSocket conn, ClientHandshake hs) {
@@ -74,6 +74,8 @@ public class SimLink extends WebSocketServer {
         String type = msg.has("type") ? msg.get("type").getAsString() : "";
         switch (type) {
             case "sensors":
+                noteSensorPacket();
+                lastSensorsMsg = msg;
                 state.ingest(msg);
                 runner.updateGamepads(msg.getAsJsonObject("gamepad1"), msg.getAsJsonObject("gamepad2"));
                 break;
@@ -219,6 +221,45 @@ public class SimLink extends WebSocketServer {
     }
 
     // ---- agent API (AgentApi.java) -------------------------------------------------------------------------------
+    // cadence of the browser's sensor packets (tags, encoders, gamepads): a gap over the team's camera-freshness
+    // window looks to the OpMode like a stale camera, so it is measured here and reported by /api/status
+    private long lastSensorNanos = 0, sensorGapMaxNanos = 0, sensorGapMax10sNanos = 0, sensorWindowStart = 0, firstSensorNanos = 0;
+    private int sensorPackets10s = 0, sensorGapsOver300 = 0, sensorGapsOver100 = 0;
+    private volatile JsonObject sensorStats = new JsonObject();
+    private volatile JsonObject lastSensorsMsg;
+    private int heldFrames = 0;
+    private final JsonArray gapLog = new JsonArray();
+    /** The browser's main thread can stall for a few hundred ms (a software-GL render, a big panel rebuild). The
+     * simulated world does not advance during a stall, so the sensors are still true; re-stamping the last packet is
+     * what a real camera does when it keeps seeing an unchanged scene. Held only for short stalls. */
+    private void holdSensorsIfStalled() {
+        JsonObject m = lastSensorsMsg;
+        if (m == null || lastSensorNanos == 0) return;
+        long gap = System.nanoTime() - lastSensorNanos;
+        if (gap > 60_000_000L && gap < 2_000_000_000L) { state.ingest(m); heldFrames++; }
+    }
+    private void noteSensorPacket() {
+        long now = System.nanoTime();
+        if (lastSensorNanos != 0) {
+            long gap = now - lastSensorNanos;
+            if (gap > sensorGapMaxNanos) sensorGapMaxNanos = gap;
+            if (gap > sensorGapMax10sNanos) sensorGapMax10sNanos = gap;
+            if (gap > 300_000_000L) sensorGapsOver300++;
+            if (gap > 100_000_000L) { sensorGapsOver100++; if (gapLog.size() < 50) { JsonObject g = new JsonObject(); g.addProperty("gapMs", Math.round(gap / 1e6)); g.addProperty("atMs", Math.round((now - firstSensorNanos) / 1e6)); g.addProperty("status", runner.status().name()); gapLog.add(g); } }
+        }
+        if (firstSensorNanos == 0) firstSensorNanos = now;
+        lastSensorNanos = now; sensorPackets10s++;
+        if (sensorWindowStart == 0) sensorWindowStart = now;
+        if (now - sensorWindowStart >= 10_000_000_000L) {
+            JsonObject o = new JsonObject();
+            o.addProperty("packetsPerSecond", Math.round(sensorPackets10s / ((now - sensorWindowStart) / 1e9)));
+            o.addProperty("maxGapMsLast10s", Math.round(sensorGapMax10sNanos / 1e6));
+            o.addProperty("maxGapMsEver", Math.round(sensorGapMaxNanos / 1e6));
+            o.addProperty("gapsOver100msEver", sensorGapsOver100); o.addProperty("gapsOver300msEver", sensorGapsOver300);
+            o.addProperty("heldFramesEver", heldFrames); o.add("gapsOver100ms", gapLog.deepCopy());
+            sensorStats = o; sensorWindowStart = now; sensorPackets10s = 0; sensorGapMax10sNanos = 0;
+        }
+    }
     public volatile String lastRunFile = "";
     public java.io.File runsDir() { return new java.io.File(System.getProperty("sim.runs", "runs")); }
     public boolean hasBrowser() { return !clients.isEmpty(); }
@@ -226,6 +267,7 @@ public class SimLink extends WebSocketServer {
     public JsonObject agentStatus() {
         JsonObject m = statusMessage(); m.remove("type");
         m.addProperty("browserConnected", hasBrowser());
+        JsonObject ss = sensorStats.deepCopy(); if (lastSensorNanos != 0) ss.addProperty("sinceLastPacketMs", Math.round((System.nanoTime() - lastSensorNanos) / 1e6)); m.add("sensors", ss);
         m.add("opModes", opModesMessage().get("opModes"));
         if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);
         m.addProperty("agentUrl", AgentApi.URL);

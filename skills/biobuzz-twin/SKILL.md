@@ -65,6 +65,10 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
 }
 ```
 
+- `expect.telemetryIncludes` and `expect.telemetrySequence` (regexes that must first appear in that order) are checked
+  against the 10 Hz telemetry change log, so routine states that last under a second count; the report keeps 1 Hz
+  samples plus `telemetryChanges` (every moment the telemetry changed, with the lines). `expect.scoreAtLeast` checks our
+  alliance's match score.
 - `inputs` set gamepad fields at simulated seconds after START and hold them until changed: sticks `lx ly rx ry`
   (−1..1, FTC convention: `ly` = −1 is stick forward), triggers `lt rt`, buttons `a b x y lb rb back start guide
   (Home/PS) du dd dl dr ls rs`.
@@ -122,6 +126,17 @@ biobuzz/robot-profile.json
 
 The human pastes that into *TeamCode settings → Paste settings from an agent*; the panel picks the file (by name or by
 which file already has those keys/sections) and applies them as overrides.
+
+## 2c. "WAITING FOR FRESH CAMERA FRAME" and other timing doubts
+
+The twin's AprilTag detections are computed on a 50 Hz sensor timer in the browser, independent of rendering, and
+each packet is time-stamped on arrival at the host. `GET /api/status` → `sensors` reports the cadence
+(`packetsPerSecond`, `maxGapMsLast10s`, `gapsOver100ms` with the runtime status at the time, `heldFramesEver`).
+Headless steady state is ~50 packets/s with gaps under 40 ms. The one known stall is the page's first render (shader
+compilation, 0.5-1 s); twin-test now waits for it before INIT, and the host bridges short stalls by re-stamping the
+last packet (the simulated world does not move during a stall, so this is what a real camera would see). If a
+freshness gate in team code still trips, read `sensors` first: a gap list that is empty or far from the gate means the
+cause is in the code (target not in view, camera marked not ready, a frame consumer swallowing frames), not the twin.
 
 ## 3. Read the report
 

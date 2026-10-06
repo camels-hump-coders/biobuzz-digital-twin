@@ -30,7 +30,7 @@ import { stepBall, type LiveBall } from "./sim/ballPhysics";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
-import { parseCalLines } from "./ballistics/calibration";
+import { parseCalLines, speedForRange, type FlightModel } from "./ballistics/calibration";
 import { isSchemaFile, schemaFor, schemaPathFor, validateAll } from "./runtime/assetSchema";
 import { applyOverrides, exportChangedAssets } from "./runtime/assetExport";
 import { Scoreboard, LOADING_ZONE, ballInGarden, describeScore, inZone, type RobotState } from "./sim/scoring";
@@ -326,12 +326,30 @@ link.onAgent = async (action, params) => {
       pose: { xIn: +(state.pose.x / IN).toFixed(2), zIn: +(state.pose.z / IN).toFixed(2), headingDeg: +((state.pose.heading * 180) / Math.PI).toFixed(1) },
       match: { phase: state.matchPhase, clock: +(state.matchClock ?? 0).toFixed(1) },
       score: { red: allianceScore("red"), blue: allianceScore("blue") },
-      inventory: playerAgent.inventory, shots: { fired: shotsFired, hit: shotsHit }, cellLoad: { red: match.cellLoad("red"), blue: match.cellLoad("blue") },
+      inventory: playerAgent.inventory, shots: { fired: shotsFired, hit: shotsHit }, shot: lastShotInfo, cellLoad: { red: match.cellLoad("red"), blue: match.cellLoad("blue") },
       hives: { red: { upCell: match.hives.red.upCell, tips: match.hives.red.tips }, blue: { upCell: match.hives.blue.upCell, tips: match.hives.blue.tips } },
       selectedOpMode: panel.selectedOpMode, telemetry: link.telemetry, runtimeStatus: link.status, notice: launchBlockedUntil > performance.now() ? launchBlockedMsg : undefined,
       scripted: scripted.map((r, i) => ({ name: r.name, alliance: scriptedAgents[i].alliance, xIn: +(r.pose.x / IN).toFixed(1), zIn: +(r.pose.z / IN).toFixed(1) })),
     } };
     case "knobs": return { result: twinKnobs(state) };
+    case "shot": {
+      // required exit speed / RPM / power to drop into the up cell at a horizontal range (drag + Magnus model, descending
+      // arc through the opening's aim height), for one range or a table: ?rangeIn=68 or ?rangesIn=48,60,72,84
+      const l = state.robot.launcher, bp = ballProps();
+      const flyDev = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
+      const model: FlightModel = { ball: bp, wheelDiameterM: l.wheelDiameterM, freeRpm: flyDev?.freeRpm ?? l.maxRpm, exitHeightM: l.exitHeightM };
+      const prm = { efficiency: l.efficiency, elevationDeg: num("hoodDeg", l.elevationDeg), spinFraction: l.spinFraction };
+      const targetHeightM = aimPoint(targetFrame()).y;
+      const ranges = params.rangesIn !== undefined ? String(params.rangesIn).split(/[,\s]+/).map(Number).filter((x) => x > 0) : [num("rangeIn", NaN)];
+      if (!ranges.length || ranges.some((r) => !Number.isFinite(r))) throw new Error("give rangeIn=<inches> or rangesIn=48,60,72");
+      const rows = ranges.map((rangeIn) => {
+        const v = speedForRange(model, prm, rangeIn * IN, targetHeightM);
+        if (v === undefined) return { rangeIn, reachable: false };
+        const rpm = rpmForExitSpeed(l, v);
+        return { rangeIn, reachable: rpm <= l.maxRpm, exitSpeedMps: +v.toFixed(2), rpm: Math.round(rpm), power: +(rpm / model.freeRpm).toFixed(3) };
+      });
+      return { result: { target: `${state.alliance} hive, ${state.hive[state.alliance]} cell`, targetHeightIn: +(targetHeightM / IN).toFixed(1), hoodDeg: prm.elevationDeg, exitHeightIn: +(l.exitHeightM / IN).toFixed(1), flywheelFreeRpm: model.freeRpm, launcher: { efficiency: l.efficiency, wheelDiameterMm: Math.round(l.wheelDiameterM * 1000), maxRpm: l.maxRpm }, rows, note: "power = rpm / flywheel free RPM (Hardware map), i.e. the setPower a no-load motor needs; the live HUD value for the current pose is in /api/state → shot" } };
+    }
     case "save": { // write the merged asset(s) back into the team repo: {file} or {all:true}
       const targets = params.all ? exportChangedAssets(link.assets, state.assetOverrides, link.bound.overrides).map((c) => c.path) : [String(params.file ?? "")].map((f) => link.assets.find((a) => a.path === f || a.path.endsWith("/" + f))?.path ?? f);
       if (!targets.length) return { result: { saved: [], note: "nothing differs from the committed files" } };
@@ -692,6 +710,9 @@ setupUpdates();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
 let analysisTick = 0;
 let lastRenderAt = 0;
+let lastSlowNote = 0;
+let lastShotInfo: Record<string, unknown> = {};
+let renderCount = 0; // the first render compiles every shader (a 0.5-1 s stall under software GL); test harnesses wait for it before INIT
 
 function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } {
   const l = state.robot.launcher;
@@ -997,6 +1018,21 @@ function frame(now: number) {
   if (replaySample) applyReplay(replaySample); else restoreLive();
   const replayRun = replaySample ? recorder.runAt(replaySample.t) : undefined;
   const replayBanner = replaySample ? `⏪ REPLAY ${replayRun ? `run +${((replaySample.t - replayRun.start) / 1000).toFixed(1)} s${replayRun.opMode ? " · " + replayRun.opMode : ""}` : new Date(replaySample.t).toLocaleTimeString()} · ${((recorder.end ?? replaySample.t) - replaySample.t) / 1000 > 0 ? `${(((recorder.end ?? replaySample.t) - replaySample.t) / 1000).toFixed(1)} s ago` : "now"} · ${replaySample.status}${replaySample.scene ? ` · ${replaySample.scene.phase} ${replaySample.scene.clock.toFixed(0)} s · score ${replaySample.scene.score[0]}–${replaySample.scene.score[1]}` : ""} · live sim paused` : undefined;
+  // what the HUD shows about the shot, kept for the agent API (/api/state → shot)
+  const flyDev = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
+  const freeRpm = flyDev?.freeRpm ?? l.maxRpm;
+  lastShotInfo = {
+    target: `${state.alliance} hive, ${state.hive[state.alliance]} cell`,
+    rangeIn: +mToIn(Math.hypot(target.x - exit.x, target.z - exit.z)).toFixed(1), bearingErrDeg: +rad2deg(bearingErr).toFixed(1), aimed: turretOk,
+    hoodDeg: l.elevationDeg, exitHeightIn: +mToIn(l.exitHeightM).toFixed(1),
+    requiredSpeedMps: required !== undefined ? +required.toFixed(2) : undefined, requiredRpm: required !== undefined ? Math.round(rpmForExitSpeed(l, required)) : undefined,
+    requiredPower: required !== undefined ? +(rpmForExitSpeed(l, required) / freeRpm).toFixed(3) : undefined, flywheelFreeRpm: freeRpm,
+    currentRpm: Math.round(l.rpm), currentPower: +(l.rpm / freeRpm).toFixed(3), currentSpeedMps: +exitSpeed(l).toFixed(2),
+    predictedHit: shot?.hit, heightErrorIn: shot ? +mToIn(shot.heightError).toFixed(1) : undefined, asPointedHit: actualShot?.hit,
+    bestAngleDeg: scan?.best ? +rad2deg(scan.best.elevationRad).toFixed(1) : undefined,
+    launcher: { efficiency: l.efficiency, wheelDiameterMm: Math.round(l.wheelDiameterM * 1000), maxRpm: l.maxRpm, spinFraction: l.spinFraction },
+    note: "requiredPower = required RPM / the flywheel motor's free RPM in the Hardware map (what setPower needs with no load); heightErrorIn is for the current commanded RPM",
+  };
   hud.update({
     poseIn: replaySample ? { x: replaySample.pose.xIn, z: replaySample.pose.zIn, headingDeg: replaySample.pose.headingDeg } : { x: mToIn(state.pose.x), z: mToIn(state.pose.z), headingDeg: rad2deg(state.pose.heading) },
     speedMps: speed,
@@ -1069,7 +1105,7 @@ function frame(now: number) {
   robot.launcherMarker.visible = showGizmos;
   for (const a of allAgents) a.carryGroup.visible = showGizmos;
   const renderThisFrame = !ciMode || now - lastRenderAt >= 250; // headless: a few frames per second is plenty for screenshots
-  if (renderThisFrame) lastRenderAt = now;
+  if (renderThisFrame) { lastRenderAt = now; renderCount++; }
   if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
 
@@ -1101,9 +1137,12 @@ function frame(now: number) {
   recordSample(now);
   perf.end(state.showPerf, fps);
   if (analysisTick % 120 === 0) saveState(state);
+  const frameMs = performance.now() - now;
+  if (frameMs > 150 && now - lastSlowNote > 1000) { lastSlowNote = now; recorder.event(Date.now(), "note", `slow frame ${frameMs.toFixed(0)} ms (${link.status}, render ${renderThisFrame ? "yes" : "no"}, dt ${(dt * 1000).toFixed(0)} ms)`); }
   if (ciMode) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
+Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;

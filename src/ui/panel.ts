@@ -176,6 +176,12 @@ export class Panel {
   }
 
   render() {
+    const t0 = performance.now();
+    this.renderInner();
+    const ms = performance.now() - t0;
+    if (ms > 120) this.recorder?.event(Date.now(), "note", `slow panel render ${ms.toFixed(0)} ms`);
+  }
+  private renderInner() {
     // remember open/closed
     this.root.querySelectorAll("details").forEach((d) => this.openState.set(d.querySelector("summary")!.textContent!, d.open));
     this.root.replaceChildren();

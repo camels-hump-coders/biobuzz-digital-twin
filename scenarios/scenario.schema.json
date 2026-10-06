@@ -116,7 +116,7 @@
           "items": {
             "type": "string"
           },
-          "description": "regexes that must match some telemetry line at some sample"
+          "description": "regexes that must match some telemetry line at some sample Checked against the 1 Hz samples and the 10 Hz telemetry change log."
         },
         "telemetryFinalIncludes": {
           "type": "array",
@@ -143,6 +143,17 @@
         },
         "fouls": {
           "type": "string"
+        },
+        "telemetrySequence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Regexes that must first appear in this order during the run (checked against the 10 Hz telemetry change log, so states lasting under a second count)."
+        },
+        "scoreAtLeast": {
+          "type": "number",
+          "description": "Our alliance's match score at the end must be at least this (Table 10-2 scoring)."
         }
       }
     },

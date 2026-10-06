@@ -129,9 +129,12 @@ async function runScenario(scenario, scenarioPath, out) {
   await page.goto(`http://localhost:${port}/?ci=1${scenario.ignoreBindings ? "&nobind=1" : ""}`, { waitUntil: "networkidle" }); // ci=1: light rendering so the sim runs at full rate under software GL
   await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus !== "loading", null, { timeout: 60_000 });
   await page.waitForFunction(() => window.__twin.link.connected && window.__twin.link.opModes.length > 0, null, { timeout: 30_000 }).catch(() => {});
+  // the first renders compile every shader and stall the page for up to a second under software GL; let that happen
+  // before INIT so the OpMode's first seconds (spin-up, first camera frames) are not the ones that pay for it
+  await page.waitForFunction(() => (window.__twinRenderCount ?? 0) >= 3, null, { timeout: 8_000 }).catch(() => {});
   const opModes = await page.evaluate(() => window.__twin.link.opModes.map((o) => o.name));
   const samples = [];
-  let startSnapshot, final, simStart = 0;
+  let startSnapshot, final, simStart = 0, telemetryChanges = [];
   const snapshot = (light = false) => page.evaluate((light) => {
     const t = window.__twin, s = t.stats();
     const base = { status: t.link.status, error: t.link.statusError || undefined, telemetry: t.link.telemetry, poseIn: { x: +(t.state.pose.x / 0.0254).toFixed(1), z: +(t.state.pose.z / 0.0254).toFixed(1), headingDeg: +((t.state.pose.heading * 180) / Math.PI).toFixed(1) }, shotsFired: s.shotsFired, shotsHit: s.shotsHit };
@@ -186,23 +189,41 @@ async function runScenario(scenario, scenarioPath, out) {
   console.log(`twin-test: simulated ${now.toFixed(1)} s in ${wall.toFixed(0)} s wall (${(now / Math.max(wall, 0.1)).toFixed(2)}x real time)`);
   if (stall) console.error(`twin-test: ${stall}`);
   final = await snapshot();
+  // every telemetry line the twin recorded at 10 Hz during the run (states that last under a second are in here);
+  // stored compactly as the moments a line changed, so the report stays small
+  telemetryChanges = await page.evaluate(() => {
+    const t = window.__twin; const run = t.recorder.latestRun(); const from = run ? run.start : 0;
+    const out = []; let prev = "";
+    for (const s of t.recorder.samples) { if (s.t < from) continue; const key = s.telemetry.join("\n"); if (key !== prev) { out.push({ t: +((s.t - from) / 1000).toFixed(1), lines: s.telemetry }); prev = key; } }
+    return out;
+  }).catch(() => []);
   return finish(stall && !pageErrors.length ? stall : undefined);
 
   function report(failed) {
     const checks = [];
     const e = scenario.expect ?? {};
-    const allLines = samples.flatMap((s) => s.telemetry ?? []).concat(final?.telemetry ?? []);
+    // 1 Hz samples plus the 10 Hz change log, so brief states count
+    const allLines = samples.flatMap((s) => s.telemetry ?? []).concat(final?.telemetry ?? [], telemetryChanges.flatMap((c) => c.lines));
+    // first simulated time each regex matched, for ordered checks
+    const firstSeen = (re) => { const r = new RegExp(re); for (const c of telemetryChanges) if (c.lines.some((l) => r.test(l))) return c.t; for (const s of samples) if ((s.telemetry ?? []).some((l) => r.test(l))) return s.t; return undefined; };
     if (e.noErrors) checks.push({ check: "noErrors", pass: !final?.error && pageErrors.length === 0 && !failed, detail: final?.error || pageErrors[0] || failed || "" });
     if (e.shotsFired) checks.push({ check: `shotsFired ${e.shotsFired}`, pass: cmp(e.shotsFired, final?.shotsFired ?? 0), detail: `fired ${final?.shotsFired ?? 0}` });
     if (e.shotsHit) checks.push({ check: `shotsHit ${e.shotsHit}`, pass: cmp(e.shotsHit, final?.shotsHit ?? 0), detail: `hit ${final?.shotsHit ?? 0}` });
     if (e.fouls) { const n = Object.values(final?.fouls ?? {}).reduce((a, b) => a + b, 0); checks.push({ check: `fouls ${e.fouls}`, pass: cmp(e.fouls, n), detail: `${n} fouls` }); }
     for (const re of e.telemetryIncludes ?? []) checks.push({ check: `telemetry matches /${re}/ at some point`, pass: allLines.some((l) => new RegExp(re).test(l)), detail: "" });
     for (const re of e.telemetryFinalIncludes ?? []) checks.push({ check: `final telemetry matches /${re}/`, pass: (final?.telemetry ?? []).some((l) => new RegExp(re).test(l)), detail: "" });
+    if (e.telemetrySequence?.length) {
+      // each regex must first appear after the previous one did
+      const times = e.telemetrySequence.map((re) => ({ re, t: firstSeen(re) }));
+      let ok = true, last = -1, why = "";
+      for (const x of times) { if (x.t === undefined) { ok = false; why = `/${x.re}/ never appeared`; break; } if (x.t < last) { ok = false; why = `/${x.re}/ appeared at ${x.t}s, before the previous step (${last}s)`; break; } last = x.t; }
+      checks.push({ check: `telemetry sequence ${e.telemetrySequence.map((r) => `/${r}/`).join(" → ")}`, pass: ok, detail: ok ? times.map((x) => `${x.t}s`).join(" → ") : why });
+    }
     if (e.movedAtLeastIn !== undefined && final && startSnapshot) { const d = Math.hypot(final.poseIn.x - startSnapshot.poseIn.x, final.poseIn.z - startSnapshot.poseIn.z); checks.push({ check: `moved ≥ ${e.movedAtLeastIn} in`, pass: d >= e.movedAtLeastIn, detail: `${d.toFixed(1)} in` }); }
     if (e.poseNear && final) { const d = Math.hypot(final.poseIn.x - e.poseNear.xIn, final.poseIn.z - e.poseNear.zIn); checks.push({ check: `ends within ${e.poseNear.tolIn ?? 12} in of (${e.poseNear.xIn}, ${e.poseNear.zIn})`, pass: d <= (e.poseNear.tolIn ?? 12), detail: `${d.toFixed(1)} in away` }); }
     if (e.scoreAtLeast !== undefined && final?.score) { const mine = final.score[scenario.alliance ?? "red"]?.total ?? 0; checks.push({ check: `our score ≥ ${e.scoreAtLeast}`, pass: mine >= e.scoreAtLeast, detail: `${mine} pts` }); }
     const pass = checks.every((c) => c.pass) && !failed;
-    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, pass, failed, checks, start: startSnapshot, final, samples, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
+    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, pass, failed, checks, start: startSnapshot, final, samples, telemetryChanges, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
     writeReport(out, rep);
     console.log(`\ntwin-test: ${rep.scenario}`);
     if (failed) console.log(`  ✗ ${failed}`);
