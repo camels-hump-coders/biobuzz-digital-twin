@@ -145,9 +145,7 @@ export class Workspace {
   private buildHeader() {
     this.header.replaceChildren(
       el('div', { class: 'brand-lockup' },
-        // the team logo spans both lines; the title line is the official BIOBUZZ season mark followed by our own "Digital Twin"
-        el('a', { class: 'team-mark', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Camels Hump Coders #36682 — visit team website' },
-          el('img', { src: `${import.meta.env.BASE_URL}chc-logo.png`, alt: 'Camels Hump Coders logo', width: '54', height: '54' })),
+        // title line: official BIOBUZZ mark + our "Digital Twin"; presented-by line below; the team logo closes the lockup, spanning both lines
         el('div', { class: 'brand-lines' },
           el('a', { class: 'brand', href: '#', 'aria-label': 'BIOBUZZ Digital Twin — practice workspace', onclick: (e: Event) => { e.preventDefault(); this.navigate('practice'); } },
             el('img', { class: 'season-hex', src: `${import.meta.env.BASE_URL}biobuzz-hex.png`, alt: '', height: '30' }),
@@ -155,6 +153,8 @@ export class Workspace {
             el('span', { class: 'twin-word' }, 'Digital Twin')),
           el('a', { class: 'team-credit', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer' },
             el('small', {}, 'Presented by '), el('strong', {}, 'Camels Hump Coders #36682'))),
+        el('a', { class: 'team-mark', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Camels Hump Coders #36682 — visit team website' },
+          el('img', { src: `${import.meta.env.BASE_URL}chc-logo.png`, alt: 'Camels Hump Coders logo', width: '54', height: '54' })),
       ),
       el('nav', { class: 'workspace-tabs', 'aria-label': 'Workspace' }, ...(['practice', 'teamcode', 'analyze'] as Task[]).map(task => el('button', { class: this.task === task ? 'active' : '', 'aria-current': this.task === task ? 'page' : undefined, onclick: () => this.navigate(task) }, TITLES[task]))),
       el('div', { class: 'header-tools' }, button('Robot setup', () => this.navigate('setup'), this.task === 'setup' ? 'active' : ''), button('All settings', () => this.navigate('settings'), this.task === 'settings' ? 'active' : ''), button('Help', () => this.help()), button('About', () => this.panel.openAbout()), button('Hide sidebar', () => this.panel.toggle(), 'panel-toggle')),
@@ -561,7 +561,18 @@ export class Workspace {
     }
     const clock = this.dock.querySelector<HTMLElement>('.match-clock');
     const remaining = Math.ceil(this.state.matchClock ?? 150);
-    if (clock) { clock.textContent = `${replay ? 'LIVE MATCH · ' : ''}${this.state.matchPhase === 'running' ? 'MATCH RUNNING' : this.state.matchPhase === 'stopped' ? remaining === 0 ? 'MATCH ENDED' : 'MATCH STOPPED' : 'MATCH READY'} · ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`; clock.dataset.running = String(this.state.matchPhase === 'running'); }
+    if (clock) {
+      const mmss = (t: number) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+      const running = this.state.matchPhase === 'running';
+      const inAuto = running && remaining > 120;
+      // what the driver has to watch: in AUTO the seconds left before TELEOP, afterwards the time left in the match
+      const shown = inAuto ? remaining - 120 : remaining;
+      const urgency = !running ? 'idle' : shown <= 5 ? 'now' : shown <= (inAuto ? 10 : 30) ? 'soon' : 'calm';
+      const phase = replay ? 'LIVE MATCH' : !running ? (this.state.matchPhase === 'stopped' ? (remaining === 0 ? 'MATCH ENDED' : 'MATCH STOPPED') : 'MATCH READY') : inAuto ? 'AUTO' : remaining <= 30 ? 'ENDGAME' : 'TELEOP';
+      const sub = inAuto ? `teleop in ${shown} s · ${mmss(remaining)} left` : running ? (remaining <= 30 ? 'match ends' : 'time left') : '2:30 match';
+      clock.replaceChildren(el('span', { class: 'phase' }, phase), el('span', { class: 'time' }, inAuto ? `0:${String(shown).padStart(2, '0')}` : mmss(remaining)), el('span', { class: 'sub' }, sub));
+      clock.dataset.running = String(running); clock.dataset.urgency = urgency; clock.dataset.auto = String(inAuto);
+    }
     const connected = this.link.connected;
     let title = !this.state.runtimeEnabled ? 'Runtime disabled' : !connected ? 'Waiting for runtime host' : this.link.status === 'RUNNING' ? 'Program running' : this.link.status === 'INIT' ? 'Initialized · ready to start' : this.link.status === 'ERROR' ? 'Runtime error' : 'Runtime connected';
     let next = !this.state.runtimeEnabled ? 'Enable the runtime connection here to run TeamCode.' : !connected ? 'Start your local host with pnpm sim. This page connects automatically.' : this.link.status === 'RUNNING' ? 'TeamCode controls the robot. Use Stop in the bottom bar to end the run.' : this.link.status === 'INIT' ? 'Use Start in the bottom bar to run your program.' : this.link.status === 'ERROR' ? 'Check Connection & diagnostics below, then initialize again.' : this.panel.selectedOpMode ? 'Choose a program, initialize it, then start.' : 'No programs available. Check the host build and program discovery.';
