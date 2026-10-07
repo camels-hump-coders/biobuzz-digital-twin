@@ -1239,7 +1239,7 @@ function frame(now: number) {
 // debugging hook for scripts / console
 Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twinRenderNow = () => { renderRequested = true; };
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitJob, hitmapDone: () => !!hitJob && hitJob.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };
@@ -1305,16 +1305,19 @@ function computeMonteCarlo(exit: Vec3, frame: CellFrame, dir: { x: number; z: nu
   mcCache = { key, mc, at: now };
   return mc;
 }
-// ---- hit-probability map: incremental job, re-created whenever anything it depends on changes
+// ---- hit-probability map: one incremental job per cell side. The side that is up now is computed first and drawn as it
+// fills in; the other side is then computed in the background so that when the hive tips (or you press T) the map
+// swaps instantly instead of starting over. Both are re-created when anything they depend on changes.
 let hitKey = "";
-let hitJob: HitMapJob | undefined;
+let hitJobs: Partial<Record<CellSide, HitMapJob>> = {};
+let hitShown: HitMapJob | undefined;
 let hitLastDraw = 0;
-/** Would the selected camera see one of the target cell's tags if the robot stood at (x,z) aimed at the target? */
-function cellCameraVisibility(x: number, z: number, frameSide: CellSide): boolean {
+/** Would the selected camera see one of the target cell's tags if the robot stood at (x,z) aimed at that cell? */
+function cellCameraVisibility(x: number, z: number, frame: CellFrame, frameSide: CellSide): boolean {
   const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
   if (!camMount || !camMount.enabled) return true; // no camera to check against: do not dim
   const l = state.robot.launcher;
-  const ap = aimPoint(targetFrame(), 0.05);
+  const ap = aimPoint(frame, 0.05);
   const mid = (l.turretMinDeg + l.turretMaxDeg) / 2;
   let pose: Pose = { x, z, heading: 0 };
   for (let i = 0; i < 3; i++) {
@@ -1328,18 +1331,32 @@ function cellCameraVisibility(x: number, z: number, frameSide: CellSide): boolea
   return vis.some((t) => t.visible && t.alliance === state.alliance && t.side === frameSide);
 }
 function updateHitMap(frame: CellFrame) {
-  if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; hitJob = undefined; overlays.setHitMap(undefined); } return; }
+  if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; hitJobs = {}; hitShown = undefined; overlays.setHitMap(undefined); } return; }
   const l = state.robot.launcher;
   const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
-  const key = JSON.stringify([hitMapLauncherKey(l), state.ballKind, state.drag, state.alliance, state.hive, state.noise, camMount, state.robot.lengthM, state.robot.widthM, state.robot.modelYawDeg]);
-  if (key !== hitKey) { hitKey = key; hitJob = new HitMapJob(frame, l, ballProps(), state.noise, 6, 40); overlays.setHitMap(hitJob); }
-  if (!hitJob || hitJob.done) return;
-  const side = state.hive[state.alliance];
+  // deliberately not keyed on which cell is up: both sides are kept, and a tip only changes which one is shown
+  const key = JSON.stringify([hitMapLauncherKey(l), state.ballKind, state.drag, state.alliance, state.noise, camMount, state.robot.lengthM, state.robot.widthM, state.robot.modelYawDeg]);
+  const side = state.hive[state.alliance], otherSide: CellSide = side === "audience" ? "scoring" : "audience";
+  if (key !== hitKey) {
+    hitKey = key;
+    hitJobs = {
+      [side]: new HitMapJob(frame, l, ballProps(), state.noise, 6, 40),
+      [otherSide]: new HitMapJob(upCellFrame({ alliance: state.alliance, upCell: otherSide }), l, ballProps(), state.noise, 6, 40),
+    };
+    hitShown = undefined;
+  }
+  const current = hitJobs[side]!;
+  if (hitShown !== current) { hitShown = current; overlays.setHitMap(current); } // instant swap after a tip
+  // work on the side that is up first, then the other one in the background (same per-frame budget)
+  const work = !current.done ? current : !hitJobs[otherSide]!.done ? hitJobs[otherSide]! : undefined;
+  if (!work) return;
+  const workSide = work === current ? side : otherSide;
+  const workFrame = work === current ? frame : upCellFrame({ alliance: state.alliance, upCell: otherSide });
   const saved = state.pose;
-  const k = hitJob.step(5, (x, z) => cellCameraVisibility(x, z, side));
+  const k = work.step(5, (x, z) => cellCameraVisibility(x, z, workFrame, workSide));
   robot.setPose(saved); // visibility probing moved the robot object around
   const now = performance.now();
-  if (k && (hitJob.done || now - hitLastDraw > 150)) { hitLastDraw = now; overlays.setHitMap(hitJob); }
+  if (work === current && k && (current.done || now - hitLastDraw > 150)) { hitLastDraw = now; overlays.setHitMap(current); }
 }
 
 let reachKey = "";
