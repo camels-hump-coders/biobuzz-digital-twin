@@ -2,7 +2,8 @@ import { defineConfig, type Plugin } from "vite";
 import { readFileSync } from "node:fs";
 import { VitePWA } from "vite-plugin-pwa";
 
-// BASE_PATH lets the same build be served from a sub-path, e.g. GitHub Pages at /<repo>/ (see .github/workflows/pages.yml).
+// BASE_PATH lets the same build be served from a sub-path (a fork on GitHub Pages at /<repo>/); the hosted twin at
+// https://digital-twin.camelshumpcoders.org/ uses the root (see .github/workflows/pages.yml).
 const base = process.env.BASE_PATH ?? "/";
 
 const startupStatus: Plugin = {

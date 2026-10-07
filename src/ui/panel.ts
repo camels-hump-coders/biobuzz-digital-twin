@@ -139,7 +139,8 @@ export class Panel {
         el("p", {}, "Built by the ", el("a", { href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "Camels Hump Coders"), ", FIRST Tech Challenge Team #36682, a rookie team of middle- and high-school students from Huntington, Vermont, who moved up from FIRST LEGO League. We share it so other teams can test code before the robot is built."),
         el("div", { class: "links" },
           el("a", { class: "button-link", href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "camelshumpcoders.org"),
-          el("a", { class: "button-link", href: "https://github.com/camels-hump-coders/biobuzz-digital-twin", target: "_blank", rel: "noopener" }, "Source on GitHub")),
+          el("a", { class: "button-link", href: "https://github.com/camels-hump-coders/biobuzz-digital-twin", target: "_blank", rel: "noopener" }, "Source on GitHub"),
+          el("a", { class: "button-link", href: "https://digital-twin.camelshumpcoders.org/", target: "_blank", rel: "noopener" }, "Hosted twin")),
         el("p", { class: "fine" }, "MIT licence. AprilTag 36h11 codes from AprilRobotics (BSD-2); goBILDA StarterBot CAD from goBILDA's published STEP files; the FTC Panels dashboard (com.bylazar) runs unmodified in the host. Not affiliated with FIRST or goBILDA; BIOBUZZ and FIRST Tech Challenge are trademarks of FIRST."),
       );
       d.addEventListener("click", (e) => { if (e.target === d) d.close(); });

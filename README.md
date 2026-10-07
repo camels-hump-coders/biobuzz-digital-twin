@@ -21,7 +21,7 @@ Field geometry comes from the Competition Manual (TU02, Section 9) and the Event
 See `docs/superpowers/specs/2026-10-04-biobuzz-digital-twin-design.md` for the numbers used and the design.
 
 **Try it in the browser:** the twin is a static web app, published to GitHub Pages from `main` at
-<https://camels-hump-coders.github.io/biobuzz-digital-twin/> (see [Hosting](#hosting-github-pages)). Driving, cameras, launcher
+<https://digital-twin.camelshumpcoders.org/> (see [Hosting](#hosting-github-pages)). Driving, cameras, launcher
 analysis and the match simulation all run in the page; only running your Java TeamCode needs the local host below.
 
 ## Set up
@@ -277,7 +277,7 @@ If a GLB is missing the app falls back to a procedural box with the same footpri
 
 ## Hosting (GitHub Pages)
 
-The browser part needs no server: `pnpm build` produces a static site in `dist/`, and `.github/workflows/pages.yml` builds and deploys it to GitHub Pages on every push to `main` (one-time setup: repository **Settings → Pages → Source: GitHub Actions**). `BASE_PATH` sets the sub-path the site is served from, so the same build works at `https://<org>.github.io/<repo>/` or at a root domain.
+The browser part needs no server: `pnpm build` produces a static site in `dist/`, and `.github/workflows/pages.yml` builds and deploys it to GitHub Pages on every push to `main` (one-time setup: repository **Settings → Pages → Source: GitHub Actions**). The site lives at the custom domain <https://digital-twin.camelshumpcoders.org/> (`public/CNAME` plus the domain in **Settings → Pages**, with a DNS CNAME for `digital-twin` pointing at `camels-hump-coders.github.io`), so the build uses the root path. `BASE_PATH` still lets a fork serve the same build from a sub-path such as `https://<org>.github.io/<repo>/`.
 
 What works on the hosted page: everything except running Java TeamCode. The virtual runtime needs the JVM host on your own machine; start it with `pnpm sim --team <path>` and the hosted page can still connect to it, because browsers treat `ws://127.0.0.1` as a trusted origin even from an https page (Chrome and Firefox do; Safari may block it, in which case use the local dev server that `pnpm sim` opens).
 
