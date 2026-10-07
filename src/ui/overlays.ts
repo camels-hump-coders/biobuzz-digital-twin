@@ -35,6 +35,8 @@ export class Overlays {
   }
 
   private hitMesh?: THREE.InstancedMesh;
+
+  private hitCells?: HitMap["cells"];
   /** Hit-probability map: red (0) -> green (1) per square; squares the selected camera cannot aim from are dimmed; not yet computed = dark. */
   setHitMap(map?: HitMap) {
     this.hit.visible = this.show.hitmap;
@@ -44,10 +46,16 @@ export class Overlays {
       const geo = new THREE.PlaneGeometry(map.stepM * 0.96, map.stepM * 0.96);
       geo.rotateX(-Math.PI / 2);
       this.hitMesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), map.cells.length);
+      this.hit.add(this.hitMesh);
+      this.hitCells = undefined;
+    }
+    // each map orders its squares by distance to its own target, so a different map (the other cell after a tip) needs
+    // the instance positions rebuilt, not just the colours
+    if (this.hitCells !== map.cells) {
+      this.hitCells = map.cells;
       const mtx = new THREE.Matrix4();
       map.cells.forEach((c, i) => { mtx.makeTranslation(c.x, 0.004, c.z); this.hitMesh!.setMatrixAt(i, mtx); });
       this.hitMesh.instanceMatrix.needsUpdate = true;
-      this.hit.add(this.hitMesh);
     }
     const col = new THREE.Color();
     map.cells.forEach((c, i) => {
