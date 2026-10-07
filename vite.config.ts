@@ -29,7 +29,7 @@ export default defineConfig({
     VitePWA({
       // "prompt": the app shows a Reload toast when a new build is deployed instead of swapping under the user's feet
       registerType: "prompt",
-      includeAssets: ["favicon.svg", "icons.svg", "chc-logo.png"],
+      includeAssets: ["favicon.svg", "icons.svg", "chc-logo.png", "biobuzz-logo.png"],
       manifest: {
         name: "BIOBUZZ Digital Twin",
         short_name: "BIOBUZZ",

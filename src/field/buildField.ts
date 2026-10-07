@@ -362,8 +362,9 @@ export function buildField(initial: Record<Alliance, CellSide> = { red: "audienc
     let rotY = 0;
     let px = m(f.x), pz = m(f.z);
     switch (f.wall) {
-      case "N": pz += off; rotY = Math.PI; break; // wall at -Z; backstop (-Z local) toward wall => rotate 180
-      case "S": pz -= off; rotY = 0; break;
+      // the backstop and the wall-side post are at local -Z; rotate so that side faces the wall the flower sits on
+      case "N": pz += off; rotY = 0; break; // wall at -Z: local -Z already points at it
+      case "S": pz -= off; rotY = Math.PI; break; // wall at +Z
       case "E": px -= off; rotY = -Math.PI / 2; break;
       case "W": px += off; rotY = Math.PI / 2; break;
     }

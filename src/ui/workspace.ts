@@ -145,10 +145,15 @@ export class Workspace {
   private buildHeader() {
     this.header.replaceChildren(
       el('div', { class: 'brand-lockup' },
-        el('a', { class: 'brand', href: '#', onclick: (e: Event) => { e.preventDefault(); this.navigate('practice'); } }, 'BioBuzz Digital Twin'),
-        el('a', { class: 'team-credit', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Presented by Camels Hump Coders #36682 — visit team website' },
-          el('img', { src: `${import.meta.env.BASE_URL}chc-logo.png`, alt: '', width: '26', height: '26' }),
-          el('span', {}, el('small', {}, 'Presented by '), el('strong', {}, 'Camels Hump Coders #36682'))),
+        // the team logo spans both lines; the title line is the official BIOBUZZ season mark followed by our own "Digital Twin"
+        el('a', { class: 'team-mark', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Camels Hump Coders #36682 — visit team website' },
+          el('img', { src: `${import.meta.env.BASE_URL}chc-logo.png`, alt: 'Camels Hump Coders logo', width: '54', height: '54' })),
+        el('div', { class: 'brand-lines' },
+          el('a', { class: 'brand', href: '#', 'aria-label': 'BIOBUZZ Digital Twin — practice workspace', onclick: (e: Event) => { e.preventDefault(); this.navigate('practice'); } },
+            el('img', { class: 'season-logo', src: `${import.meta.env.BASE_URL}biobuzz-logo.png`, alt: 'BIOBUZZ presented by RTX', height: '34' }),
+            el('span', { class: 'twin-word' }, el('span', {}, 'Digital'), el('span', {}, 'Twin'))),
+          el('a', { class: 'team-credit', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer' },
+            el('small', {}, 'Presented by '), el('strong', {}, 'Camels Hump Coders #36682'))),
       ),
       el('nav', { class: 'workspace-tabs', 'aria-label': 'Workspace' }, ...(['practice', 'teamcode', 'analyze'] as Task[]).map(task => el('button', { class: this.task === task ? 'active' : '', 'aria-current': this.task === task ? 'page' : undefined, onclick: () => this.navigate(task) }, TITLES[task]))),
       el('div', { class: 'header-tools' }, button('Robot setup', () => this.navigate('setup'), this.task === 'setup' ? 'active' : ''), button('All settings', () => this.navigate('settings'), this.task === 'settings' ? 'active' : ''), button('Help', () => this.help()), button('About', () => this.panel.openAbout()), button('Hide sidebar', () => this.panel.toggle(), 'panel-toggle')),

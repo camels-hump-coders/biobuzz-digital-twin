@@ -615,10 +615,19 @@ body.panel-hidden #drive-compass { right: 16px; }
 .header-tools .runtime-loading-badge { border-color: #d9b744; color: #ffe58b; background: #292616; }
 #panel .runtime-guidance.runtime-failed { border-color: #ef9984; border-left-width: 4px; background: #32211f; }
 @keyframes startup-spin { to { transform: rotate(360deg); } }
-.brand-lockup { flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; }
-.brand-lockup .brand { font-size: 17px; letter-spacing: .01em; line-height: 1.2; }
-.team-credit { display: flex; align-items: center; gap: 7px; color: #f0cc58; text-decoration: none; font-size: 11px; line-height: 1.3; }
-.team-credit img { width: 26px; height: 26px; object-fit: contain; }
+/* Brand lockup: team logo spanning both lines | official BIOBUZZ mark + "Digital Twin" / presented-by line.
+   Season palette sampled from the FIRST logo files: ink #0f1821, honey #f6e200, amber #c09f20, cream #eee89c. */
+.brand-lockup { flex-shrink: 0; display: flex; align-items: center; gap: 12px; }
+.team-mark { display: block; flex-shrink: 0; line-height: 0; }
+.team-mark img { width: 54px; height: 54px; object-fit: contain; border-radius: 12px; background: #fff; padding: 3px; box-shadow: 0 0 0 1px #2a3542; }
+.brand-lines { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+.brand-lockup .brand { display: flex; align-items: center; gap: 10px; font-size: inherit; letter-spacing: 0; line-height: 1; }
+.brand-lockup .season-logo { height: 34px; width: auto; display: block; }
+.twin-word { display: flex; flex-direction: column; justify-content: center; line-height: .86; font-weight: 900; font-size: 16px; letter-spacing: .14em; text-transform: uppercase;
+  background: linear-gradient(180deg, #fff6b0 0%, #f6e200 55%, #c09f20 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 0 #0f1821); font-family: "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif; }
+.twin-word span:first-child { font-size: 11px; letter-spacing: .32em; }
+.team-credit { display: flex; align-items: baseline; gap: 5px; color: #f0cc58; text-decoration: none; font-size: 11px; line-height: 1.2; white-space: nowrap; }
 .team-credit small { font-size: 10px; color: #b8c4d2; }
 .team-credit strong { font-weight: 650; }
 .team-credit:hover strong { text-decoration: underline; text-underline-offset: 3px; }
@@ -632,8 +641,7 @@ body.panel-hidden #drive-compass { right: 16px; }
 @media (max-width: 800px) {
   :root { --header-height: 180px; }
   .brand-lockup { width: 100%; }
-  .brand-lockup .brand { font-size: 17px; }
-  .team-credit { font-size: 11px; }
+  .team-credit { font-size: 11px; white-space: normal; }
 }
 
 /* Action feedback stays visible above shot analysis, including in TeamCode. */

@@ -305,7 +305,7 @@ The twin is built and maintained by the **Camels Hump Coders, FTC Team #36682**,
 
 ## License
 
-MIT, see `LICENSE`. Third-party material: AprilTag 36h11 codes from AprilRobotics (BSD-2) in `src/field/tag36h11.ts`; goBILDA StarterBot CAD converted from goBILDA's published STEP files (`public/models/`); the FTC Panels dashboard (com.bylazar) is downloaded as AARs at build time and runs unmodified in the host.
+MIT, see `LICENSE`. Third-party material: the BIOBUZZ presented by RTX season logo (`public/biobuzz-logo.png`) is FIRST's, used unmodified from the season brand downloads FIRST provides for teams, and stays under FIRST's trademark terms; AprilTag 36h11 codes from AprilRobotics (BSD-2) in `src/field/tag36h11.ts`; goBILDA StarterBot CAD converted from goBILDA's published STEP files (`public/models/`); the FTC Panels dashboard (com.bylazar) is downloaded as AARs at build time and runs unmodified in the host.
 
 ## Coordinate system
 
