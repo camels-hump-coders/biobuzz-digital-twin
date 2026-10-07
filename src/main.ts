@@ -264,6 +264,7 @@ let panel: Panel;
 
 /** Other robots: box or the CAD chassis (the player's model, or the mecanum StarterBot when the player is a box). */
 function applyScriptedModels() {
+  robot.setWheelSpin(state.wheelSpin); // the toggle arrives as a "view" change, not a robot change
   const model = state.opponentsCad ? (state.robot.model === "box" ? "starterbot-mecanum" : state.robot.model) : "box";
   scriptedObjs.forEach((o) => {
     o.setWheelSpin(state.wheelSpin);

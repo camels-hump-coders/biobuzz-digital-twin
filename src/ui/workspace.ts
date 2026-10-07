@@ -537,6 +537,13 @@ export class Workspace {
     const choices = [['trajectory', 'Predicted shot'], ['actualArc', 'Current direction'], ['frustum', 'Camera viewing cone'], ['footprint', 'Camera footprint']] as const;
     for (const [key, label] of choices) box.append(el('button', { class: 'overlay-choice', 'aria-pressed': String(this.state.overlays[key]), onclick: () => this.modify(() => this.state.overlays[key] = !this.state.overlays[key], 'overlays') }, `${this.state.overlays[key] ? '✓ ' : ''}${label}`));
     box.append(el('div', { class: 'row' }, button(this.state.pip ? 'Hide camera preview' : 'Show camera preview', () => this.modify(() => this.state.pip = !this.state.pip, 'view')), button(this.detailBackup ? 'Restore visual detail' : 'Reduce visual detail', () => this.toggleVisualDetail())));
+    // visual extras (each costs frames, all off by default except the stands)
+    const extras = [
+      ['Stadium', 'Audience stands, banner and lighting truss around the field', () => this.state.stadium, (v: boolean) => { this.state.stadium = v; }, 'view'],
+      ['Spinning wheels', 'Carve the CAD wheels out and turn them with the drive', () => this.state.wheelSpin, (v: boolean) => { this.state.wheelSpin = v; }, 'view'],
+      ['CAD other robots', 'Partner and opponents use the goBILDA CAD, tinted in their alliance colour', () => this.state.opponentsCad, (v: boolean) => { this.state.opponentsCad = v; }, 'sim'],
+    ] as const;
+    box.append(el('div', { class: 'row', 'aria-label': 'Visual extras' }, ...extras.map(([label, title, get, set, what]) => el('button', { class: 'overlay-choice', title, 'aria-pressed': String(get()), onclick: () => this.modify(() => set(!get()), what) }, `${get() ? '✓ ' : ''}${label}`))));
     return box;
   }
   update(now: number, force = false) {
