@@ -1068,6 +1068,9 @@ function frame(now: number) {
   perf.mark("analysis");
   updateReachMap(tf);
   updateHitMap(tf);
+  // a tip flips the up cell inside the Match; the panel's hive selectors and section hints only re-render on user changes
+  const hiveNow = `${state.hive.red}/${state.hive.blue}`;
+  if (hiveNow !== lastHiveShown) { lastHiveShown = hiveNow; panel.render(); }
   perf.mark("hitmap");
   overlays.setTrajectory(shot, ballProps().diameterM / 2, turretOk);
   overlays.setActualTrajectory(actualShot, ballProps().diameterM / 2);
@@ -1330,6 +1333,7 @@ function computeMonteCarlo(exit: Vec3, frame: CellFrame, dir: { x: number; z: nu
 // ---- hit-probability map: one incremental job per cell side. The side that is up now is computed first and drawn as it
 // fills in; the other side is then computed in the background so that when the hive tips (or you press T) the map
 // swaps instantly instead of starting over. Both are re-created when anything they depend on changes.
+let lastHiveShown = "";
 let hitKey = "";
 let hitJobs: Partial<Record<CellSide, HitMapJob>> = {};
 let hitShown: HitMapJob | undefined;
