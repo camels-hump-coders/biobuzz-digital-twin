@@ -208,7 +208,7 @@ The HUD (top left) leads with the one number that matters when you are lining up
 - **Hive tipping.** Balls that come to rest in the up cell count toward its load, shown in the HUD with the 3 NECTAR field staff stage there. Field staff calibrate cells to tip at 8 POLLEN or 3 NECTAR + 3 POLLEN, 198.6 g, so with the default 195 g threshold three POLLEN in tips it. The hive then swings over, faster the heavier the load (about 2.6 s at the threshold, under 1 s when well over), the balls ride the swinging cell and roll out as its floor steepens, and the other cell comes up facing the other side of the field, so you have to reposition to keep scoring. Tips and points are tallied in the HUD. Pressing T or choosing a cell in the Field panel resets the hive to match start. The threshold and the auto-tip toggle live in the Field panel.
 - **Predicted HIT / MISS** for the current hood angle and RPM, with the height error at the target and the entry angle into the opening plane. The arc is drawn green (hit) or red (miss). If the launcher is not pointed at the target the arc shows what would happen once aimed.
 - **Lowest-energy** solution across the hood's adjustable range, plus a fan of all feasible arcs. *Auto-hood* sets the hood to it.
-- **Reachability map** (View & overlays): colours every 6 in square of the mat by the RPM needed to hit the target from there with the current launcher. Green is comfortable, red is near the motor limit, dark red cannot reach. Use it to pick launch spots and to see what a fixed hood angle costs you.
+- **Reachability map** (View & overlays, and the quick bar): colours every 6 in square of the mat by the RPM needed to hit the target from there with the current launcher. Green is comfortable, red is near the motor limit, dark red cannot reach. Use it to pick launch spots and to see what a fixed hood angle costs you.
 - **AprilTags**: green = in frame, facing the camera and unoccluded; orange = in frame but blocked; hover for distance and apparent size in pixels.
 
 ## Cameras
@@ -262,6 +262,10 @@ If a GLB is missing the app falls back to a procedural box with the same footpri
 The browser part needs no server: `pnpm build` produces a static site in `dist/`, and `.github/workflows/pages.yml` builds and deploys it to GitHub Pages on every push to `main` (one-time setup: repository **Settings → Pages → Source: GitHub Actions**). `BASE_PATH` sets the sub-path the site is served from, so the same build works at `https://<org>.github.io/<repo>/` or at a root domain.
 
 What works on the hosted page: everything except running Java TeamCode. The virtual runtime needs the JVM host on your own machine; start it with `pnpm sim --team <path>` and the hosted page can still connect to it, because browsers treat `ws://127.0.0.1` as a trusted origin even from an https page (Chrome and Firefox do; Safari may block it, in which case use the local dev server that `pnpm sim` opens).
+
+## Performance
+
+The ballistics maths that does not need the scene runs in a Web Worker: the HUD's two Monte Carlos (as fired now, and once aimed and spun up), every square of the hit-probability map and every square of the reachability map. The main thread keeps physics, rendering, the AprilTag analysis and the camera-visibility probe that dims hit-map squares, so toggling a map or tipping a hive no longer costs frames; both hit maps (current cell and the other one) finish in about a second on a laptop, and the maps fill in as results arrive. Without workers everything falls back to incremental computation on the main thread. *Performance stats* (View & overlays) shows the smoothed and the worst-of-the-last-two-seconds time of each stage of the frame, which is the place to look if something stutters.
 
 ## Known simplifications
 

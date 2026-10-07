@@ -5,6 +5,7 @@ import { buildField } from "./field/buildField";
 import { buildVenue } from "./field/buildVenue";
 import { aimPoint, hiveTiltAngle, upCellFrame, type Alliance, type CellFrame, type CellSide, type Vec3 } from "./field/hive";
 import { HitMapJob, hitMapLauncherKey } from "./ballistics/hitmap";
+import { BallisticsOffload } from "./ballistics/offload";
 import type { CameraMount } from "./robot/robotSpec";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
@@ -25,8 +26,8 @@ import { Hud, type HudData } from "./ui/hud";
 import { hydrateState, loadState, saveState, serializeSettings, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveSpeedAdaptive } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
-import { computeReachability, type ReachMap } from "./ballistics/reachability";
-import { monteCarlo, perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
+import { ReachJob } from "./ballistics/reachability";
+import { perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
 import { stepBall, type LiveBall } from "./sim/ballPhysics";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
@@ -1247,7 +1248,7 @@ function frame(now: number) {
 // debugging hook for scripts / console
 Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twinRenderNow = () => { renderRequested = true; };
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
+(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };
@@ -1307,35 +1308,35 @@ function computeMonteCarloIdeal(exit: Vec3, frame: CellFrame, required: number):
   const l = state.robot.launcher;
   const q = (v: number) => Math.round(v * 50) / 50; // 2 cm
   const key = JSON.stringify([q(exit.x), q(exit.y), q(exit.z), Math.round(required * 50), l.elevationDeg, l.wheelDiameterM, l.efficiency, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive, state.noise, state.monteCarloN]);
-  if (key === mcIdealCache.key) return mcIdealCache.mc;
   const now = performance.now();
-  if (now - mcIdealCache.at < 120) return mcIdealCache.mc; // throttle while driving
+  if (key !== mcIdealCache.key && now - mcIdealCache.at < 120) return mcIdealCache.mc; // throttle while driving
   const ap = aimPoint(frame, 0.05);
   const dx = ap.x - exit.x, dz = ap.z - exit.z, d = Math.hypot(dx, dz) || 1;
   const speed = Math.min(required, exitSpeed(l, l.maxRpm));
   const nominal = { speed, elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ: { x: dx / d, z: dz / d }, spin: spinRate(l, rpmForExitSpeed(l, speed)) };
-  const mc = monteCarlo({ ball: ballProps(), launchPos: exit, target: ap, frame, spin: nominal.spin }, nominal, state.noise, state.monteCarloN, 7);
-  mcIdealCache = { key, mc, at: now };
+  const mc = offload.monteCarlo(key, { ball: ballProps(), launchPos: exit, target: ap, frame, spin: nominal.spin }, nominal, state.noise, state.monteCarloN, 7, mcIdealCache.mc);
+  if (key !== mcIdealCache.key) mcIdealCache = { key, mc, at: now }; else mcIdealCache.mc = mc;
   return mc;
 }
 function computeMonteCarlo(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): MonteCarlo | undefined {
   const l = state.robot.launcher;
   const q = (v: number) => Math.round(v * 50) / 50; // 2 cm
   const key = JSON.stringify([q(exit.x), q(exit.y), q(exit.z), Math.round(Math.atan2(dir.x, dir.z) * 57.3), l.rpm | 0, l.elevationDeg, l.wheelDiameterM, l.efficiency, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive, state.noise, state.monteCarloN]);
-  if (key === mcCache.key) return mcCache.mc;
   const now = performance.now();
-  if (now - mcCache.at < 120) return mcCache.mc; // throttle while driving
+  if (key !== mcCache.key && now - mcCache.at < 120) return mcCache.mc; // throttle while driving
   const nominal = { speed: exitSpeed(l), elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ: dir, spin: spinRate(l) };
-  const mc = monteCarlo({ ball: ballProps(), launchPos: exit, target: aimPoint(frame, 0.05), frame, spin: spinRate(l) }, nominal, state.noise, state.monteCarloN, 7);
-  mcCache = { key, mc, at: now };
+  const mc = offload.monteCarlo(key, { ball: ballProps(), launchPos: exit, target: aimPoint(frame, 0.05), frame, spin: spinRate(l) }, nominal, state.noise, state.monteCarloN, 7, mcCache.mc);
+  if (key !== mcCache.key) mcCache = { key, mc, at: now }; else mcCache.mc = mc;
   return mc;
 }
 // ---- hit-probability map: one incremental job per cell side. The side that is up now is computed first and drawn as it
 // fills in; the other side is then computed in the background so that when the hive tips (or you press T) the map
 // swaps instantly instead of starting over. Both are re-created when anything they depend on changes.
+const offload = new BallisticsOffload(); // Monte Carlo + map maths in a Web Worker when available
 let lastHiveShown = "";
 let hitKey = "";
 let hitJobs: Partial<Record<CellSide, HitMapJob>> = {};
+let hitBatchIds: number[] = [];
 let hitShown: HitMapJob | undefined;
 let hitLastDraw = 0;
 /** Would the selected camera see one of the target cell's tags if the robot stood at (x,z) aimed at that cell? */
@@ -1357,7 +1358,7 @@ function cellCameraVisibility(x: number, z: number, frame: CellFrame, frameSide:
   return vis.some((t) => t.visible && t.alliance === state.alliance && t.side === frameSide);
 }
 function updateHitMap(frame: CellFrame) {
-  if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; hitJobs = {}; hitShown = undefined; overlays.setHitMap(undefined); } return; }
+  if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; for (const id of hitBatchIds) offload.cancel(id); hitBatchIds = []; hitJobs = {}; hitShown = undefined; overlays.setHitMap(undefined); } return; }
   const l = state.robot.launcher;
   const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
   // deliberately not keyed on which cell is up: both sides are kept, and a tip only changes which one is shown
@@ -1365,17 +1366,31 @@ function updateHitMap(frame: CellFrame) {
   const side = state.hive[state.alliance], otherSide: CellSide = side === "audience" ? "scoring" : "audience";
   if (key !== hitKey) {
     hitKey = key;
+    for (const id of hitBatchIds) offload.cancel(id);
+    hitBatchIds = [];
     hitJobs = {
       [side]: new HitMapJob(frame, l, ballProps(), state.noise, 6, 40),
       [otherSide]: new HitMapJob(upCellFrame({ alliance: state.alliance, upCell: otherSide }), l, ballProps(), state.noise, 6, 40),
     };
     hitShown = undefined;
+    // the probability maths goes to the worker (up cell first, then the other); the main thread keeps the visibility probe
+    for (const sd of [side, otherSide]) {
+      const job = hitJobs[sd]!;
+      const id = offload.startBatch({ kind: "hitmap", ...job.batch() }, (from, results) => job.accept(from, results));
+      if (id !== undefined) { job.offloaded = true; hitBatchIds.push(id); }
+    }
   }
   const current = hitJobs[side]!;
   if (hitShown !== current) { hitShown = current; overlays.setHitMap(current); } // instant swap after a tip
   // work on the side that is up first, then the other one in the background (same per-frame budget)
-  const work = !current.done ? current : !hitJobs[otherSide]!.done ? hitJobs[otherSide]! : undefined;
+  const other = hitJobs[otherSide]!;
+  const work = !current.done ? current : !other.done ? other : undefined;
   if (!work) return;
+  if (work.offloaded && work.computed >= (work as any).arrived) { // waiting on the worker: nothing to probe yet
+    const now0 = performance.now();
+    if (work === current && now0 - hitLastDraw > 150) { hitLastDraw = now0; overlays.setHitMap(current); }
+    return;
+  }
   const workSide = work === current ? side : otherSide;
   const workFrame = work === current ? frame : upCellFrame({ alliance: state.alliance, upCell: otherSide });
   const saved = state.pose;
@@ -1386,14 +1401,25 @@ function updateHitMap(frame: CellFrame) {
 }
 
 let reachKey = "";
-let reachMap: ReachMap | undefined;
+let reachJob: ReachJob | undefined;
+let reachBatchId: number | undefined;
+let reachLastDraw = 0;
+let reachDrawnAt = -1;
 function updateReachMap(frame: CellFrame) {
-  if (!state.overlays.reach) { if (reachKey) { reachKey = ""; overlays.setReachMap(undefined); } return; }
+  if (!state.overlays.reach) { if (reachKey) { reachKey = ""; offload.cancel(reachBatchId); reachBatchId = undefined; reachJob = undefined; overlays.setReachMap(undefined); } return; }
   const l = state.robot.launcher;
   const key = JSON.stringify([l.wheelDiameterM, l.maxRpm, l.efficiency, l.elevationDeg, l.elevationMinDeg, l.elevationMaxDeg, l.exitHeightM, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive]);
-  if (key === reachKey) return;
-  reachKey = key;
-  reachMap = computeReachability(frame, l, ballProps(), 6);
-  overlays.setReachMap(reachMap);
+  if (key !== reachKey) {
+    reachKey = key;
+    offload.cancel(reachBatchId);
+    reachJob = new ReachJob(frame, l, ballProps(), 6);
+    const job = reachJob;
+    reachBatchId = offload.startBatch({ kind: "reach", ...job.batch() }, (from, results) => job.accept(from, results));
+    reachLastDraw = 0; reachDrawnAt = -1;
+  }
+  if (!reachJob || reachDrawnAt === reachJob.computed) return; // nothing new since the last draw
+  if (!reachJob.done && reachBatchId === undefined) reachJob.step(4); // no worker: a few squares per frame instead of a 600 ms freeze
+  const now = performance.now();
+  if (reachJob.done || now - reachLastDraw > 150) { reachLastDraw = now; reachDrawnAt = reachJob.computed; overlays.setReachMap(reachJob); }
 }
 requestAnimationFrame(frame);

@@ -116,6 +116,7 @@ export class Overlays {
     const okMat = new Map<number, THREE.MeshBasicMaterial>();
     const badMat = new THREE.MeshBasicMaterial({ color: 0x5a1a1a, transparent: true, opacity: 0.35, depthWrite: false });
     for (const c of map.cells) {
+      if (c.computed === false) continue; // incremental job: not there yet
       let mat: THREE.Material = badMat;
       if (c.rpm !== undefined) {
         const f = Math.min(1, c.rpm / map.maxRpm);
