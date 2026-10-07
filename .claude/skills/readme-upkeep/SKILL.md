@@ -40,12 +40,14 @@ into team repos by `npx skills add` / `pnpm skill:install`, so a stale instructi
 
 Refresh the gallery when the panel layout, a HUD block, a dialog or a visual feature that appears in a screenshot
 changed, or when a new visual capability deserves a tile. Do not refresh for copy edits, colour tweaks or
-non-visual work; each refresh rewrites eight PNGs (~3 MB of git history).
+non-visual work; each full refresh rewrites the gallery PNGs.
 
 ```bash
-pnpm sim --built --no-panels --port 5180 --host-port 8780 --team <team repo>   # terminal 1 (server mode gives the runtime, editor, replay and calibration shots)
+pnpm sim --built --wip --no-browser --no-panels --port 5180 --host-port 8780 --team <team repo>   # terminal 1 (server mode gives the runtime, editor, replay and calibration shots)
 pnpm gallery -- --port 5180 --host-port 8780                                   # terminal 2; --only overview,top-view redoes a subset
 ```
+
+For isolated captures, run `pnpm dev -- --port 5180` and `pnpm gallery -- --port 5180 --demo-runtime`; label the runtime and calibration examples in the gallery captions. `--wip` above is required when documenting uncommitted UI changes because plain `--built` serves HEAD.
 
 Then look at every new PNG (Read tool) before committing: a shot with an empty panel, a missing dialog or a robot
 in a wall is worse than the old one. Update the gallery table captions in the README if a tile's content changed,

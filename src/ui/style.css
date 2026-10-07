@@ -650,3 +650,57 @@ body.panel-hidden #pips.upper-right { right: 18px; }
   #pips:not(.upper-right) { left: 10px; right: auto; }
   #pips.upper-right, body.panel-hidden #pips.upper-right { right: 10px; }
 }
+
+#match-score .score-breakdown { position: absolute; z-index: 13; right: calc(var(--panel-width) + 18px); bottom: calc(var(--dock-height) + 62px); width: 320px; max-width: calc(100vw - 24px); max-height: 55vh; overflow: auto; padding: 12px 14px; border: 1px solid #687b8c; border-top: 3px solid var(--accent); border-radius: 9px; background: #111b26f5; color: var(--fg); box-shadow: 0 4px 20px #0005; font-size: 12px; }
+#match-score[hidden] { display: none; }
+
+#match-score .score-heading { font-size: 10px; letter-spacing: .07em; color: var(--muted); }
+#match-score .score-totals { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 4px 0; }
+#match-score .score-totals strong { font-size: 30px; color: var(--accent); font-variant-numeric: tabular-nums; }
+#match-score small { font-size: 12px; font-weight: normal; color: var(--fg); }
+#match-score .score-auto { line-height: 1.6; }
+#match-score .score-rp { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+#match-score .score-rp span { padding: 4px 6px; border: 1px solid #526070; border-radius: 5px; font-size: 11px; }
+#match-score .earned { color: #a8f4c2; background: #203b2c; }
+#match-score summary { cursor: pointer; color: #cad7e5; }
+#match-score dl { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+#match-score dd { margin: 0; text-align: right; }
+#match-score p { color: var(--muted); line-height: 1.5; }
+#match-score a { color: #a7d9ff; }
+
+/* Compact alliance scoreboard shares the clock's dock space. */
+#control-dock .match-display { display: flex; align-items: center; justify-content: center; gap: 16px; flex-shrink: 0; }
+#match-score { position: relative; flex-shrink: 0; font-size: 12px; }
+#match-score .score-trigger { display: flex; flex-direction: column; gap: 1px; align-items: center; min-width: 130px; padding: 4px 10px; background: #192d46; border: 1px solid #73b7ff; border-left-width: 4px; color: #b9dcff; border-radius: 6px; cursor: pointer; }
+#match-score[data-alliance=red] .score-trigger { background: #3d2427; color: #ffc2bd; border-color: #ff8f84; }
+#match-score .score-trigger strong { font-size: 25px; line-height: 1; font-variant-numeric: tabular-nums; }
+#match-score .score-trigger > span { font-size: 10px; font-weight: 600; }
+#match-score .score-trigger:focus-visible { outline: 3px solid #ffe278; outline-offset: 2px; }
+#match-score .score-breakdown { bottom: 100%; right: 0; width: 340px; max-height: min(65vh, 560px); z-index: 30; }
+#match-score .score-breakdown[hidden] { display: none; }
+#control-dock .match-clock { width: auto; order: initial; white-space: normal; text-align: center; max-width: 180px; }
+#pips.upper-right { top: calc(var(--header-height) + 10px); right: calc(var(--panel-width) + 10px); }
+body.panel-hidden #pips.upper-right, body.panel-hidden #drive-compass, body.panel-hidden #map-legend { right: 10px; }
+#drive-compass { right: calc(var(--panel-width) + 10px); }
+#map-legend { right: calc(var(--panel-width) + 10px); bottom: calc(var(--dock-height) + 10px); }
+@media (max-width: 1150px) {
+  #control-dock .control-status { flex: 1; min-width: 0; }
+  #control-dock .match-display { gap: 8px; }
+}
+@media (max-width: 800px) {
+  :root { --dock-height: 194px; }
+  #control-dock .match-display { order: -1; width: 100%; }
+  #match-score .score-breakdown { position: fixed; bottom: calc(var(--dock-height) + 4px); left: 10px; right: 10px; width: auto; max-height: calc(100dvh - var(--header-height) - var(--dock-height) - 18px); }
+  #pips.upper-right, #drive-compass, #map-legend { right: 10px; }
+}
+
+#tip-needed { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; min-width: 122px; padding: 5px 9px; border: 1px solid #7f713c; border-radius: 6px; background: #302b19; color: #ffe28c; text-align: center; }
+#tip-needed[hidden] { display: none; }
+#tip-needed > span { font-size: 10px; }
+#tip-needed strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+@media (max-width: 800px) {
+  #match-score .score-trigger { min-width: 92px; padding-inline: 5px; }
+  #tip-needed { min-width: 96px; max-width: 120px; padding-inline: 5px; }
+  #tip-needed strong { font-size: 16px; }
+  #control-dock .match-clock { max-width: 105px; font-size: 10px; }
+}

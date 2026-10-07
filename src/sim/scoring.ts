@@ -4,7 +4,7 @@
  *  TELEOP: HIVE TIP 20, TELEOP PARK 5 (end of match), POLLEN/NECTAR left in an up CELL 2 each, GARDEN 1 each.
  *  FLOWER scoring is not modelled (robots in the twin do not place into FLOWERS). Pure, unit-tested. */
 import type { Alliance } from "../field/hive";
-import { FIELD, ZONES } from "../field/fieldSpec";
+import { BALL, FIELD, ZONES } from "../field/fieldSpec";
 import type { Pose } from "./drive";
 
 const IN = 0.0254;
@@ -56,6 +56,7 @@ export interface AllianceScore {
   leave: number; autoPark: number; teleopPark: number; // robots
   cellBalls: number; garden: number;
   auto: number; teleop: number; total: number;
+  swarmPoints: number; swarmRp: number; pollinator1Rp: number; pollinator2Rp: number; bonusRp: number;
 }
 
 /** Latches AUTO achievements when the AUTO period ends and TELEOP PARK when the match ends; everything else is live. */
@@ -68,18 +69,20 @@ export class Scoreboard {
 
   /** @param clock seconds left on the match clock (counts down from `matchSeconds`); phase as in AppState */
   update(phase: "setup" | "running" | "stopped", clock: number, matchSeconds: number, robots: RobotState[], tips: Record<Alliance, number>) {
-    const inAuto = phase === "running" && clock > matchSeconds - AUTO_SECONDS;
+    if (phase === "setup") { this.reset(); return; }
+    const assessingAuto = !this.autoAssessed && clock <= matchSeconds - AUTO_SECONDS;
+    const assessingEnd = !this.endAssessed && clock <= 0;
+    const inAuto = !this.autoAssessed && clock > matchSeconds - AUTO_SECONDS;
     for (const r of robots) {
       const rs = this.robots.get(r.id) ?? { leave: false, autoPark: false, teleopPark: false, offWallNow: false, inZoneNow: false };
       rs.offWallNow = !touchesWall(r.pose, r.footprint);
       rs.inZoneNow = inZone(r.pose, r.footprint, LOADING_ZONE[r.alliance]);
-      if (inAuto) { rs.leave = rs.offWallNow; rs.autoPark = rs.inZoneNow; } // live preview; latched below
-      if (!this.endAssessed && phase === "running") rs.teleopPark = rs.inZoneNow;
+      if ((phase === "running" && inAuto) || assessingAuto) { rs.leave = rs.offWallNow; rs.autoPark = rs.inZoneNow; } // live preview; latched below
+      if (!this.endAssessed && ((phase === "running" && !inAuto) || assessingEnd)) rs.teleopPark = rs.inZoneNow;
       this.robots.set(r.id, rs);
     }
-    if (phase === "running" && !inAuto && !this.autoAssessed) { this.autoAssessed = true; this.autoTips = { ...tips }; }
-    if (phase === "stopped" && !this.endAssessed) this.endAssessed = true;
-    if (phase === "setup") this.reset();
+    if (assessingAuto) { this.autoAssessed = true; this.autoTips = { ...tips }; }
+    if (assessingEnd) this.endAssessed = true;
   }
 
   score(alliance: Alliance, robots: RobotState[], tips: number, cellBalls: number, garden: number): AllianceScore {
@@ -88,7 +91,11 @@ export class Scoreboard {
     const autoTips = this.autoAssessed ? this.autoTips[alliance] : tips;
     const auto = leave * POINTS.leave + autoPark * POINTS.park + autoTips * POINTS.tip;
     const teleop = (tips - autoTips) * POINTS.tip + teleopPark * POINTS.park + cellBalls * POINTS.cellBall + garden * POINTS.garden;
-    return { tips, autoTips, leave, autoPark, teleopPark, cellBalls, garden, auto, teleop, total: auto + teleop };
+    // TU03 Table 10-3, All Other Events. SWARM includes both AUTO and TELEOP PARK.
+    const swarmPoints = leave * POINTS.leave + (autoPark + teleopPark) * POINTS.park;
+    const swarmRp = Number(swarmPoints >= 16), pollinator1Rp = Number(tips >= 4), pollinator2Rp = Number(tips >= 7);
+    return { tips, autoTips, leave, autoPark, teleopPark, cellBalls, garden, auto, teleop, total: auto + teleop,
+      swarmPoints, swarmRp, pollinator1Rp, pollinator2Rp, bonusRp: swarmRp + pollinator1Rp + pollinator2Rp };
   }
 }
 
@@ -98,4 +105,10 @@ export function describeScore(s: AllianceScore, robots: number): string {
   if (s.cellBalls) parts.push(`${s.cellBalls} in cell`);
   if (s.garden) parts.push(`garden ${s.garden}`);
   return parts.join(" · ");
+}
+
+/** Additional settled balls needed, matching the simulation's tip threshold tolerance. */
+export function ballsToTip(massKg: number, thresholdKg: number): { pollen: number; nectar: number } {
+  const remaining = Math.max(0, thresholdKg - massKg - 1e-6);
+  return { pollen: Math.ceil(remaining / BALL.pollen.massKg), nectar: Math.ceil(remaining / BALL.nectarRed.massKg) };
 }

@@ -176,7 +176,7 @@ and hit, carried game pieces, hive loads/tips, fouls, and `pageErrors`/`hostLogT
 Snapshots and the `__twin.score()` hook carry the match scoreboard (Competition Manual Table 10-2: HIVE TIP 20, LEAVE 3,
 AUTO PARK 5, TELEOP PARK 5, 2 per ball left in an up cell, 1 per GARDEN ball; FLOWER points not modelled). `score.robots`
 lists LEAVE / AUTO PARK / PARK per robot, so an autonomous scenario can assert `red.auto` or `robots.player.leave`.
-LEAVE and AUTO PARK latch when the clock passes 2:00 left; PARK latches when the match stops.
+LEAVE and AUTO PARK latch when the clock passes 2:00 left; PARK latches when the match clock expires; pausing does not lock the result.
 
 ## 4. Keep robot measurements bound to the twin
 
@@ -205,6 +205,8 @@ shooter direction, alliance, start pose. Rules:
 ## 4c. The twin's own settings live in `twin-settings.json`
 
 Use **Settings & files** or **All settings → Settings & session** for the twin's configuration file. TeamCode asset edits are separate: **Run TeamCode → Open settings editor → Review changes → Save to project** shows a before/after review before writing. Linked values have **Open linked setting** navigation. Undo and per-field reset affect browser configuration only; they do not revert files already saved. Pins and workspace selection are browser preferences, not robot configuration.
+
+In **Run TeamCode**, Logs & telemetry sit directly below OpMode selection. The alliance-colored scoreboard beside the clock exposes points, tips and bonus RP; hover, focus or tap it for the breakdown. Bonus RP uses TU03 All Other Events thresholds (SWARM: 16 combined LEAVE and AUTO/TELEOP PARK points; POLLINATOR: 4 and 7 tips). Win/tie RP and flower points are excluded.
 
 Replay is in **Tune → Replay**. Its timeline sits below the field with synchronized events and telemetry. Driving does not resume the live scene: use **Return to live** or an explicit lifecycle action. API `/api/replay` behavior is unchanged.
 

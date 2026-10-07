@@ -316,6 +316,12 @@ export class Workspace {
       const guidance = this.root.querySelector('.runtime-guidance');
       if (guidance) guidance.after(saves); else top.after(saves);
     }
+    if (this.task === 'teamcode') {
+      const telemetry = this.root.querySelector<HTMLElement>('.telemetry-box');
+      if (telemetry) this.root.querySelector('.runtime-guidance')?.after(
+        el('section', { class: 'runtime-logs task-card', 'aria-label': 'Logs and telemetry' }, heading('Logs & telemetry'), telemetry),
+      );
+    }
     if (this.task === 'teamcode' && !this.link.connected && new URLSearchParams(location.search).get('sim') !== '1') history.before(el('section', { class: 'task-card' }, heading('Connect your TeamCode'), el('p', {}, 'In this project’s terminal, start the local host:'), el('code', {}, 'pnpm sim --team /path/to/FtcRobotController'), el('p', {}, 'The connection retries automatically. Host address and diagnostics are below.')));
     if (this.task === 'setup') history.before(el('div', { class: 'row setup-links' }, button('Calibrate launcher', () => this.navigate('analyze', 'calibration')), button('TeamCode settings', () => { this.navigate('teamcode'); if (this.link.connected && this.link.assets.length) this.panel.openAssetDialog(); else this.say('Connect your runtime host and load a program with settings assets to open the editor.'); })));
     this.addPinned(sections, history);
@@ -496,6 +502,9 @@ export class Workspace {
   }
   updateCompass(dx: number, dy: number) {
     this.compass.hidden = this.state.robot.drivetrain !== 'mecanum';
+    const previews = document.getElementById('pips');
+    const cameraHeight = previews?.classList.contains('upper-right') && previews.getClientRects().length ? previews.getBoundingClientRect().height : 0;
+    this.compass.style.top = `calc(var(--header-height) + ${cameraHeight > 0 ? cameraHeight + 20 : 10}px)`;
     this.compass.querySelector<HTMLElement>('.compass-arrow')!.style.transform = `rotate(${Math.atan2(dy, dx) * 180 / Math.PI + 90}deg)`;
     this.compass.querySelector<HTMLElement>('.compass-label')!.textContent = this.link.running ? 'TeamCode controls direction' : this.state.fieldCentric ? `W / ↑ · away from ${this.state.alliance} alliance` : 'W / ↑ · robot forward';
   }
@@ -536,7 +545,13 @@ export class Workspace {
         actions.append(stop);
         const pad = el('select', { 'aria-label': 'Keyboard gamepad' }, el('option', { value: '1' }, 'Gamepad 1'), el('option', { value: '2' }, 'Gamepad 2')); pad.value = String(this.input.keyboardPad); pad.onchange = () => { this.input.keyboardPad = Number(pad.value) as 1 | 2; this.update(0, true); }; actions.append(pad);
       } else if (!replay) actions.append(button('Focus field', () => this.focusField()), button(this.state.matchPhase === 'running' ? 'Stop match' : this.state.matchPhase === 'stopped' && (this.state.matchClock ?? 0) > 0 ? 'Resume match' : 'Start timed match', () => { this.state.matchRequest = this.state.matchPhase === 'running' ? 'stop' : 'start'; this.change('sim'); this.panel.render(); }));
-      this.dock.replaceChildren(statusText, el('div', { class: 'match-clock', role: 'timer', 'aria-label': 'Match clock' }), actions);
+      const display = el('div', { class: 'match-display' });
+      const score = document.getElementById('match-score');
+      if (score) display.append(score);
+      display.append(el('div', { class: 'match-clock', role: 'timer', 'aria-label': 'Match clock' }));
+      const tip = document.getElementById('tip-needed');
+      if (tip) display.append(tip);
+      this.dock.replaceChildren(statusText, display, actions);
     }
     const clock = this.dock.querySelector<HTMLElement>('.match-clock');
     const remaining = Math.ceil(this.state.matchClock ?? 150);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_SECONDS, LOADING_ZONE, Scoreboard, ballInGarden, inZone, touchesWall, type RobotState } from "../src/sim/scoring";
+import { AUTO_SECONDS, ballsToTip, LOADING_ZONE, Scoreboard, ballInGarden, inZone, touchesWall, type RobotState } from "../src/sim/scoring";
 
 const IN = 0.0254;
 const fp = { lengthM: 18 * IN, widthM: 18 * IN };
@@ -37,7 +37,8 @@ describe("scoreboard", () => {
     expect(sb.score("red", [atWall], 0, 0, 0).leave).toBe(0);
     sb.update("running", M - 20, M, [mid], { red: 1, blue: 0 });           // left the wall during AUTO
     expect(sb.score("red", [mid], 1, 0, 0).auto).toBe(3 + 20);
-    sb.update("running", M - AUTO_SECONDS - 1, M, [atWall], { red: 1, blue: 0 }); // back at the wall after AUTO ended: LEAVE stays
+    sb.update("running", M - AUTO_SECONDS, M, [mid], { red: 1, blue: 0 }); // exact AUTO assessment
+    sb.update("running", M - AUTO_SECONDS - 1, M, [atWall], { red: 1, blue: 0 }); // later motion cannot change LEAVE
     const s = sb.score("red", [atWall], 2, 0, 0);
     expect(s.leave).toBe(1); expect(s.autoTips).toBe(1); expect(s.auto).toBe(23); expect(s.teleop).toBe(20); expect(s.total).toBe(43);
     sb.update("running", 5, M, [parked], { red: 2, blue: 0 });
@@ -58,4 +59,49 @@ describe("scoreboard", () => {
     expect(sb.score("red", [atWall, partner, foe], 0, 0, 0)).toMatchObject({ leave: 1, autoPark: 1, auto: 8 });
     expect(sb.score("blue", [atWall, partner, foe], 0, 0, 0)).toMatchObject({ leave: 1, autoPark: 0, auto: 3 });
   });
+});
+
+
+describe("scoring boundaries and bonus RP", () => {
+  it("assesses the current pose at exactly 30 seconds, not the previous frame", () => {
+    const sb = new Scoreboard();
+    sb.update("running", 120.01, 150, [mid], { red: 0, blue: 0 });
+    sb.update("running", 120, 150, [atWall], { red: 1, blue: 0 });
+    expect(sb.score("red", [atWall], 1, 0, 0)).toMatchObject({ leave: 0, autoTips: 1, auto: 20 });
+  });
+  it("pause does not latch end park; expiry uses the final pose", () => {
+    const sb = new Scoreboard();
+    sb.update("running", 130, 150, [parked], { red: 0, blue: 0 });
+    expect(sb.score("red", [parked], 0, 0, 0).teleopPark).toBe(0);
+    sb.update("running", 120, 150, [parked], { red: 1, blue: 0 });
+    sb.update("stopped", 50, 150, [parked], { red: 1, blue: 0 });
+    expect(sb.endAssessed).toBe(false);
+    sb.update("running", 1, 150, [mid], { red: 1, blue: 0 });
+    sb.update("stopped", 0, 150, [parked], { red: 1, blue: 0 });
+    expect(sb.score("red", [parked], 1, 0, 0).teleopPark).toBe(1);
+    sb.update("stopped", 0, 150, [mid], { red: 1, blue: 0 });
+    expect(sb.score("red", [mid], 1, 0, 0).teleopPark).toBe(1);
+  });
+  it("SWARM includes end park, and tip bonuses stack at 4 and 7", () => {
+    const sb = new Scoreboard();
+    const pair = [mid, { ...mid, id: 'partner' }];
+    sb.update("running", 120, 150, pair, { red: 0, blue: 0 });
+    expect(sb.score("red", pair, 3, 0, 0)).toMatchObject({ swarmPoints: 6, bonusRp: 0 });
+    expect(sb.score("red", pair, 4, 0, 0).bonusRp).toBe(1);
+    const parkedPair = [parked, { ...parked, id: 'partner' }];
+    sb.update("stopped", 0, 150, parkedPair, { red: 7, blue: 0 });
+    expect(sb.score("red", parkedPair, 7, 0, 0)).toMatchObject({ swarmPoints: 16, swarmRp: 1, pollinator1Rp: 1, pollinator2Rp: 1, bonusRp: 3 });
+    sb.reset();
+    expect(sb.score("red", pair, 0, 0, 0)).toMatchObject({ total: 0, bonusRp: 0 });
+  });
+});
+
+
+it("calculates additional pollen or nectar from staged, mixed and threshold loads", () => {
+  expect(ballsToTip(3 * .0413, .195)).toEqual({ pollen: 3, nectar: 2 });
+  expect(ballsToTip(3 * .0413 + 2 * .0249, .195)).toEqual({ pollen: 1, nectar: 1 });
+  expect(ballsToTip(0, .195)).toEqual({ pollen: 8, nectar: 5 });
+  expect(ballsToTip(.195, .195)).toEqual({ pollen: 0, nectar: 0 });
+  expect(ballsToTip(.25, .195)).toEqual({ pollen: 0, nectar: 0 });
+  expect(ballsToTip(0, .249)).toEqual({ pollen: 10, nectar: 7 });
 });

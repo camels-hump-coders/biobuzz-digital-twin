@@ -23,6 +23,7 @@ import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacle
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
+import { MatchScoreView } from "./ui/matchScore";
 import { Workspace } from "./ui/workspace";
 import { Hud, type HudData } from "./ui/hud";
 import { hydrateState, loadState, saveState, serializeSettings, settingsDiffPaths, type AppState } from "./state";
@@ -83,7 +84,7 @@ function ensurePips(n: number) {
     size.addEventListener("click", e => { e.stopPropagation(); localStorage.setItem("biobuzz-camera-large", String(!pipsEl.classList.contains("large"))); applySize(); });
     const position = document.createElement("button"); position.className = "pip-position";
     const applyPosition = () => {
-      const upperRight = localStorage.getItem("biobuzz-camera-position") === "upper-right";
+      const upperRight = localStorage.getItem("biobuzz-camera-position") !== "bottom-left";
       pipsEl.classList.toggle("upper-right", upperRight);
       pipsEl.querySelectorAll<HTMLButtonElement>(".pip-position").forEach(b => {
         b.textContent = upperRight ? "↙ Bottom left" : "↗ Upper right";
@@ -170,10 +171,11 @@ const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity:
 const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }, s.footprint, { side: "front", widthM: s.footprint.widthM * 0.65 }));
 const allAgents = [playerAgent, ...scriptedAgents];
 const scoreboard = new Scoreboard();
+const matchScoreView = new MatchScoreView();
 function scoreRobots(): RobotState[] { return (state.opponents ? allAgents : [playerAgent]).map((a) => ({ id: a.id, alliance: a.alliance, pose: a.pose, footprint: a.footprint })); }
 function allianceScore(a: Alliance) {
-  let cell = 0, garden = 0;
-  for (const f of flying) { if (f.inCell && (f as any).cellOf === a) cell++; else if (ballInGarden(f.pos.x, f.pos.z, f.radius, a)) garden++; }
+  let cell = match.hives[a].stagedNectar, garden = 0;
+  for (const f of flying) { if (f.inCell && (f as any).cellOf === a) cell++; else if (!f.carried && f.pos.y - f.radius <= 0.05 && ballInGarden(f.pos.x, f.pos.z, f.radius, a)) garden++; }
   return scoreboard.score(a, scoreRobots(), match.hives[a].tips, cell, garden);
 }
 /** Partner is on our alliance, the two opponents on the other; colours and starting corners follow. */
@@ -216,12 +218,13 @@ function resetBoard() {
   match.reset(allAgents);
   shotsFired = 0; shotsHit = 0;
   pins.reset();
+  scoreboard.reset();
   state.pose = startPose(state.starts, "you", state.alliance, state.hive);
   robot.setPose(state.pose);
   parkScripted();
   state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
 }
-function startMatch() { if (recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } if (state.matchPhase === "setup" || state.matchPhase === "stopped") { if (state.matchPhase === "stopped" && (state.matchClock ?? 0) <= 0) state.matchClock = MATCH_SECONDS; state.matchPhase = "running"; } }
+function startMatch() { if (recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } if (state.matchPhase === "setup" || state.matchPhase === "stopped") { if (state.matchPhase === "stopped" && (state.matchClock ?? 0) <= 0) resetBoard(); state.matchPhase = "running"; } }
 function stopMatch() { if (state.matchPhase === "running") state.matchPhase = "stopped"; }
 parkScripted();
 
@@ -1087,6 +1090,8 @@ function frame(now: number) {
   if (replaying || !runtimeActive || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
+  matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
+    scoreRobots().filter(r => r.alliance === state.alliance).length, replaying, state.infiniteAmmo, { massKg: match.cellLoad(state.alliance).massKg, thresholdKg: state.tipMassG / 1000, tipping: !!match.hives[state.alliance].tipping, autoTip: state.autoTip });
   perf.mark("match");
 
   // shot analysis
@@ -1217,12 +1222,12 @@ function frame(now: number) {
     cellLoad: (() => { const c = match.cellLoad(state.alliance); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
     tips: match.hives[state.alliance].tips,
     score: (() => {
-      const ours = allianceScore(state.alliance), theirs = allianceScore(state.alliance === "red" ? "blue" : "red");
+      const ours = allianceScore(state.alliance);
       const n = scoreRobots().filter((r) => r.alliance === state.alliance).length;
       const you = scoreboard.robots.get(playerAgent.id);
       const inAuto = state.matchPhase === "running" && (state.matchClock ?? 0) > MATCH_SECONDS - 30;
       const mine = you ? `you: LEAVE ${you.leave ? "✓" : "✗"} · AUTO PARK ${you.autoPark ? "✓" : "✗"} · PARK ${you.teleopPark ? "✓" : "✗"}${you.inZoneNow ? " · in LOADING ZONE" : ""}${inAuto ? " (AUTO, assessed at 0:30)" : ""}` : "";
-      return `${state.alliance.toUpperCase()} ${ours.total} (auto ${ours.auto}) vs ${theirs.total} (auto ${theirs.auto}) · ${describeScore(ours, n)}${mine ? " · " + mine : ""}`;
+      return `${state.alliance.toUpperCase()} ${ours.total} (auto ${ours.auto}) · ${ours.bonusRp} bonus RP · ${describeScore(ours, n)}${mine ? " · " + mine : ""}`;
     })(),
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: state.infiniteAmmo ? `∞ ${state.ballKind} (practice: infinite ammo)` : `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,

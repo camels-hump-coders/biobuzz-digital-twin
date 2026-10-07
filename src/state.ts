@@ -94,7 +94,7 @@ export function defaultState(): AppState {
     view: "orbit",
     pip: true,
     stadium: true,
-    overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false },
+    overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: true },
     showPerf: false,
     panelAdvanced: false,
     introSeen: false,
