@@ -318,6 +318,9 @@ body.panel-hidden #view { right: 0; width: 100%; }
 #panel .experiment .range-row select { max-width: 60%; }
 #panel .experiment input[type=range] { width: 100%; margin: 4px 0 2px; accent-color: var(--accent); }
 #panel .experiment .note { margin: 2px 0 0; }
+#panel .experiment .bot-choice { flex: 1 1 0; font-weight: 600; }
+#panel .experiment .bot-choice[aria-pressed=true] { background: var(--accent); color: #111923; border-color: var(--accent); box-shadow: 0 0 0 2px #111923, 0 0 0 3px var(--accent); }
+#panel .experiment .bot-choice[aria-pressed=false] { color: var(--muted); }
 #panel .task-card code { font-size: 11px; overflow-wrap: anywhere; }
 #panel button { border-radius: 6px; padding: 7px 9px; }
 #panel button.primary { color: #19212b; background: var(--accent); border-color: var(--accent); }

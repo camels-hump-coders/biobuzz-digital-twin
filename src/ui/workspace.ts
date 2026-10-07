@@ -262,7 +262,8 @@ export class Workspace {
     // the first big choice: how the robot moves. Both are goBILDA StarterBots, so everything else stays comparable.
     const bots = el('div', { class: 'row', role: 'group', 'aria-label': 'StarterBot drivetrain' });
     for (const [id, label] of [['starterbotMecanum', 'Mecanum'], ['starterbot6wd', '6-wheel tank']] as const) {
-      const b = el('button', { 'aria-pressed': String(this.state.robotPresetId === id), onclick: () => { if (this.state.robotPresetId === id) return; this.modify(() => { this.state.robotPresetId = id; this.state.robot = clonePreset(id); this.state.selectedCameraId = this.state.robot.cameras[0]?.id ?? ''; }, 'robot'); if (this.tutorial === 6) this.tutorial = 7; } }, label);
+      const active = this.state.robotPresetId === id;
+      const b = el('button', { class: active ? 'bot-choice active' : 'bot-choice', 'aria-pressed': String(active), title: active ? 'This is the robot on the field' : `Switch the robot on the field to the ${label} StarterBot`, onclick: () => { if (this.state.robotPresetId === id) return; this.modify(() => { this.state.robotPresetId = id; this.state.robot = clonePreset(id); this.state.selectedCameraId = this.state.robot.cameras[0]?.id ?? ''; }, 'robot'); if (this.tutorial === 6) this.tutorial = 7; } }, active ? `✓ ${label} · on the field` : label);
       b.disabled = this.link.running || this.recorder?.cursor !== undefined; bots.append(b);
     }
     card.append(el('div', { class: 'range-row' }, el('label', {}, 'StarterBot drivetrain')), bots,
