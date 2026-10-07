@@ -18,13 +18,14 @@ export function defaultCamera(id = "cam1"): CameraMount {
   };
 }
 
-/** Camera on top of the StarterBot ramp, looking out the back where the ball leaves, i.e. at the target. */
+/** Camera on top of the StarterBot ramp, looking forward over the hood where the ball leaves, i.e. at the target.
+ *  The twin treats the hood side as the StarterBot's front: the camera sees the cell, the intake is at the back. */
 export function starterBotCamera(id = "cam1"): CameraMount {
   const c = defaultCamera(id);
   c.name = "Shooter camera";
-  c.forwardM = -6 * IN;
+  c.forwardM = 6 * IN;
   c.heightM = 13 * IN;
-  c.yawDeg = 180;
+  c.yawDeg = 0;
   c.pitchDeg = -35; // tilted up 35 deg: from 12.5 in the raised cell's tags sit ~37 in higher at ~55 in range
   return c;
 }
@@ -41,10 +42,10 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     wheelRpm: 312,
     wheelDiameterM: 0.096,
     model: "starterbot-6wd",
-    modelYawDeg: 90,
+    modelYawDeg: -90, // CAD faces +Z; hood side forward
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "front", widthM: 13 * IN }, // roller intake between the front wheels; the launcher fires out the back over the ramp
+    intake: { side: "rear", widthM: 13 * IN }, // roller intake between the wheels at the back; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
   },
@@ -58,10 +59,10 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     wheelRpm: 312,
     wheelDiameterM: 0.104,
     model: "starterbot-mecanum",
-    modelYawDeg: 90,
+    modelYawDeg: -90, // CAD faces +Z; hood side forward
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "front", widthM: 13 * IN }, // roller intake between the front wheels; the launcher fires out the back over the ramp
+    intake: { side: "rear", widthM: 13 * IN }, // roller intake between the wheels at the back; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
   },

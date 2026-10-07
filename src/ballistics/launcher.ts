@@ -65,10 +65,10 @@ export const LAUNCHER_PRESETS: Record<string, LauncherConfig> = {
     elevationDeg: 55,
     elevationMinDeg: 55,
     elevationMaxDeg: 55,
-    exitForwardM: -0.20, // the ramp's top edge is at the rear extreme of the chassis in the CAD (8.8 in behind centre); the ball leaves just inside it
+    exitForwardM: 0.20, // the hood side is the robot's forward: the ramp's top edge is at that extreme of the chassis in the CAD (8.8 in from centre); the ball leaves just inside it
     exitLeftM: 0,
     exitHeightM: 0.31,
-    yawOffsetDeg: 180, // the StarterBot shoots out the back, over the ramp, away from the intake
+    yawOffsetDeg: 0, // fires forward: the twin treats the StarterBot's hood side as its front (the intake is at the back) // the StarterBot shoots out the back, over the ramp, away from the intake
     turretMinDeg: 0,
     turretMaxDeg: 0,
     spinFraction: 0.5,

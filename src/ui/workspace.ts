@@ -258,7 +258,17 @@ export class Workspace {
    *  Launcher and Cameras sections. */
   private experimentCard() {
     const l = this.state.robot.launcher;
-    const card = el('div', { class: 'experiment', 'aria-label': 'Experiment: hood and camera' }, el('span', { class: 'eyebrow' }, 'EXPERIMENT'));
+    const card = el('div', { class: 'experiment', 'aria-label': 'Experiment: robot, hood and camera' }, el('span', { class: 'eyebrow' }, 'EXPERIMENT'));
+    // the first big choice: how the robot moves. Both are goBILDA StarterBots, so everything else stays comparable.
+    const bots = el('div', { class: 'row', role: 'group', 'aria-label': 'StarterBot drivetrain' });
+    for (const [id, label] of [['starterbotMecanum', 'Mecanum'], ['starterbot6wd', '6-wheel tank']] as const) {
+      const b = el('button', { 'aria-pressed': String(this.state.robotPresetId === id), onclick: () => { if (this.state.robotPresetId === id) return; this.modify(() => { this.state.robotPresetId = id; this.state.robot = clonePreset(id); this.state.selectedCameraId = this.state.robot.cameras[0]?.id ?? ''; }, 'robot'); if (this.tutorial === 6) this.tutorial = 7; } }, label);
+      b.disabled = this.link.running || this.recorder?.cursor !== undefined; bots.append(b);
+    }
+    card.append(el('div', { class: 'range-row' }, el('label', {}, 'StarterBot drivetrain')), bots,
+      el('p', { class: 'note' }, this.state.robot.drivetrain === 'mecanum'
+        ? 'Mecanum: strafes with A / D and lines up on the cell without turning, but its rollers give a little when pushed. Switch to the 6-wheel tank to feel the difference.'
+        : '6-wheel tank: no strafing (A / D turn), so you line up by turning and driving, but it holds its ground when pushed and climbs the loading-zone edge more surely. Switch to mecanum to compare.'));
     const hoodVal = el('b', {}, `${l.elevationDeg.toFixed(1)}°`);
     const hood = el('input', { type: 'range', min: '0', max: '89', step: '0.5', value: String(l.elevationDeg), 'aria-label': 'Hood angle (degrees)' }) as HTMLInputElement;
     const before = { config: captureConfig(this.state) };
@@ -309,7 +319,7 @@ export class Workspace {
     box.querySelectorAll<HTMLButtonElement>('button').forEach(b => { if (b.textContent === 'Reset position') b.disabled = disabled; });
     box.append(this.startControls());
     box.append(this.experimentCard());
-    if (this.sample) box.append(el('div', { class: 'sample-banner' }, el('b', {}, 'Sample setup active'), el('p', {}, ['','1 / 6 · Move a little with WASD.','2 / 6 · Aim toward the highlighted target.','3 / 6 · Shoot and watch the flight.','4 / 6 · Try another position. Tune adjusts the launcher; the field overlay explains your shot.','5 / 6 · Experiment below: slide the hood angle and watch the hit chance and hit map move, then change the camera and its field of view and watch which AprilTags stay in view.','6 / 6 · Now tilt the camera mount and change its height: the viewing cone on the field and the AprilTags row show which tags you can still see.'][this.tutorial] || 'Explore at your own pace.'), button('Restore my setup', () => this.restoreSample()), button('Tune this shot', () => this.navigate('analyze', 'shots'))));
+    if (this.sample) box.append(el('div', { class: 'sample-banner' }, el('b', {}, 'Sample setup active'), el('p', {}, ['','1 / 7 · Move a little with WASD.','2 / 7 · Aim toward the highlighted target.','3 / 7 · Shoot and watch the flight.','4 / 7 · Try another position. Tune adjusts the launcher; the field overlay explains your shot.','5 / 7 · Experiment below: slide the hood angle and watch the hit chance and hit map move, then change the camera and its field of view and watch which AprilTags stay in view.','6 / 7 · Now tilt the camera mount and change its height: the viewing cone on the field and the AprilTags row show which tags you can still see.','7 / 7 · Finally switch the StarterBot drivetrain between mecanum and 6-wheel tank and drive a lap of each: strafing versus turning is the biggest design choice on the robot.'][this.tutorial] || 'Explore at your own pace.'), button('Restore my setup', () => this.restoreSample()), button('Tune this shot', () => this.navigate('analyze', 'shots'))));
     else box.append(button('Try a sample setup', () => this.trySample(), 'text-button'));
     return box;
   }
