@@ -210,6 +210,10 @@ Two field-wide maps live in **View & overlays**:
 
 **Performance stats** (same section) shows how long each part of the frame takes.
 
+## Experiment: hood angle and camera field of view
+
+The Practice workspace puts the two knobs a new user should play with first on their own card, as bounded sliders: **Hood angle** (0 to 89°) and the selected **camera** model with its **field of view** (30 to 160° diagonal). Slide the hood and the hit chance tile and the hit map follow: too flat or too steep scores from nowhere, in between there is a sweet spot. Change the camera or widen its view and the camera preview and the AprilTags row show the trade-off between seeing more of the field and reading tags further away. The guided sample setup ends on this card. The full controls, including the adjustable-hood range and per-camera mounts, stay in the Launcher and Cameras sections.
+
 ## What the HUD tells you
 
 The HUD leads with **Shot readiness**: whether to aim, move, adjust the launcher, or try a shot. **Scoring estimate** expands the probability after aiming and spinning up, its confidence interval, and the current-direction prediction. The estimate is conditional, not a guarantee that the next ball will settle in the cell. Fired and settled counts provide actual simulation feedback. Shot details, Match & field, Robot, and AprilTags retain the exact values. Attempting to shoot with no balls produces a prominent warning. Passing a collectible ball with free capacity and the intake off shows an intake warning above shot readiness. Performance advice includes Reduce visual detail, with Restore visual detail available afterward. During replay, the field and telemetry show the recording; shot analysis is explicitly labelled as live analysis.
@@ -316,7 +320,7 @@ Runtime availability is shown in the header and Run TeamCode guidance updates as
 
 The bottom bar keeps the match countdown visible (Start / Stop / Resume), and the shot summary shows hit chance, required RPM, hood angle, estimated power, and current values. Run TeamCode offers Enable runtime / Initialize / Start / Stop directly in its status card. About in the top menu introduces Camels Hump Coders #36682.
 
-Fresh sessions use alliance-relative mecanum driving: W/up moves away from your alliance wall, S/down moves toward it, and A/D strafe from that driver perspective. The compass shows the projected W/up direction as you rotate the camera. Explicit robot-relative mode remains available through Field-centric drive (F); TeamCode still owns its gamepad mapping. Shots clearing the visible perimeter can leave the field without an invisible-wall bounce.
+On a tank drive A/D turn like Q/E (a tank cannot strafe), and the Practice card says so. Fresh sessions use alliance-relative mecanum driving: W/up moves away from your alliance wall, S/down moves toward it, and A/D strafe from that driver perspective. The compass shows the projected W/up direction as you rotate the camera. Explicit robot-relative mode remains available through Field-centric drive (F); TeamCode still owns its gamepad mapping. Shots clearing the visible perimeter can leave the field without an invisible-wall bounce.
 
 When connected, robot-configuration and TeamCode sync cards show project status and save-review actions directly in the workspace. Focus field closes the control panel, highlights the canvas, and transfers keyboard control. Tune contains launcher/camera configuration and calibration; shot analysis remains visible over the field.
 

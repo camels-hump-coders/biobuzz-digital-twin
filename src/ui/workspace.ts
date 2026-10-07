@@ -1,5 +1,7 @@
 import { type AppState } from '../state';
 import { clonePreset } from '../robot/presets';
+import { CAMERA_PRESETS, presetById } from '../camera/cameraPresets';
+import { intrinsicsFor } from '../robot/robot';
 import { setStartSide, startSideOf } from '../sim/starts';
 import { ConfigHistory, captureConfig, type ConfigSnapshot } from './configHistory';
 import { el, type Change, type Panel } from './panel';
@@ -147,10 +149,11 @@ export class Workspace {
       el('div', { class: 'brand-lockup' },
         // title line: official BIOBUZZ mark + our "Digital Twin"; presented-by line below; the team logo closes the lockup, spanning both lines
         el('div', { class: 'brand-lines' },
-          el('a', { class: 'brand', href: '#', 'aria-label': 'BIOBUZZ Digital Twin — practice workspace', onclick: (e: Event) => { e.preventDefault(); this.navigate('practice'); } },
-            el('img', { class: 'season-hex', src: `${import.meta.env.BASE_URL}biobuzz-hex.png`, alt: '', height: '30' }),
-            el('img', { class: 'season-wordmark', src: `${import.meta.env.BASE_URL}biobuzz-wordmark.png`, alt: 'BIOBUZZ', height: '18' }),
-            el('span', { class: 'twin-word' }, 'Digital Twin')),
+          el('div', { class: 'brand' },
+            el('a', { class: 'season-link', href: 'https://ftc.game', target: '_blank', rel: 'noopener noreferrer', title: 'BIOBUZZ, the 2026-27 FIRST Tech Challenge game — official game site', 'aria-label': 'BIOBUZZ official game site' },
+              el('img', { class: 'season-hex', src: `${import.meta.env.BASE_URL}biobuzz-hex.png`, alt: '', height: '30' }),
+              el('img', { class: 'season-wordmark', src: `${import.meta.env.BASE_URL}biobuzz-wordmark.png`, alt: 'BIOBUZZ', height: '18' })),
+            el('a', { class: 'twin-word', href: '#', 'aria-label': 'Digital Twin — practice workspace', onclick: (e: Event) => { e.preventDefault(); this.navigate('practice'); } }, 'Digital Twin')),
           el('a', { class: 'team-credit', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer' },
             el('small', {}, 'Presented by '), el('strong', {}, 'Camels Hump Coders #36682'))),
         el('a', { class: 'team-mark', href: 'https://camelshumpcoders.org', target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Camels Hump Coders #36682 — visit team website' },
@@ -250,17 +253,48 @@ export class Workspace {
     }
     box.append(alliances, starts); return box;
   }
+  /** Hood angle and camera field of view, first-class in Practice: the two knobs whose effect on the hit map and on
+   *  AprilTag visibility a new user should see before anything else. Bounded sliders; the full controls stay in the
+   *  Launcher and Cameras sections. */
+  private experimentCard() {
+    const l = this.state.robot.launcher;
+    const card = el('div', { class: 'experiment', 'aria-label': 'Experiment: hood and camera' }, el('span', { class: 'eyebrow' }, 'EXPERIMENT'));
+    const hoodVal = el('b', {}, `${l.elevationDeg.toFixed(1)}°`);
+    const hood = el('input', { type: 'range', min: '0', max: '89', step: '0.5', value: String(l.elevationDeg), 'aria-label': 'Hood angle (degrees)' }) as HTMLInputElement;
+    const before = { config: captureConfig(this.state) };
+    hood.oninput = () => { const v = Math.min(89, Math.max(0, parseFloat(hood.value))); l.elevationDeg = v; if (l.elevationMinDeg === l.elevationMaxDeg) l.elevationMinDeg = l.elevationMaxDeg = v; hoodVal.textContent = `${v.toFixed(1)}°`; this.change('launcher'); if (this.tutorial === 4) this.tutorial = 5; };
+    hood.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
+    card.append(el('div', { class: 'range-row' }, el('label', {}, 'Hood angle'), hoodVal), hood,
+      el('p', { class: 'note' }, 'Too flat or too steep and nothing scores from anywhere; in between there is a sweet spot. Watch the hit chance tile and the hit map as you slide.'));
+    const cam = this.state.robot.cameras.find(c => c.id === this.state.selectedCameraId) ?? this.state.robot.cameras[0];
+    if (cam) {
+      const sel = el('select', { 'aria-label': 'Camera model' }) as HTMLSelectElement;
+      for (const p of CAMERA_PRESETS) sel.append(el('option', { value: p.id, ...(p.id === cam.presetId ? { selected: '' } : {}) }, p.name));
+      sel.onchange = () => this.modify(() => { cam.presetId = sel.value; cam.diagFovDeg = undefined; cam.hfovDeg = undefined; cam.width = undefined; cam.height = undefined; }, 'cameras');
+      const intr = intrinsicsFor(cam);
+      const diag = cam.diagFovDeg ?? (Math.atan(Math.hypot(Math.tan(intr.hfov / 2), Math.tan(intr.vfov / 2))) * 2 * 180) / Math.PI;
+      const fovVal = el('b', {}, `${diag.toFixed(0)}° diagonal`);
+      const fov = el('input', { type: 'range', min: '30', max: '160', step: '1', value: String(Math.round(diag)), 'aria-label': 'Camera diagonal field of view (degrees)' }) as HTMLInputElement;
+      fov.oninput = () => { const v = parseFloat(fov.value); cam.diagFovDeg = v; cam.hfovDeg = undefined; fovVal.textContent = `${v.toFixed(0)}° diagonal`; this.change('cameras'); if (this.tutorial === 4) this.tutorial = 5; };
+      fov.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
+      card.append(el('div', { class: 'range-row' }, el('label', {}, `Camera · ${cam.name}`), sel), el('div', { class: 'range-row' }, el('label', {}, 'Field of view'), fovVal), fov,
+        el('p', { class: 'note' }, `Wider sees more of the field but each AprilTag gets fewer pixels; narrower reads tags further away but loses them sooner when you turn. Stock ${presetById(cam.presetId).name}: ${presetById(cam.presetId).diagFovDeg ?? presetById(cam.presetId).hfovDeg}°. Watch the camera preview and the AprilTags row.`),
+        el('button', { class: 'text-button', onclick: () => { cam.diagFovDeg = undefined; cam.hfovDeg = undefined; this.modify(() => {}, 'cameras'); } }, 'Back to the camera\u2019s own field of view'));
+    }
+    return card;
+  }
   private practiceCard() {
     const box = el('section', { class: 'task-card' }, el('span', { class: 'eyebrow' }, 'FREE PRACTICE'), heading('Make your first shot'), el('p', {}, 'Click the field to drive. Aim toward the highlighted cell, then launch a ball.'));
     const disabled = this.link.running || this.recorder?.cursor !== undefined;
     const aim = button('Aim at target · R', () => { this.state.aimRequest = true; if (this.tutorial) { this.tutorial = 3; this.panel.render(); } this.canvas.focus(); }, 'primary');
     const shoot = button('Shoot · Space', () => { this.state.shootRequest = true; if (this.tutorial) { this.tutorial = 4; this.panel.render(); } this.canvas.focus(); });
     aim.disabled = disabled; shoot.disabled = disabled;
-    box.append(el('div', { class: 'practice-actions' }, aim, shoot), el('p', { class: 'note' }, disabled ? 'Manual actions are unavailable during TeamCode control or replay.' : 'WASD move · Q / E turn · Shift for more speed'),
+    box.append(el('div', { class: 'practice-actions' }, aim, shoot), el('p', { class: 'note' }, disabled ? 'Manual actions are unavailable during TeamCode control or replay.' : this.state.robot.drivetrain === 'tank' ? 'W / S drive · A / D or Q / E turn (tank drive cannot strafe) · Shift for more speed' : 'WASD move · Q / E turn · Shift for more speed'),
       el('div', { class: 'row' }, button('Focus field to drive', () => this.focusField()), button('Reset position', () => { if (this.link.running || this.recorder?.cursor !== undefined) return; this.state.placeAtStartRequest = true; this.change('sim'); this.canvas.focus(); })));
     box.querySelectorAll<HTMLButtonElement>('button').forEach(b => { if (b.textContent === 'Reset position') b.disabled = disabled; });
     box.append(this.startControls());
-    if (this.sample) box.append(el('div', { class: 'sample-banner' }, el('b', {}, 'Sample setup active'), el('p', {}, ['','1 / 4 · Move a little with WASD.','2 / 4 · Aim toward the highlighted target.','3 / 4 · Shoot and watch the flight.','4 / 4 · Try another position. Tune adjusts the launcher; the field overlay explains your shot.'][this.tutorial] || 'Explore at your own pace.'), button('Restore my setup', () => this.restoreSample()), button('Tune this shot', () => this.navigate('analyze', 'shots'))));
+    box.append(this.experimentCard());
+    if (this.sample) box.append(el('div', { class: 'sample-banner' }, el('b', {}, 'Sample setup active'), el('p', {}, ['','1 / 5 · Move a little with WASD.','2 / 5 · Aim toward the highlighted target.','3 / 5 · Shoot and watch the flight.','4 / 5 · Try another position. Tune adjusts the launcher; the field overlay explains your shot.','5 / 5 · Experiment below: slide the hood angle and watch the hit chance and hit map move, then change the camera and its field of view and watch which AprilTags stay in view.'][this.tutorial] || 'Explore at your own pace.'), button('Restore my setup', () => this.restoreSample()), button('Tune this shot', () => this.navigate('analyze', 'shots'))));
     else box.append(button('Try a sample setup', () => this.trySample(), 'text-button'));
     return box;
   }

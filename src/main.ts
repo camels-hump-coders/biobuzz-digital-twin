@@ -996,7 +996,9 @@ function frame(now: number) {
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
   const dp = driveParams();
   const runtimeActive = link.running;
-  let vel = commandToVelocity(runtimeActive ? { forward: 0, left: 0, turn: 0 } : cmd, state.pose, dp);
+  // tank drive cannot strafe: let A/D turn like Q/E so the usual hand position still works (no turn key held)
+  const driveCmd = state.robot.drivetrain === "tank" && cmd.turn === 0 && cmd.left !== 0 ? { ...cmd, turn: cmd.left, left: 0 } : cmd;
+  let vel = commandToVelocity(runtimeActive ? { forward: 0, left: 0, turn: 0 } : driveCmd, state.pose, dp);
   if (runtimeActive) {
     const act = stepActuators(actuatorModel, state.hardware, link.actuators, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
     vel = act.vel;
