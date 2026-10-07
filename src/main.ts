@@ -1,3 +1,4 @@
+import "./posthog";
 import { allianceDriveHeading } from "./sim/drive";
 import * as THREE from "three";
 import { camelsHumpHardwareConfig } from "./runtime/hardwareConfig";

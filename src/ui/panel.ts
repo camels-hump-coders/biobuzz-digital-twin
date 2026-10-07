@@ -15,6 +15,8 @@ import { classifyTelemetryLine, splitTelemetryLine } from "./telemetryFormat";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
 import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
+import posthog from "../posthog";
+import { posthogLogger } from "../posthog-logger";
 
 const IN = 0.0254;
 let controlSequence = 0;
@@ -439,9 +441,9 @@ export class Panel {
         if (!canInit) (selRow[1] as HTMLSelectElement).disabled = true;
         rtRows.push(selRow);
         rtRows.push(el("div", { class: "row full" },
-          el("button", { class: "init", ...(canInit ? {} : { disabled: "" }), title: canInit ? "Load the OpMode and run its init()" : "Stop the current OpMode first", onclick: () => link.init(this.selectedOpMode) }, "INIT"),
-          el("button", { class: "start", ...(canStart ? {} : { disabled: "" }), title: canStart ? "Start the match loop" : "INIT an OpMode first", onclick: () => link.start() }, "▶ START"),
-          el("button", { class: "stop", ...(canStop ? {} : { disabled: "" }), title: canStop ? "Stop and cut all motor power" : "Nothing is running", onclick: () => link.stop() }, "■ STOP"),
+          el("button", { class: "init", ...(canInit ? {} : { disabled: "" }), title: canInit ? "Load the OpMode and run its init()" : "Stop the current OpMode first", onclick: () => { posthog.capture("runtime_initialized"); posthogLogger.info("runtime initialization requested", { runtime_action: "initialize" }); link.init(this.selectedOpMode); } }, "INIT"),
+          el("button", { class: "start", ...(canStart ? {} : { disabled: "" }), title: canStart ? "Start the match loop" : "INIT an OpMode first", onclick: () => { posthog.capture("runtime_started"); posthogLogger.info("runtime start requested", { runtime_action: "start" }); link.start(); } }, "▶ START"),
+          el("button", { class: "stop", ...(canStop ? {} : { disabled: "" }), title: canStop ? "Stop and cut all motor power" : "Nothing is running", onclick: () => { posthog.capture("runtime_stopped"); posthogLogger.info("runtime stop requested", { runtime_action: "stop" }); link.stop(); } }, "■ STOP"),
         ));
         rtRows.push(el("div", { class: "note" }, s === "IDLE" || s === "STOPPED" ? "Pick an OpMode and press INIT." : s === "INIT" ? "init() ran. Press START to begin, or STOP to abort." : s === "RUNNING" ? "Running. Keyboard is gamepad1 while the 3D view has focus. STOP cuts all power." : s === "ERROR" ? "The OpMode threw; see the message below, fix and INIT again." : ""));
       }

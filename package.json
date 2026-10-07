@@ -25,6 +25,7 @@
     "workbox-window": "^7.4.1"
   },
   "dependencies": {
+    "posthog-js": "^1.438.1",
     "three": "^0.186.1"
   }
 }

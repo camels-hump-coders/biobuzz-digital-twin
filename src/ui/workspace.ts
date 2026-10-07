@@ -8,6 +8,7 @@ import { el, type Change, type Panel } from './panel';
 import type { RuntimeLink } from '../runtime/link';
 import type { Input } from '../sim/input';
 import type { Recorder } from '../runtime/recorder';
+import posthog from '../posthog';
 
 type Task = 'practice' | 'teamcode' | 'analyze' | 'setup' | 'settings';
 type Analysis = 'shots' | 'cameras' | 'replay' | 'calibration';
@@ -139,6 +140,7 @@ export class Workspace {
     this.changingWorkspace = true;
     this.prefs.task = task;
     if (analysis) this.prefs.analysis = analysis;
+    posthog.capture('workspace_navigated', { workspace: task, analysis_view: this.prefs.analysis });
     this.search = ''; this.changedOnly = false;
     if (task === 'settings') this.root.querySelectorAll<HTMLDetailsElement>('details[data-title]').forEach(d => d.open = false);
     this.savePrefs(); this.root.classList.remove('hidden');
@@ -206,6 +208,7 @@ export class Workspace {
   }
   private trySample() {
     if (this.link.running || this.link.status === 'INIT') { this.say('Stop TeamCode before trying the sample setup.'); return; }
+    posthog.capture('sample_setup_loaded');
     if (!this.sample) {
       this.sample = captureConfig(this.state);
       this.sampleState = structuredClone({ pose: this.state.pose, alliance: this.state.alliance, hive: this.state.hive, infiniteAmmo: this.state.infiniteAmmo, opponents: this.state.opponents, settingsAutoLoad: this.state.settingsAutoLoad, selectedCameraId: this.state.selectedCameraId });
@@ -324,8 +327,8 @@ export class Workspace {
   private practiceCard() {
     const box = el('section', { class: 'task-card' }, el('span', { class: 'eyebrow' }, 'FREE PRACTICE'), heading('Make your first shot'), el('p', {}, 'Click the field to drive. Aim toward the highlighted cell, then launch a ball.'));
     const disabled = this.link.running || this.recorder?.cursor !== undefined;
-    const aim = button('Aim at target · R', () => { this.state.aimRequest = true; if (this.tutorial) { this.tutorial = 3; this.panel.render(); } this.canvas.focus(); }, 'primary');
-    const shoot = button('Shoot · Space', () => { this.state.shootRequest = true; if (this.tutorial) { this.tutorial = 4; this.panel.render(); } this.canvas.focus(); });
+    const aim = button('Aim at target · R', () => { posthog.capture('manual_aim_requested'); this.state.aimRequest = true; if (this.tutorial) { this.tutorial = 3; this.panel.render(); } this.canvas.focus(); }, 'primary');
+    const shoot = button('Shoot · Space', () => { posthog.capture('manual_shot_requested'); this.state.shootRequest = true; if (this.tutorial) { this.tutorial = 4; this.panel.render(); } this.canvas.focus(); });
     aim.disabled = disabled; shoot.disabled = disabled;
     box.append(el('div', { class: 'practice-actions' }, aim, shoot), el('p', { class: 'note' }, disabled ? 'Manual actions are unavailable during TeamCode control or replay.' : this.state.robot.drivetrain === 'tank' ? 'W / S drive · A / D or Q / E turn (tank drive cannot strafe) · Shift for more speed' : 'WASD move · Q / E turn · Shift for more speed'),
       el('div', { class: 'row' }, button('Focus field to drive', () => this.focusField()), button('Reset position', () => { if (this.link.running || this.recorder?.cursor !== undefined) return; this.state.placeAtStartRequest = true; this.change('sim'); this.canvas.focus(); })));
