@@ -142,7 +142,7 @@ export class Match {
   }
 
   private releaseCell(alliance: Alliance) {
-    for (const f of this.flying) if (f.inCell && (f as any).cellOf === alliance) { f.inCell = false; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; }
+    for (const f of this.flying) if (f.inCell && (f as any).cellOf === alliance) { f.inCell = false; (f as any).cellOf = undefined; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; }
   }
 
   private startTip(alliance: Alliance) {
@@ -210,7 +210,8 @@ export class Match {
             // anything settled up in this hive's volume lost its support when the cells swung: let it fall (or re-settle
             // on the structure it is actually touching)
             const aloft = f.settled && !f.inCell && f.pos.y > f.radius + 0.02 && Math.abs(f.pos.x - px) < 0.5 && Math.abs(f.pos.z) < 1.0;
-            if (riding || aloft) { f.inCell = false; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; f.carried = riding; }
+            if (riding || aloft) { f.inCell = false; (f as any).cellOf = undefined; f.settled = false; f.restFor = 0; f.age = 0; f.contacts = []; f.contactAge = 1; f.carried = riding; }
+            else if ((f as any).cellOf === a) (f as any).cellOf = undefined; // never let a past score tag a ball into the next swing
           }
         }
       } else if (this.autoTip() && this.cellLoad(a).massKg >= this.tipMassKg() - 1e-6) {
@@ -274,14 +275,22 @@ export class Match {
 
   /** Balls riding in a swinging cell: rotate them with the hive about the pivot so they slide out as the floor steepens. */
   private carryBalls(alliance: Alliance, dAngle: number, dt: number) {
+    const h = this.hives[alliance];
+    const tip = h.tipping!;
     const pivot = hivePivot(alliance);
     const pv = new THREE.Vector3(pivot.x, pivot.y, pivot.z);
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -dAngle); // field.setHiveTilt uses rotation.x = -tilt
-    const bothCells = cellFrames({ alliance, upCell: this.hives[alliance].upCell });
+    const X = new THREE.Vector3(1, 0, 0);
+    const q = new THREE.Quaternion().setFromAxisAngle(X, -dAngle); // field.setHiveTilt uses rotation.x = -tilt
+    // the cell frames are known at the rest angle the swing started from; a ball rides only while it is inside the
+    // *moving* cell, so test its position rotated back to that rest configuration. (Testing against the static prisms
+    // dropped balls the moment the cell swung away from them, and the lowered cell's prism reaches down to the mat.)
+    const restCells = cellFrames({ alliance, upCell: h.upCell }); // upCell flips only when the swing completes
+    const toRest = new THREE.Quaternion().setFromAxisAngle(X, tip.last - tip.from);
+    const probe = new THREE.Vector3();
     for (const f of this.flying) {
-      // inside either cell of this hive (generous margin: the cell is moving); settled balls ride along too
-      const inside = (f as any).cellOf === alliance || bothCells.some((c) => insideCell(c, f.pos, 0.06));
-      if (!inside) continue;
+      probe.copy(f.pos).sub(pv).applyQuaternion(toRest).add(pv);
+      const inside = restCells.some((c) => insideCell(c, probe, 0.03));
+      if (!inside) { if (f.carried && (f as any).cellOf === alliance) { (f as any).cellOf = undefined; f.inCell = false; } continue; } // rolled out: it is a free ball now
       const rel = f.pos.clone().sub(pv);
       const moved = rel.clone().applyQuaternion(q).add(pv);
       const carryVel = moved.clone().sub(f.pos).divideScalar(Math.max(dt, 1e-3));
