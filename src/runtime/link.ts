@@ -69,11 +69,13 @@ export class RuntimeLink {
   agentUrl?: string;
   onAgent: (action: string, params: Record<string, unknown>) => Promise<{ result?: unknown; contentType?: string }> = async () => { throw new Error("no agent handler"); };
   private retryTimer?: number;
+  private reconnect = false;
   private lastSend = 0;
 
   constructor(url = "ws://127.0.0.1:8765") { this.url = url; }
 
   connect() {
+    this.reconnect = true;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
     try { this.ws = new WebSocket(this.url); } catch { this.scheduleRetry(); return; }
     this.ws.onopen = () => { this.connected = true; this.status = "IDLE"; this.statusSince = performance.now(); this.onChange(); };
@@ -83,8 +85,8 @@ export class RuntimeLink {
   }
   /** Drain queued servo transitions. */
   takeServoTransitions() { const t = this.servoTransitions; this.servoTransitions = []; return t; }
-  disconnect() { if (this.retryTimer) clearTimeout(this.retryTimer); this.retryTimer = undefined; this.ws?.close(); this.ws = undefined; }
-  private scheduleRetry() { if (this.retryTimer) return; this.retryTimer = window.setTimeout(() => { this.retryTimer = undefined; this.connect(); }, 1500); }
+  disconnect() { this.reconnect = false; if (this.retryTimer) clearTimeout(this.retryTimer); this.retryTimer = undefined; this.ws?.close(); this.ws = undefined; }
+  private scheduleRetry() { if (!this.reconnect || this.retryTimer) return; this.retryTimer = window.setTimeout(() => { this.retryTimer = undefined; this.connect(); }, 1500); }
 
   private handle(msg: any) {
     switch (msg.type) {

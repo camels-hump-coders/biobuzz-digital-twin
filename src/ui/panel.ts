@@ -17,6 +17,14 @@ import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
 
 const IN = 0.0254;
+let controlSequence = 0;
+export function labelControl(label: string, control: HTMLElement) {
+  const id = `control-${++controlSequence}`;
+  control.id = id;
+  control.setAttribute("aria-label", label);
+  return el("label", { for: id }, label);
+}
+const friendly = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ").replace(/^./, c => c.toUpperCase());
 
 export type Change = (what: "robot" | "cameras" | "launcher" | "view" | "sim" | "overlays" | "reset" | "runtime" | "hardware" | "assets" | "calibration") => void;
 
@@ -34,7 +42,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<
 export function num(label: string, get: () => number, set: (v: number) => void, opts: { min?: number; max?: number; step?: number; unit?: string } = {}): HTMLElement[] {
   const input = el("input", { type: "number", value: round(get()), min: opts.min, max: opts.max, step: opts.step ?? 0.1 }) as HTMLInputElement;
   input.onchange = () => { const v = parseFloat(input.value); if (!Number.isNaN(v)) set(v); };
-  return [el("label", {}, opts.unit ? `${label} (${opts.unit})` : label), input];
+  return [labelControl(opts.unit ? `${label} (${opts.unit})` : label, input), input];
 }
 function round(v: number): number { return Math.round(v * 100) / 100; }
 
@@ -43,14 +51,14 @@ export function sel(label: string, options: { value: string; label: string }[], 
   for (const o of options) s.append(el("option", { value: o.value, selected: o.value === get() ? "" : undefined }, o.label));
   s.value = get();
   s.onchange = () => set(s.value);
-  return [el("label", {}, label), s];
+  return [labelControl(label, s), s];
 }
 
 export function chk(label: string, get: () => boolean, set: (v: boolean) => void): HTMLElement[] {
   const c = el("input", { type: "checkbox" }) as HTMLInputElement;
   c.checked = get();
   c.onchange = () => set(c.checked);
-  return [el("label", {}, label), c];
+  return [labelControl(label, c), c];
 }
 
 type Row = HTMLElement | HTMLElement[];
@@ -95,6 +103,7 @@ export class Panel {
   recorder?: Recorder;
   snapshotContext: () => Record<string, unknown> = () => ({});
   private timelineEl?: HTMLElement;
+  private timelineEvents?: HTMLElement;
   private telemetryEl?: HTMLElement;
   private pillEl?: HTMLElement;
   constructor(state: AppState, onChange: Change) {
@@ -104,17 +113,28 @@ export class Panel {
     this.render();
   }
 
-  toggle() { this.root.classList.toggle("hidden"); }
+  decorate?: () => void;
+  toggle() { this.root.classList.toggle("hidden"); document.dispatchEvent(new Event("panel-visibility")); }
+  openSection(title: string) { this.openState.set(title, true); this.render(); }
 
+  private reviewChanges(title: string, detail: string): Promise<boolean> {
+    return new Promise(resolve => {
+      const d = el("dialog", { class: "workspace-dialog review-dialog", "aria-label": title });
+      let accepted = false;
+      d.append(el("h2", {}, title), el("p", {}, "Review the files and values below. Save writes these changes to your project; simulator changes remain local until then."), el("pre", { class: "change-preview" }, detail), el("div", { class: "row" }, el("button", { onclick: () => d.close() }, "Keep in simulator"), el("button", { class: "primary", onclick: () => { accepted = true; d.close(); } }, "Save to project")));
+      d.addEventListener("close", () => { d.remove(); resolve(accepted); });
+      document.body.append(d); d.showModal();
+    });
+  }
   private aboutDialog?: HTMLDialogElement;
   /** About: who built the twin, where the code lives, licence. */
   openAbout() {
     if (!this.aboutDialog) {
       const base = (import.meta as any).env?.BASE_URL ?? "/";
-      const d = el("dialog", { class: "about-dialog" },
-        el("button", { class: "close", title: "Close", onclick: () => d.close() }, "×"),
+      const d = el("dialog", { class: "about-dialog", "aria-label": "About Camels Hump Coders" },
+        el("button", { class: "close", title: "Close", "aria-label": "Close", onclick: () => d.close() }, "×"),
         el("img", { class: "logo", src: base + "chc-logo.png", alt: "Camels Hump Coders logo", width: "128", height: "128" }),
-        el("h2", {}, "BIOBUZZ Digital Twin"),
+        el("h2", {}, "Camels Hump Coders #36682"),
         el("p", {}, "A browser 3D twin of the FIRST Tech Challenge 2026-27 BIOBUZZ field and robot, with a virtual runtime that runs a team's unmodified Java TeamCode against it."),
         el("p", {}, "Built by the ", el("a", { href: "https://camelshumpcoders.org", target: "_blank", rel: "noopener" }, "Camels Hump Coders"), ", FIRST Tech Challenge Team #36682, a rookie team of middle- and high-school students from Huntington, Vermont, who moved up from FIRST LEGO League. We share it so other teams can test code before the robot is built."),
         el("div", { class: "links" },
@@ -157,7 +177,7 @@ export class Panel {
     const focused = document.activeElement as HTMLInputElement | null;
     const keepFilter = focused && d.contains(focused) && focused.type === "text" && focused.closest(".tools");
     d.replaceChildren(
-      el("div", { class: "sd-head" }, el("h2", {}, "TeamCode settings"), el("span", { class: "note" }, "Simulator overrides for the JSON files your OpModes read. Save writes them back into the repo."), el("button", { class: "sd-close", title: "Close (Esc)", onclick: () => d.close() }, "×")),
+      el("div", { class: "sd-head" }, el("h2", {}, "TeamCode settings"), el("span", { class: "note" }, "Preview changes in the simulator, then review and save to your project."), el("button", { class: "sd-close", title: "Close (Esc)", onclick: () => d.close() }, "×")),
       el("div", { class: "sd-body" }, body ?? el("div", { class: "note" }, "Connect to the runtime host to edit TeamCode settings.")),
     );
     const sb = d.querySelector(".sd-body") as HTMLElement | null; if (sb) sb.scrollTop = scroll;
@@ -231,7 +251,7 @@ export class Panel {
     if (!rec || !box) return;
     const slider = box.querySelector("input[type=range]") as HTMLInputElement | null;
     const label = box.querySelector(".tl-pos") as HTMLElement | null;
-    const list = box.querySelector(".tl-events") as HTMLElement | null;
+    const list = this.timelineEvents;
     const run = rec.latestRun();
     const start = this.tlScope === "run" && run ? run.start : rec.start, end = this.tlScope === "run" && run && run.end !== undefined ? run.end : rec.end;
     if (slider && start !== undefined && end !== undefined) {
@@ -246,23 +266,38 @@ export class Panel {
     this.root.querySelectorAll(".tl-replay-note").forEach((n) => n.classList.toggle("hidden", rec.cursor === undefined));
     const mode = box.querySelector(".tl-mode") as HTMLElement | null;
     if (mode) { mode.classList.toggle("live", rec.cursor === undefined); mode.classList.toggle("replay", rec.cursor !== undefined); }
+    const goLive = box.querySelector<HTMLButtonElement>(".tl-golive");
+    if (goLive) goLive.disabled = rec.cursor === undefined;
     const scopeBtns = box.querySelectorAll(".tl-scope button");
     scopeBtns.forEach((b) => b.classList.toggle("on", (b as HTMLElement).dataset.scope === this.tlScope));
     if (list) {
-      const recent = rec.events.slice(-40).reverse();
+      const recent = rec.events.filter(e => rec.cursor === undefined || e.t <= rec.cursor).slice(-40).reverse();
       const key = recent.map((e) => e.t + e.text).join("|");
       if ((list as any).__key !== key) {
         (list as any).__key = key;
-        list.replaceChildren(...recent.map((e) => el("div", { class: `tl-ev ${e.kind}`, title: new Date(e.t).toLocaleTimeString() + (e.text.includes("\n") ? "\n" + e.text : ""), onclick: () => { rec.cursor = e.t; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } },
+        list.replaceChildren(...recent.map((e) => el("button", { type: "button", class: `tl-ev ${e.kind}`, title: new Date(e.t).toLocaleTimeString() + (e.text.includes("\n") ? "\n" + e.text : ""), onclick: () => { rec.cursor = e.t; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); } },
           el("span", { class: "tl-t" }, end !== undefined ? `-${((end - e.t) / 1000).toFixed(1)}s` : ""), el("span", { class: "tl-k" }, e.kind), e.text.split("\n")[0] + (e.text.includes("\n") ? ` (+${e.text.split("\n").length - 1} lines)` : ""))));
         if (!recent.length) list.append(el("div", { class: "note" }, "Events (status changes, button presses, shots, host log lines, errors, fouls) appear here as they happen. Click one to jump to it."));
       }
     }
   }
 
+  beforeRender?: () => void;
   render() {
+    this.beforeRender?.();
     const t0 = performance.now();
+    const active = document.activeElement as HTMLInputElement | null;
+    const focusKey = active?.closest<HTMLElement>('[data-control-key]')?.dataset.controlKey;
+    const focusName = active?.getAttribute('aria-label');
+    const scroll = this.root.scrollTop;
     this.renderInner();
+    this.root.scrollTop = scroll;
+    if (active && !active.isConnected && document.activeElement === document.body) {
+      const controls = focusKey ? this.root.querySelectorAll<HTMLElement>('[data-control-key]') : [];
+      const row = [...controls].find(e => e.dataset.controlKey === focusKey);
+      const target = row?.querySelector<HTMLElement>('input,select,textarea') ?? [...document.querySelectorAll<HTMLElement>('dialog[open] [aria-label]')].find(e => e.getAttribute('aria-label') === focusName);
+      target?.focus({ preventScroll: true });
+    }
     const ms = performance.now() - t0;
     if (ms > 120) this.recorder?.event(Date.now(), "note", `slow panel render ${ms.toFixed(0)} ms`);
   }
@@ -330,14 +365,16 @@ export class Panel {
       const badge = { none: ["Not saved to the repo yet", "warn"], sync: ["In sync with the repo file", "ok"], unsaved: ["Unsaved changes in this browser", "warn"], fileNewer: ["The repo file changed; this browser is behind", "warn"] }[state];
       const fl = this.sessionFlash && this.sessionFlash.until > Date.now() ? this.sessionFlash : undefined;
       this.sessionFlashEl = el("span", { class: `note aflash${fl?.bad ? " bad" : ""}` }, fl?.text ?? "");
-      settingsRows.push(el("div", { class: "sub" }, "Settings file (server mode)"));
+      settingsRows.push(el("div", { class: "sub" }, "Robot configuration"));
       const diffPaths = state === "unsaved" ? sf.unsavedPaths() : state === "fileNewer" ? sf.filePaths() : [];
       settingsRows.push(el("div", { class: `status-badge ${badge[1]} full`, title: diffPaths.length ? `Differs in: ${diffPaths.join(", ")}` : "" }, el("span", { class: "dot" }), badge[0]));
       if (diffPaths.length) settingsRows.push(el("div", { class: "note full" }, "Differs in: ", el("code", {}, diffPaths.slice(0, 8).join(", ") + (diffPaths.length > 8 ? ` +${diffPaths.length - 8} more` : ""))));
       settingsRows.push(el("div", { class: "row full", style: "align-items:center;gap:6px" },
-        el("button", { class: state === "sync" ? "" : "primary", ...(state === "sync" ? { disabled: "" } : {}), title: "Write every setting in this panel (robot, cameras, launcher, hardware map, overrides, calibration, starts…) to the file so it can be committed and shared", onclick: async () => { await sf.save(); } }, state === "none" ? "Create repo file" : "Save to repo file"),
+        el("button", { class: state === "sync" ? "" : "primary", ...(state === "sync" ? { disabled: "" } : {}), title: "Write every setting in this panel (robot, cameras, launcher, hardware map, overrides, calibration, starts…) to the file so it can be committed and shared", onclick: async () => { if (await this.reviewChanges("Save robot configuration", `${f.path}\n\n${diffPaths.length ? diffPaths.join("\n") : "Robot, cameras, launcher, hardware, and session settings"}`)) await sf.save(); } }, "Save robot configuration"),
         el("button", { class: state === "fileNewer" ? "primary" : "", ...(f.exists && differs ? {} : { disabled: "" }), title: f.exists ? "Replace this browser's settings with the file's" : "No file yet", onclick: () => { if (!sf.unsaved() || confirm("Replace this browser's settings with the repo file? Unsaved changes here are lost.")) { const r = sf.load(); if (!r.ok) alert(r.error); } } }, "Load from repo file"),
         this.sessionFlashEl));
+      const syncRows = settingsRows.splice(0) as HTMLElement[];
+      settingsRows.push(el("section", { class: "robot-config-sync full" }, ...syncRows));
       settingsRows.push(adv(el("div", { class: "note full" }, el("code", {}, f.path), f.exists && f.modified ? ` · saved ${new Date(f.modified).toLocaleString()}` : ""),
         chk("Load the repo file on connect", () => st.settingsAutoLoad, (v) => { st.settingsAutoLoad = v; change("view"); }),
         el("div", { class: "note" }, "With the host running, the file is the shared, versioned copy of these settings; the browser's storage is only a cache. On connect the file is applied unless this browser has unsaved changes.")));
@@ -376,7 +413,7 @@ export class Panel {
     const link = this.link;
     const rtRows: (Row | AdvGroup)[] = [];
     rtRows.push(chk("Connect to runtime host", () => st.runtimeEnabled, (v) => { st.runtimeEnabled = v; change("runtime"); }));
-    const urlInput = el("input", { type: "text", value: st.runtimeUrl }) as HTMLInputElement;
+    const urlInput = el("input", { "aria-label": "Host URL", type: "text", value: st.runtimeUrl }) as HTMLInputElement;
     urlInput.onchange = () => { st.runtimeUrl = urlInput.value; change("runtime"); };
     rtRows.push(adv([el("label", {}, "Host URL"), urlInput]));
     const statusTxt = link ? (link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}` : "not connected — run ./gradlew :host:run in runtime/") : "off";
@@ -387,7 +424,7 @@ export class Panel {
     this.pillEl = el("div", { class: `rt-pill ${pillState}`, id: "rt-pill" }, el("span", { class: "dot" }), el("span", { class: "label" }, pillLabel[pillState] ?? pillState.toUpperCase()), el("span", { class: "sub" }, link?.currentOpMode ?? ""), el("span", { class: "time" }, ""));
     rtRows.push(this.pillEl);
     rtRows.push(el("div", { class: "note", id: "rt-status", style: "display:none" }, `Status: ${statusTxt}`));
-    if (st.runtimeEnabled && !link?.connected) rtRows.push(el("div", { class: "note" }, "Start the host: pnpm sim (or ./gradlew :host:run in runtime/). This panel connects automatically."));
+    if (st.runtimeEnabled && !link?.connected && new URLSearchParams(location.search).get("sim") !== "1") rtRows.push(el("div", { class: "note" }, "Start the host: pnpm sim (or ./gradlew :host:run in runtime/). This panel connects automatically."));
     if (link?.connected) {
       const names = link.opModes.map((o) => ({ value: o.name, label: `[${o.flavor}] ${o.name}` }));
       if (!names.length) rtRows.push(el("div", { class: "note" }, "No OpModes found on the host classpath."));
@@ -417,14 +454,14 @@ export class Panel {
       this.telemetryEl = el("div", { class: "full telemetry-box" }, el("div", { class: "tel-line tel-empty" }, "(telemetry)"));
       rtRows.push(this.telemetryEl);
     }
-    if (this.recorder) rtRows.push(el("div", { class: `note full warn-note tl-replay-note${this.recorder.cursor === undefined ? " hidden" : ""}` }, "⏪ Replaying a past moment (Timeline below). INIT, START, Start match or Reset return to live automatically; so does driving."));
-    rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Tab switches the keyboard between gamepad1 and gamepad2 so two-driver code can be exercised alone. Plug in a gamepad to use it instead.")));
+    if (this.recorder) rtRows.push(el("div", { class: `note full warn-note tl-replay-note${this.recorder.cursor === undefined ? " hidden" : ""}` }, "⏪ Replaying a past moment (Timeline below). INIT, START, Start match or Reset return to live. Driving is paused until you choose Return to live."));
+    rtRows.push(adv(el("div", { class: "note" }, "While an OpMode is running, its motor and servo commands drive the robot; the keyboard acts as gamepad1 (WASD left stick, Q/E right stick, Space = A, B/X/Y buttons, Shift = right trigger, Ctrl = left trigger, Z/C = bumpers, G = Home/guide (goBILDA logo button), Enter = Start, Backspace = Back, V/N = stick clicks, arrows = dpad). Use the control bar’s Gamepad selector to switch the keyboard between gamepad1 and gamepad2. Tab navigates the interface. Plug in a gamepad to use it instead.")));
     addSection(section("Runtime — run your TeamCode", open("Runtime — run your TeamCode", st.runtimeEnabled), ...rtRows));
 
     // --- Timeline & logs: scrub back through what happened, copy a snapshot for a teammate or an agent
     if (this.recorder) {
       const rec = this.recorder;
-      const slider = el("input", { type: "range", min: "0", max: "1", step: "100", style: "width:100%" }) as HTMLInputElement;
+      const slider = el("input", { "aria-label": "Replay position", type: "range", min: "0", max: "1", step: "100", style: "width:100%" }) as HTMLInputElement;
       const scrub = (t: number | undefined) => { rec.cursor = t; if (t !== undefined && rec.end !== undefined && rec.end - t < 300) rec.cursor = undefined; this.refreshTimeline(); this.updateTelemetry(this.link?.telemetry ?? [], this.link?.status ?? ""); };
       slider.oninput = () => scrub(Number(slider.value));
       const stepBy = (ms: number) => { const from = rec.cursor ?? rec.end ?? Date.now(); const run = rec.latestRun(); const lo = this.tlScope === "run" && run ? run.start : rec.start ?? from; const hi = this.tlScope === "run" && run && run.end !== undefined ? run.end : rec.end ?? from; scrub(Math.max(lo, Math.min(hi, from + ms))); };
@@ -466,6 +503,7 @@ export class Panel {
         flashEl,
         el("div", { class: "tl-events" }),
       );
+      this.timelineEvents = this.timelineEl.querySelector<HTMLElement>(".tl-events") ?? undefined;
       addSection(section("Timeline & logs", open("Timeline & logs", false), this.timelineEl));
       this.refreshTimeline();
     }
@@ -476,22 +514,22 @@ export class Panel {
       if (!(link?.connected && link.assets.length)) return undefined;
       const total = Object.values(st.assetOverrides).reduce((n, o) => n + Object.keys(o).length, 0);
       const box = el("div", { class: "assets full" });
-      const filter = el("input", { type: "text", placeholder: "Filter settings by name, description or value… e.g. autoShoot, start square, LEFT", value: this.assetFilter }) as HTMLInputElement;
+      const filter = el("input", { "aria-label": "Search TeamCode settings", type: "text", placeholder: "Filter settings by name, description or value… e.g. autoShoot, start square, LEFT", value: this.assetFilter }) as HTMLInputElement;
       filter.oninput = () => { this.assetFilter = filter.value; renderFiles(); };
       const list = el("div", {});
       const boundCount = Object.values(link.bound.overrides).reduce((n, o) => n + Object.keys(o).length, 0);
       box.append(
-        el("div", { class: "note" }, "Your TeamCode reads these JSON files from assets. Changes here are simulator-only overrides: kept in this browser (and in exported sessions), merged into the file when an OpMode INITs. Your repo files are never modified. Re-INIT after changing."),
+        el("div", { class: "note" }, "Edits affect the simulator. Save to project writes them to your TeamCode files. Re-initialize the program to use updated settings."),
         link.bindings
           ? el("div", { class: "note" }, `Twin bindings: ${link.bindings.path} binds ${boundCount} key${boundCount === 1 ? "" : "s"} to twin knobs (marked ⇐ below, read-only here: change the twin instead).`)
           : el("div", { class: "note" }, "No TeamCode/twin-bindings.json in the team repo: settings that mirror the robot (wheel size, ticks, camera mount, alliance) can be derived from the twin's knobs instead of being typed twice. See README → Twin bindings."),
         ...link.bound.errors.map((e) => el("div", { class: "note", style: "color:#ff8888" }, `binding error: ${e}`)),
-        el("div", { class: "row full" }, el("button", { title: "Every twin knob a binding can reference, with its current value", onclick: () => { const blob = new Blob([JSON.stringify(twinKnobs(st), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "twin-knobs.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); } }, "Download twin knob catalogue")),
+        el("details", { class: "advanced-import full" }, el("summary", {}, "Advanced: twin setting catalogue"), el("button", { title: "Every twin knob a binding can reference, with its current value", onclick: () => { const blob = new Blob([JSON.stringify(twinKnobs(st), null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "twin-knobs.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); } }, "Download twin knob catalogue")),
         el("div", { class: "arow tools" }, filter, el("button", { ...(total ? {} : { disabled: "" }), title: "Forget every override in every file", onclick: () => { st.assetOverrides = {}; change("assets"); } }, `Clear all${total ? ` (${total})` : ""}`)),
         (() => {
           // paste settings an agent conveyed in chat ("key": value lines or a JSON fragment) and apply them as overrides
-          const ta = el("textarea", { rows: 3, class: "full", placeholder: 'Paste settings from an agent, e.g.\n"matchAuto.startPosition": "FAR_SIDE",\n"matchAuto.loadingZoneDistanceIn": 72' }) as HTMLTextAreaElement;
-          const target = el("select") as HTMLSelectElement;
+          const ta = el("textarea", { "aria-label": "Paste JSON settings", rows: 3, class: "full", placeholder: 'Paste settings from an agent, e.g.\n"matchAuto.startPosition": "FAR_SIDE",\n"matchAuto.loadingZoneDistanceIn": 72' }) as HTMLTextAreaElement;
+          const target = el("select", { "aria-label": "Destination settings file" }) as HTMLSelectElement;
           target.append(el("option", { value: "" }, "file: auto-detect"));
           for (const f of link.assets) if (f.path.endsWith(".json")) target.append(el("option", { value: f.path }, f.path));
           const status = el("span", { class: "note" }, "");
@@ -505,7 +543,7 @@ export class Panel {
             this.recorder?.event(Date.now(), "note", `pasted overrides into ${path}: ${keys.join(", ")}`);
             change("assets");
           } }, "Apply pasted settings");
-          return el("div", { class: "full", style: "display:grid;gap:4px" }, ta, el("div", { class: "row", style: "align-items:center;gap:6px" }, target, apply, status));
+          return el("details", { class: "advanced-import full" }, el("summary", {}, "Advanced: paste or import settings"), ta, el("div", { class: "row", style: "align-items:center;gap:6px" }, target, apply, status));
         })(),
         (() => {
           // export: the committed files with every override and twin-bound value applied, in the file's own format
@@ -514,11 +552,11 @@ export class Panel {
           this.assetFlashEl = el("span", { class: "note aflash" }, "");
           const saveAll = async () => {
             const list = changed.map((c) => `${c.path}:\n${c.changed.map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}${k.source === "twin" ? " (twin)" : ""}`).join("\n")}`).join("\n");
-            if (!confirm(`Write ${changed.length} file${changed.length > 1 ? "s" : ""} into the team repo's assets folder (the files the robot build uses)?\n\n${list}\n\nOverrides for these files are cleared afterwards (the values are in the files). Commit with git when you are happy.`)) return;
+            if (!await this.reviewChanges("Save TeamCode settings", list)) return;
             for (const c of changed) await this.saveAssetToRepo?.(c.path);
           };
           return el("div", { class: "arow tools" },
-            el("button", { class: "primary", ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets on disk (server mode)" : "No file differs from what is on disk", onclick: saveAll }, changed.length ? `Save ${changed.length} changed file${changed.length > 1 ? "s" : ""} to repo` : "Save to repo"),
+            el("button", { class: "primary", ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets on disk (server mode)" : "No file differs from what is on disk", onclick: saveAll }, changed.length ? `Review ${changed.length} changed file${changed.length > 1 ? "s" : ""}` : "Review changes"),
             this.assetFlashEl,
             el("button", { ...(changed.length ? {} : { disabled: "" }), title: changed.map((c) => `${c.path}: ${c.changed.map((k) => k.key).join(", ")}`).join("\n") || "No file differs from what is committed", onclick: () => { for (const c of changed) downloadText(c.path.split("/").pop()!, c.text); } },
               changed.length ? `Export ${changed.length} changed file${changed.length > 1 ? "s" : ""} (${nKeys} value${nKeys > 1 ? "s" : ""})` : "Export changed files"),
@@ -557,20 +595,20 @@ export class Panel {
               if (head && shown === before) head.remove(); // nothing matched the filter in this group
               return;
             }
-            if (q && !searchText(key, node).includes(q)) return;
+            if (q && !(searchText(key, node) + " " + JSON.stringify(ov[key] ?? v)).toLowerCase().includes(q)) return;
             shown++;
             const boundSrc = link.bound.sources[file.path]?.[key];
             if (boundSrc !== undefined) {
               const bv = link.bound.overrides[file.path][key];
-              body.append(el("div", { class: "arow over bound", style: `padding-left:${depth * 10}px` }, el("label", { title: `${key} ⇐ ${boundSrc}` }, name), el("span", { class: "bval" }, typeof bv === "string" ? bv : JSON.stringify(bv))),
-                el("div", { class: "ahint", style: `padding-left:${depth * 10}px` }, `⇐ twin: ${boundSrc} · file: ${fmt(v)}`));
+              body.append(el("div", { class: "arow over bound", style: `padding-left:${depth * 10}px` }, el("label", { title: `${key} ⇐ ${boundSrc}` }, friendly(name)), el("span", { class: "bval" }, typeof bv === "string" ? bv : JSON.stringify(bv))),
+                el("div", { class: "ahint", style: `padding-left:${depth * 10}px` }, `Linked to Robot setup: ${boundSrc} · project: ${fmt(v)}`, el("button", { class: "text-button", onclick: () => { this.assetDialog?.close(); document.dispatchEvent(new CustomEvent("open-twin-setting", { detail: boundSrc })); } }, "Open linked setting")));
               return;
             }
             const has = key in ov;
             const value = has ? ov[key] : v;
             const problem = validate(node, value);
-            const label = el("label", { title: `${key}${node?.description ? "\n" + node.description : ""}` }, name);
-            const row = el("div", { class: `arow${has ? " over" : ""}${problem ? " invalid" : ""}`, style: `padding-left:${depth * 10}px` }, label);
+            const label = el("label", { title: `${key}${node?.description ? "\n" + node.description : ""}` }, friendly(name));
+            const row = el("div", { class: `arow${has ? " over" : ""}${problem ? " invalid" : ""}`, style: `padding-left:${depth * 10}px`, "data-setting": key }, label);
             let control: HTMLElement;
             const commit = (x: unknown) => setOv(file.path, key, x, v);
             if (node?.enum && !(typeof value === "boolean")) {
@@ -603,20 +641,22 @@ export class Panel {
               const ta = el("textarea", { rows: "2", class: "ajson", spellcheck: "false" }) as HTMLTextAreaElement; ta.value = JSON.stringify(value);
               ta.onchange = () => { try { setOv(file.path, key, JSON.parse(ta.value), v); } catch { ta.classList.add("bad"); } }; control = ta;
             }
-            row.append(control);
+            const inputs = control.matches("input,select,textarea") ? [control] : [...control.querySelectorAll("input,select,textarea")];
+            inputs.forEach((input, i) => { const l = labelControl(`${friendly(key)}${i ? " exact value" : ""}`, input as HTMLElement); input.setAttribute("aria-invalid", String(!!problem)); if (!i) label.htmlFor = l.htmlFor; });
+            row.append(control, el("span", { class: "source-badge" }, has ? "Modified in simulator" : "From project"));
             if (has) row.append(el("button", { class: "reset", title: `Back to the file's value: ${fmt(v)}`, onclick: () => setOv(file.path, key, v, v) }, "↺"));
             body.append(row);
             // help: description and constraints from the schema, the file's value when overridden, the problem if any
             const hints: string[] = [];
             if (node?.description) hints.push(node.description);
-            const c = constraintText(node); if (c) hints.push(c);
+            const c = constraintText(node); if (c && !node?.enum) hints.push(c);
             if (has) hints.push(`file: ${fmt(v)}`);
             if (problem) hints.push(`⚠ ${problem}`);
             if (hints.length) body.append(el("div", { class: `ahint${problem ? " bad" : ""}`, style: `padding-left:${depth * 10}px` }, hints.join(" · ")));
           };
           walk(json, "", "", 0);
           if (q && !shown) continue;
-          const openIt = q ? true : (this.assetOpen.get(file.path) ?? n > 0);
+          const openIt = q ? true : (this.assetOpen.get(file.path) ?? true);
           let exported: ReturnType<typeof applyOverrides> | undefined;
           try { exported = applyOverrides(file, ov, link.bound.overrides[file.path]); } catch { /* shown as invalid above */ }
           const diff = exported?.changed.length ?? 0;
@@ -624,9 +664,9 @@ export class Panel {
           const merged = (() => { try { return JSON.parse(exported?.text ?? file.text); } catch { return json; } })();
           const problems = validateAll(merged, schema);
           const det = el("details", { class: "afile", ...(openIt ? { open: "" } : {}) },
-            el("summary", {}, el("span", { class: "name" }, file.path), n ? el("span", { class: "badge" }, `${n} override${n > 1 ? "s" : ""}`) : "",
+            el("summary", {}, el("span", { class: "name", title: file.path }, friendly(file.path.split("/").pop()!.replace(/\.json$/, ""))), n ? el("span", { class: "badge" }, `${n} override${n > 1 ? "s" : ""}`) : "",
               schema ? el("span", { class: `badge ${problems.length ? "bad" : "ok"}`, title: problems.length ? problems.map((x) => `${x.key}: ${x.error}`).join("\n") : `${file.path.replace(/\.json$/, ".schema.json")} describes these settings` }, problems.length ? `${problems.length} invalid` : "schema ✓") : file.path.startsWith("web/") ? "" : el("span", { class: "badge quiet", title: `Add ${file.path.replace(/\.json$/, ".schema.json")} next to the asset (JSON Schema: description, enum, minimum/maximum, type) to get help text, dropdowns, sliders and validation here` }, "no schema"),
-              el("button", { class: "primary", ...(diff && this.saveAssetToRepo ? {} : { disabled: "" }), title: diff ? `Write ${file.path} on disk with these values (${exported!.changed.map((c) => c.key).join(", ")}) — the file the robot build uses` : "Matches the file on disk", onclick: (e: Event) => { stop(e); if (!exported) return; const list = exported.changed.map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}${k.source === "twin" ? " (twin)" : ""}`).join("\n"); if (confirm(`Write ${file.path} into the team repo?\n\n${list}\n\nIts overrides are cleared afterwards (the values are in the file). Commit with git when you are happy.`)) this.saveAssetToRepo?.(file.path); } }, "Save"),
+              el("button", { class: "primary", ...(diff && this.saveAssetToRepo ? {} : { disabled: "" }), title: diff ? `Write ${file.path} on disk with these values (${exported!.changed.map((c) => c.key).join(", ")}) — the file the robot build uses` : "Matches the file on disk", onclick: async (e: Event) => { stop(e); if (!exported) return; const list = exported.changed.map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}${k.source === "twin" ? " (twin)" : ""}`).join("\n"); if (await this.reviewChanges(`Save ${file.path}`, list)) await this.saveAssetToRepo?.(file.path); } }, "Save"),
               el("button", { ...(diff ? {} : { disabled: "" }), title: diff ? `Download ${file.path} with these values written in (${exported!.changed.map((c) => c.key).join(", ")}); put it at TeamCode/src/main/assets/${file.path}` : "Matches the committed file", onclick: (e: Event) => { stop(e); if (exported) downloadText(file.path.split("/").pop()!, exported.text); } }, "Export"),
               el("button", { ...(diff ? {} : { disabled: "" }), title: "Copy the merged file to the clipboard", onclick: (e: Event) => { stop(e); if (exported) navigator.clipboard?.writeText(exported.text); } }, "Copy"),
               el("button", { ...(n ? {} : { disabled: "" }), onclick: (e: Event) => { stop(e); delete st.assetOverrides[file.path]; change("assets"); } }, "Clear")),
@@ -648,10 +688,11 @@ export class Panel {
       let invalid = 0;
       for (const f of files) { try { invalid += validateAll(JSON.parse(applyOverrides(f, st.assetOverrides[f.path], link.bound.overrides[f.path]).text), schemaFor(link.assets, f.path)).length; } catch { /* shown in the editor */ } }
       const summaryRows: (Row | AdvGroup)[] = [
+        el("div", { class: `status-badge ${changed.length ? "warn" : "ok"} full` }, changed.length ? `${changed.length} changed file${changed.length === 1 ? "" : "s"} to save` : "In sync with project files"),
         el("div", { class: "note full" }, `${files.length} file${files.length === 1 ? "" : "s"} · ${total} override${total === 1 ? "" : "s"} · ${bound} bound from the twin${invalid ? ` · ${invalid} invalid` : ""}${changed.length ? ` · ${changed.length} file${changed.length > 1 ? "s" : ""} differ${changed.length > 1 ? "" : "s"} from disk` : " · matches disk"}`),
         el("div", { class: "row full", style: "gap:6px;align-items:center" },
           el("button", { class: "primary", onclick: () => this.openAssetDialog() }, "Open settings editor"),
-          el("button", { ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets" : "Nothing differs from disk", onclick: async () => { const list = changed.map((c) => `${c.path}: ${c.changed.map((k) => k.key).join(", ")}`).join("\n"); if (confirm(`Write ${changed.length} file${changed.length > 1 ? "s" : ""} into the team repo?\n\n${list}`)) for (const c of changed) await this.saveAssetToRepo?.(c.path); } }, changed.length ? `Save ${changed.length} to repo` : "Save to repo")),
+          el("button", { ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets" : "Nothing differs from disk", onclick: async () => { const list = changed.map((c) => `${c.path}:\n${c.changed.map(k => `${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}`).join("\n")}`).join("\n\n"); if (await this.reviewChanges("Save TeamCode settings", list)) for (const c of changed) await this.saveAssetToRepo?.(c.path); } }, changed.length ? `Review & save TeamCode (${changed.length})` : "Save TeamCode settings")),
         adv(el("div", { class: "note" }, "The OpModes read these JSON files from assets. Edits are simulator-only overrides until you Save them to the repo; bound values (⇐) come from the twin's measurements; a schema sidecar gives help, dropdowns, sliders and validation.")),
       ];
       if (invalid) summaryRows.push(el("div", { class: "status-badge bad full" }, el("span", { class: "dot" }), `${invalid} value${invalid > 1 ? "s" : ""} the code will reject at INIT — open the editor`));
@@ -665,6 +706,7 @@ export class Panel {
     hwRows.push(sel("Mirrored drive side", [{ value: "left", label: "Left motors mirrored (code reverses left)" }, { value: "right", label: "Right motors mirrored (code reverses right)" }, { value: "none", label: "None (positive power = forward on all)" }], () => hw.mirroredSide ?? "left", (v) => { hw.mirroredSide = v as any; change("hardware"); }));
     const devRows: Row[] = [];
     hw.devices.forEach((d, i) => {
+      devRows.push(el("div", { class: "sub" }, `${d.kind}: ${d.name}`));
       const hwRows = devRows; // collected, then marked advanced below
       const nameIn = el("input", { type: "text", value: d.name }) as HTMLInputElement;
       nameIn.onchange = () => { d.name = nameIn.value; change("hardware"); };
@@ -741,7 +783,7 @@ export class Panel {
       const camRows: Row[] = [];
       camRows.push(el("div", { class: "sub" }, `${c.name}${other ? " (select it above to edit)" : ""}`));
       camRows.push(el("div", { class: "note" }, `${intr.width}x${intr.height} · HFOV ${(intr.hfov * 180 / Math.PI).toFixed(1)}° · VFOV ${(intr.vfov * 180 / Math.PI).toFixed(1)}° · diag ${diagonalDeg(intr).toFixed(1)}°${presetById(c.presetId).notes ? " · " + presetById(c.presetId).notes : ""}`));
-      const nameInput = el("input", { type: "text", value: c.name }) as HTMLInputElement;
+      const nameInput = el("input", { type: "text", value: c.name, "aria-label": "Camera name" }) as HTMLInputElement;
       nameInput.onchange = () => { c.name = nameInput.value; change("cameras"); };
       camRows.push(adv([el("label", {}, "Name"), nameInput]).adv[0]);
       camRows.push(sel("Camera", CAMERA_PRESETS.map((p) => ({ value: p.id, label: p.name })), () => c.presetId, (v) => { c.presetId = v; c.diagFovDeg = undefined; c.hfovDeg = undefined; c.width = undefined; c.height = undefined; change("cameras"); }));
@@ -869,9 +911,8 @@ export class Panel {
       chk("Camera frustum", () => o.frustum, (v) => { o.frustum = v; change("overlays"); }),
       chk("Target opening", () => o.target, (v) => { o.target = v; change("overlays"); }),
       chk("Aim line", () => o.aim, (v) => { o.aim = v; change("overlays"); })),
-      chk("Reachability map (RPM by position)", () => o.reach, (v) => { o.reach = v; change("overlays"); }),
+      sel("Field overlay", [{ value: "none", label: "No overlay" }, { value: "hitmap", label: "Hit map" }, { value: "reach", label: "Reachability" }], () => o.hitmap ? "hitmap" : o.reach ? "reach" : "none", (v) => { o.hitmap = v === "hitmap"; o.reach = v === "reach"; change("overlays"); }),
       adv(el("div", { class: "note" }, "Reachability colours the mat by the flywheel RPM needed to hit the target cell from each 6 in square with the current launcher (green = low, red = near max, dark = cannot reach). Recomputed when launcher or target change.")),
-      chk("Hit-probability map (aimed from each square)", () => o.hitmap, (v) => { o.hitmap = v; change("overlays"); }),
       adv(el("div", { class: "note" }, "For every 6 in square: aim at the target cell, use the hood/RPM the launcher would need from there, and fire 40 simulated shots with the configured shot variability. Green = always in, red = never. Squares are dimmed where the selected camera would not see any of the target cell's AprilTags, so auto-aim could not lock on. Fills in over a few seconds; the map for the other cell is then computed in the background so it swaps instantly when the hive tips or you press T. Recomputes when you change the launcher, variability, hood or cameras.")),
       adv(chk("Performance stats", () => st.showPerf, (v) => { st.showPerf = v; change("view"); }),
       el("div", { class: "note" }, "Export, import and reset live in Settings & session at the bottom.")),
@@ -880,6 +921,7 @@ export class Panel {
     const title = (d: HTMLElement) => d.dataset.title ?? "";
     sections.sort((a, b) => { const ia = Panel.ORDER.indexOf(title(a)), ib = Panel.ORDER.indexOf(title(b)); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
     this.root.append(...sections);
+    this.decorate?.();
     this.refreshTimeline();
     if (this.assetDialogOpen) this.renderAssetDialog();
   }

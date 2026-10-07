@@ -29,6 +29,7 @@ export interface AppState {
   stadium: boolean;
   /** transient: rotate to face the target on the next frame */
   aimRequest?: boolean;
+  shootRequest?: boolean;
   /** transient: put every game piece back to match start */
   resetMatchRequest?: boolean;
   /** put our robot (and, outside a running match, the scripted robots) back on the starting marks */
@@ -87,7 +88,7 @@ export function defaultState(): AppState {
     autoRpm: true,
     autoHood: false,
     drag: true,
-    fieldCentric: false,
+    fieldCentric: true,
     opponents: true,
     pauseOpponents: false,
     view: "orbit",
@@ -119,7 +120,7 @@ export function defaultState(): AppState {
 
 const KEY = "biobuzz-twin";
 /** Fields that describe the moment, not the setup: never saved to the settings file, never restored from it. */
-export const TRANSIENT_KEYS = ["pose", "aimRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchRequest"] as const;
+export const TRANSIENT_KEYS = ["pose", "aimRequest", "shootRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchRequest"] as const;
 /** Deterministic JSON of the settings (sorted keys, transient fields dropped) so a committed file diffs cleanly. */
 /** The settings as they go into the file: transient fields and values the simulation itself writes every frame removed. */
 export function settingsForFile(s: AppState): Record<string, unknown> {

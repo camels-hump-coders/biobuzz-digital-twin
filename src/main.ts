@@ -1,3 +1,4 @@
+import { allianceDriveHeading } from "./sim/drive";
 import * as THREE from "three";
 import { camelsHumpHardwareConfig } from "./runtime/hardwareConfig";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -22,6 +23,7 @@ import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacle
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
+import { Workspace } from "./ui/workspace";
 import { Hud, type HudData } from "./ui/hud";
 import { hydrateState, loadState, saveState, serializeSettings, settingsDiffPaths, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveSpeedAdaptive } from "./ballistics/solver";
@@ -47,6 +49,8 @@ import { clonePreset } from "./robot/presets";
 const state: AppState = loadState();
 // `pnpm sim` opens the page with ?runtime=1 so the twin connects to the host straight away
 if (new URLSearchParams(location.search).get("runtime") === "1") state.runtimeEnabled = true;
+const launchedHostPort = new URLSearchParams(location.search).get('hostPort');
+if (new URLSearchParams(location.search).get('sim') === '1' && launchedHostPort && /^\d+$/.test(launchedHostPort) && +launchedHostPort > 0 && +launchedHostPort <= 65535) state.runtimeUrl = `ws://127.0.0.1:${launchedHostPort}`;
 
 // ---------- renderer & scenes
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -70,8 +74,32 @@ function ensurePips(n: number) {
     const el = document.createElement("div"); el.className = "pip";
     const canvas = document.createElement("canvas");
     const label = document.createElement("div"); label.className = "label";
-    el.append(canvas, label);
+    const size = document.createElement("button"); size.className = "pip-size";
+    const applySize = () => {
+      const large = localStorage.getItem("biobuzz-camera-large") === "true";
+      pipsEl.classList.toggle("large", large);
+      pipsEl.querySelectorAll<HTMLButtonElement>(".pip-size").forEach(b => { b.textContent = large ? "Smaller" : "Enlarge"; b.setAttribute("aria-label", large ? "Make camera previews smaller" : "Enlarge camera previews"); b.setAttribute("aria-pressed", String(large)); });
+    };
+    size.addEventListener("click", e => { e.stopPropagation(); localStorage.setItem("biobuzz-camera-large", String(!pipsEl.classList.contains("large"))); applySize(); });
+    const position = document.createElement("button"); position.className = "pip-position";
+    const applyPosition = () => {
+      const upperRight = localStorage.getItem("biobuzz-camera-position") === "upper-right";
+      pipsEl.classList.toggle("upper-right", upperRight);
+      pipsEl.querySelectorAll<HTMLButtonElement>(".pip-position").forEach(b => {
+        b.textContent = upperRight ? "↙ Bottom left" : "↗ Upper right";
+        b.setAttribute("aria-label", upperRight ? "Move camera previews to bottom left" : "Move camera previews to upper right");
+        b.title = upperRight ? "Currently upper right" : "Currently bottom left";
+      });
+    };
+    position.addEventListener("click", e => {
+      e.stopPropagation();
+      localStorage.setItem("biobuzz-camera-position", pipsEl.classList.contains("upper-right") ? "bottom-left" : "upper-right");
+      applyPosition();
+    });
+    el.append(canvas, label, size, position);
     pipsEl.append(el);
+    applySize();
+    applyPosition();
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -199,16 +227,26 @@ parkScripted();
 
 // ---------- cameras
 const orbitCam = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
-orbitCam.position.set(3.2, 2.6, 4.2);
+orbitCam.position.set(state.alliance === "red" ? -5.28 : 5.28, 2.6, 0);
 const controls = new OrbitControls(orbitCam, canvas);
 controls.target.set(0, 0.5, 0);
 controls.maxPolarAngle = Math.PI / 2 - 0.02;
 controls.enableDamping = true;
 const topCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 50);
 topCam.position.set(0, 10, 0);
-topCam.up.set(0, 0, -1);
+topCam.up.set(state.alliance === "red" ? 1 : -1, 0, 0);
 topCam.lookAt(0, 0, 0);
 const chaseCam = new THREE.PerspectiveCamera(60, 1, 0.05, 100);
+let cameraAlliance = state.alliance;
+function orientToAlliance() {
+  cameraAlliance = state.alliance;
+  controls.target.set(0, 0.5, 0);
+  orbitCam.position.set(state.alliance === "red" ? -5.28 : 5.28, 2.6, 0);
+  controls.update();
+  topCam.up.set(state.alliance === "red" ? 1 : -1, 0, 0);
+  topCam.lookAt(0, 0, 0);
+}
+orientToAlliance();
 
 // ---------- flying balls
 let shotsFired = 0, shotsHit = 0;
@@ -223,6 +261,7 @@ function applyRobotSpec() {
   if (!state.robot.cameras.some((c) => c.id === state.selectedCameraId)) state.selectedCameraId = state.robot.cameras[0]?.id ?? "";
 }
 function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
+  if (cameraAlliance !== state.alliance) orientToAlliance();
   if (what === "reset") { applyRobotSpec(); if (link.connected) link.sendHardware(hardwareDevices(), hardwareHints()); playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }; }
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
   if (what === "runtime") syncRuntime();
@@ -481,8 +520,11 @@ function applySettingsJson(json: unknown) {
   onChange("reset"); onChange("sim"); onChange("runtime"); onChange("hardware"); onChange("assets");
   panel.render();
 }
-function settingsDiffer(): boolean { return !!link.settings?.exists && link.settings.text !== undefined && link.settings.text !== serializeSettings(state); }
-function localUnsaved(): boolean { const synced = localStorage.getItem(SYNC_KEY); return serializeSettings(state) !== synced; }
+function normalizedSettings(text: string | null | undefined): string | undefined {
+  try { return text ? serializeSettings(hydrateState(JSON.parse(text))) : undefined; } catch { return undefined; }
+}
+function settingsDiffer(): boolean { return !!link.settings?.exists && link.settings.text !== undefined && normalizedSettings(link.settings.text) !== serializeSettings(state); }
+function localUnsaved(): boolean { const synced = localStorage.getItem(SYNC_KEY); return serializeSettings(state) !== normalizedSettings(synced); }
 function loadSettingsFromFile(): { ok: boolean; error?: string } {
   const f = link.settings;
   if (!f?.exists || !f.text) return { ok: false, error: "no settings file on the host yet" };
@@ -567,13 +609,16 @@ panel.settingsFile = { save: saveSettingsToFile, load: loadSettingsFromFile, dif
 panel.link = link;
 syncRuntime();
 Object.assign(overlays.show, state.overlays);
+const workspace = new Workspace(state, panel, link, input, onChange);
+hud.onAction = (action) => {
+  if (action === "aim" && !link.running && recorder.cursor === undefined) { state.aimRequest = true; canvas.focus(); }
+  if (action === "analyze") workspace.navigate("analyze", "shots");
+  if (action === "detail") workspace.toggleVisualDetail();
+};
 window.addEventListener("keydown", (e) => {
-  const t = e.target as HTMLElement | null;
-  if (t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "range"].includes((t as HTMLInputElement).type)))) return;
-  if (e.code === "KeyH") panel.toggle();
+  if (document.activeElement === canvas && e.code === "KeyH") panel.toggle();
 });
-// clicking anything in the panel should not leave the keyboard captured by a form control
-document.getElementById("panel")!.addEventListener("click", (e) => { const t = e.target as HTMLElement; if (t.tagName === "BUTTON") setTimeout(() => t.blur(), 0); });
+new ResizeObserver(() => resize()).observe(canvas);
 
 // ---------- helpers
 function ballProps() {
@@ -582,7 +627,7 @@ function ballProps() {
 }
 function driveParams(): DriveParams {
   const r = state.robot;
-  return { drivetrain: r.drivetrain, wheelRpm: r.wheelRpm, wheelDiameterM: r.wheelDiameterM, trackWidthM: r.widthM * 0.9, wheelbaseM: r.lengthM * 0.75, fieldCentric: state.fieldCentric };
+  return { drivetrain: r.drivetrain, wheelRpm: r.wheelRpm, wheelDiameterM: r.wheelDiameterM, trackWidthM: r.widthM * 0.9, wheelbaseM: r.lengthM * 0.75, fieldCentric: state.fieldCentric, fieldHeading: allianceDriveHeading(state.alliance) };
 }
 function targetFrame(): CellFrame {
   return upCellFrame({ alliance: state.alliance, upCell: state.hive[state.alliance] });
@@ -828,7 +873,8 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
   if (state.infiniteAmmo && playerAgent.inventory[state.ballKind] < 1) playerAgent.inventory[state.ballKind] = 1;
   const ball = match.launch(playerAgent, state.ballKind, new THREE.Vector3(exit.x, exit.y, exit.z), new THREE.Vector3(vel.x, vel.y, vel.z), draw.spin, robot.group);
   if (state.infiniteAmmo && ball && playerAgent.inventory[state.ballKind] < 1) playerAgent.inventory[state.ballKind] = 1; // stays loaded
-  if (!ball) { launchBlockedUntil = performance.now() + 1500; launchBlockedMsg = "nothing to launch — pick up balls"; return; }
+  if (!ball) { launchBlockedUntil = performance.now() + 5000; launchBlockedMsg = "No balls loaded — shot not fired. Collect balls before shooting."; return; }
+  launchBlockedUntil = 0;
   if (nominal.speed < 1.5) { launchBlockedUntil = performance.now() + 3000; launchBlockedMsg = `flywheel at ${Math.round(l.rpm)} RPM — ball just dropped out (${link.running ? "your code must spin the flywheel first" : "turn on Auto-RPM or set a commanded RPM"})`; }
   (ball as any).owner = "player";
   (ball as any).cal = { exit: { x: exit.x, y: exit.y, z: exit.z }, dir: { x: dirXZ.x / (Math.hypot(dirXZ.x, dirXZ.z) || 1), z: dirXZ.z / (Math.hypot(dirXZ.x, dirXZ.z) || 1) }, power: flywheelPowerCmd(), rpm: l.rpm };
@@ -836,6 +882,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
 }
 let roleWarning: string | undefined;
 let lastFoulLogged = -1;
+let intakeBlockedUntil = 0;
 let launchBlockedUntil = 0;
 let launchBlockedMsg = "";
 
@@ -919,8 +966,11 @@ function frame(now: number) {
   // input & drive
   perf.begin();
   const { cmd, actions } = input.poll();
-  // driving while replaying means "I want the live robot": drop back to live
-  if (replaying && !link.running && (Math.abs(cmd.forward) > 0.2 || Math.abs(cmd.left) > 0.2 || Math.abs(cmd.turn) > 0.2)) { recorder.cursor = undefined; panel.refreshTimeline(); replaying = false; }
+  // Replay is explicit: driving cannot silently resume a recorded scene.
+  if (replaying) { cmd.forward = cmd.left = cmd.turn = 0; actions.launch = false; actions.aim = false; actions.toggleTarget = false; }
+  if (actions.aim) workspace.tutorialAction("aim");
+  if (actions.launch) workspace.tutorialAction("shoot");
+  workspace.update(now);
   if (actions.view) { state.view = (["orbit", "top", "chase", "robot"] as const)[actions.view - 1] ?? state.view; panel.render(); }
   if (actions.toggleTarget) { state.hive[state.alliance] = state.hive[state.alliance] === "audience" ? "scoring" : "audience"; match.resetHive(state.alliance); panel.render(); }
   if (actions.toggleFieldCentric) { state.fieldCentric = !state.fieldCentric; panel.render(); }
@@ -1033,6 +1083,8 @@ function frame(now: number) {
   robot.setIntakeActive(playerAgent.intakeActive);
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
   perf.mark("robots");
+  if (!replaying && runtimeActive && match.pickupBlockedByIntake(playerAgent)) intakeBlockedUntil = performance.now() + 4000;
+  if (replaying || !runtimeActive || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   perf.mark("match");
@@ -1061,7 +1113,8 @@ function frame(now: number) {
   const spunUp = required !== undefined && Math.abs(exitSpeed(l) - required) <= 0.02 * required;
   const mcIdeal = required === undefined ? undefined : turretOk && spunUp ? mc : computeMonteCarloIdeal(exit, tf, required);
   robot.launcherMarker.rotation.y = (l.yawOffsetDeg * Math.PI) / 180 + turretYaw; // local +Y rotation = yaw left
-  if (actions.launch && !runtimeActive) launch(exit, fireDir);
+  if ((actions.launch || state.shootRequest) && !runtimeActive && !replaying) launch(exit, fireDir);
+  state.shootRequest = false;
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
   perf.mark("shot");
   updateFlying(dt);
@@ -1142,6 +1195,8 @@ function frame(now: number) {
     hoodDeg: l.elevationDeg,
     requiredSpeed: required,
     requiredRpm: required !== undefined ? rpmForExitSpeed(l, required) : undefined,
+    requiredPower: required !== undefined && freeRpm > 0 ? rpmForExitSpeed(l, required) / freeRpm : undefined,
+    currentPower: freeRpm > 0 ? l.rpm / freeRpm : undefined,
     rpmOk: required !== undefined && rpmForExitSpeed(l, required) <= l.maxRpm,
     currentRpm: l.rpm,
     currentSpeed: exitSpeed(l),
@@ -1171,6 +1226,7 @@ function frame(now: number) {
     })(),
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: state.infiniteAmmo ? `∞ ${state.ballKind} (practice: infinite ammo)` : `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
+    pickupBlocked: performance.now() < intakeBlockedUntil,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
@@ -1180,8 +1236,8 @@ function frame(now: number) {
     tags: lastTags,
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus],
-    runtime: link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}${link.status === "INIT" ? " · press START to drive" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " ⚠ (Tab switches back)" : ""}` : "not connected",
-    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, runtimeActive && !playerAgent.intakeActive ? "intake OFF: your code must power the intake motor to collect; balls get pushed instead" : undefined, fps < 20 ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: turn off camera insets or the hit map` : undefined].filter(Boolean).join(" · ") || undefined,
+    runtime: link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}${link.status === "INIT" ? " · press START to drive" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " (select Gamepad 1 in the control bar to switch)" : ""}` : "not connected",
+    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, fps < 20 ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: turn off camera insets or the hit map` : undefined].filter(Boolean).join(" · ") || undefined,
     noticeBad: performance.now() < launchBlockedUntil || !!roleWarning,
   });
 
@@ -1199,6 +1255,17 @@ function frame(now: number) {
     cam = chaseCam;
   } else if (state.view === "robot" && selected) cam = selected.cam;
   currentCamera = cam;
+  const viewRect = canvas.getBoundingClientRect();
+  const markerPoint = (point: THREE.Vector3) => {
+    const p = point.project(cam);
+    return { x: viewRect.left + (p.x + 1) * viewRect.width / 2, y: viewRect.top + (1 - p.y) * viewRect.height / 2, visible: p.z >= -1 && p.z <= 1 && Math.abs(p.x) < 0.95 && Math.abs(p.y) < 0.95 };
+  };
+  workspace.projectMarkers(markerPoint(new THREE.Vector3(robot.group.position.x, 0.6, robot.group.position.z)), markerPoint(new THREE.Vector3(target.x, target.y + 0.2, target.z)));
+  const upHeading = state.fieldCentric ? allianceDriveHeading(state.alliance) : state.pose.heading;
+  const compassOrigin = state.fieldCentric ? { x: 0, z: 0 } : state.pose;
+  const compassBase = markerPoint(new THREE.Vector3(compassOrigin.x, 0.3, compassOrigin.z));
+  const compassTip = markerPoint(new THREE.Vector3(compassOrigin.x - Math.sin(upHeading), 0.3, compassOrigin.z - Math.cos(upHeading)));
+  workspace.updateCompass(compassTip.x - compassBase.x, compassTip.y - compassBase.y);
   const showGizmos = cam !== selected?.cam;
   robot.cameraGizmos.visible = showGizmos;
   robot.launcherMarker.visible = showGizmos;
@@ -1216,7 +1283,7 @@ function frame(now: number) {
   perf.mark("render");
 
   // PiP: every enabled camera gets an inset (except the one filling the main view)
-  const pipCams = state.pip && renderThisFrame ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
+  const pipCams = state.pip ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
   ensurePips(pipCams.length);
   pips.forEach((p, i) => {
     const c = pipCams[i];
@@ -1227,7 +1294,7 @@ function frame(now: number) {
     if (p.el.clientWidth && (p.canvas.width !== p.el.clientWidth || p.canvas.height !== p.el.clientHeight)) p.renderer.setSize(p.el.clientWidth, p.el.clientHeight, false);
     // two insets: refresh each on alternate frames; the scene is rendered three times per frame otherwise and the
     // GPU, not the JS, is what limits the frame rate with the CAD loaded
-    if (pipCams.length > 1 && (analysisTick + i) % 2 === 1) return;
+    if (!renderThisFrame || (pipCams.length > 1 && (analysisTick + i) % 2 === 1)) return;
     robot.cameraGizmos.visible = false;
     robot.launcherMarker.visible = false;
     for (const a of allAgents) a.carryGroup.visible = false;
@@ -1250,7 +1317,7 @@ function frame(now: number) {
 // debugging hook for scripts / console
 Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twinRenderNow = () => { renderRequested = true; };
-(window as any).__twin = { state, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
+(window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };

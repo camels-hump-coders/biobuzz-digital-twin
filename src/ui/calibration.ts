@@ -164,7 +164,7 @@ export function calibrationRows(ctx: CalCtx): HTMLElement[] {
   }
   for (const r of fit.sufficiency.reasons) lines.push(`• ${r}`);
   rows.push(el("pre", { class: "cal-fit full" }, lines.join("\n") || "Add shots to see the fit."));
-  const applied = Math.abs(l.efficiency - p.efficiency) <= 0.0006 && (!fit.sufficiency.fitElevation || Math.abs(l.elevationDeg - p.elevationDeg) <= 0.06) && Math.abs(l.exitHeightM - setup.exitHeightM) < 1e-6;
+  const applied = fit.n > 0 && Math.abs(l.efficiency - p.efficiency) <= 0.0006 && (!fit.sufficiency.fitElevation || Math.abs(l.elevationDeg - p.elevationDeg) <= 0.06) && Math.abs(l.exitHeightM - setup.exitHeightM) < 1e-6;
   rows.push(el("div", { class: "row full" },
     el("button", { class: "primary", disabled: fit.n && !applied ? undefined : "", onclick: () => {
       l.efficiency = Math.round(p.efficiency * 1000) / 1000;
@@ -176,9 +176,9 @@ export function calibrationRows(ctx: CalCtx): HTMLElement[] {
         if (fly) { fly.freeRpm = Math.round(fit.rpmPerPower); if (l.maxRpm < fly.freeRpm) l.maxRpm = fly.freeRpm; ctx.change("hardware"); }
       }
       ctx.change("launcher"); ctx.rerender();
-    } }, applied ? "Applied ✓" : "Apply to twin"),
+    } }, !fit.n ? "Add measurements to fit" : applied ? "Applied ✓" : "Apply to twin"),
     el("button", { onclick: () => { const blob = new Blob([JSON.stringify(cal, null, 2)], { type: "application/json" }); const a = el("a", { href: URL.createObjectURL(blob), download: "shooter-calibration.json" }); a.click(); } }, "Export"),
-    el("button", { onclick: () => { const i = el("input", { type: "file", accept: ".json" }) as HTMLInputElement; i.onchange = async () => { const f = i.files?.[0]; if (!f) return; try { const j = JSON.parse(await f.text()); if (Array.isArray(j.shots)) { st.calibration = { ...defaultCalibration(), ...j, setup: { ...defaultCalibration().setup, ...(j.setup ?? {}) } }; save(); } } catch (e) { alert(`Not a calibration file: ${e}`); } }; i.click(); } }, "Import"),
+    el("button", { onclick: () => { const i = el("input", { type: "file", accept: ".json" }) as HTMLInputElement; i.onchange = async () => { const f = i.files?.[0]; if (!f) return; try { const j = JSON.parse(await f.text()); if (!Array.isArray(j.shots)) throw new Error("Expected a shots array"); if (Array.isArray(j.shots)) { st.calibration = { ...defaultCalibration(), ...j, setup: { ...defaultCalibration().setup, ...(j.setup ?? {}) } }; save(); } } catch (e) { alert(`Not a calibration file: ${e}`); } }; i.click(); } }, "Import"),
     el("button", { onclick: () => { if (cal.shots.length && !confirm(`Delete ${cal.shots.length} shots?`)) return; st.calibration = defaultCalibration(setup.exitHeightM); st.calibration.setup = { ...setup }; ctx.setForm(undefined); save(); } }, "Clear")));
 
   // TeamCode values from the fitted model
@@ -199,7 +199,7 @@ export function calibrationRows(ctx: CalCtx): HTMLElement[] {
     rows.push(el("div", { class: "note full" }, `For TeamCode's range → power model (horizontal range from the exit to the cell opening at ${fmt(targetIn)} in, descending arc, flywheel power = rpm / ${model.freeRpm}):`));
     rows.push(el("pre", { class: "cal-fit full" }, text));
     rows.push(el("div", { class: "row full" },
-      el("button", { onclick: () => navigator.clipboard?.writeText(text) }, "Copy"),
+      el("button", { onclick: async (e: Event) => { const b = e.currentTarget as HTMLButtonElement; try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch { b.textContent = "Copy failed · select the text above"; } } }, "Copy"),
       ...(profile ? [el("button", { title: `write launchAngleDeg, exitHeightIn, targetHeightIn, shotRangeIn and shotPower into the TeamCode settings overrides for ${profile.path} (sent at INIT). powerTable is an array: paste it into the asset file yourself.`, onclick: () => {
         const o = (st.assetOverrides[profile.path] ??= {});
         o["tagTracking.launchAngleDeg"] = tc.launchAngleDeg; o["tagTracking.exitHeightIn"] = tc.exitHeightIn; o["tagTracking.targetHeightIn"] = tc.targetHeightIn;

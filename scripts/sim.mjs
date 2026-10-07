@@ -13,10 +13,12 @@
  * the TeamCode module folder, or the java source folder itself.
  */
 import { execSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, watch as watchFs, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, watch as watchFs, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { lineReader, startupTracker, browserLaunch } from "./sim-startup.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cfgPath = join(root, ".biobuzz.local.json");
@@ -30,7 +32,7 @@ const exclude = flag("--exclude", saved.exclude ?? "");
 const port = flag("--port", "5173");
 const hostPort = flag("--host-port", "8765");
 const watch = !has("--no-watch");
-const openBrowser = !has("--no-browser");
+const openBrowser = !has("--no-browser") && process.env.BROWSER?.toLowerCase() !== "none";
 const panels = !has("--no-panels"); // the real FTC Panels dashboard on 8001/8002; off for secondary hosts such as twin-test
 // --built: serve a production build (vite preview) instead of the dev server. No hot reload: edits to the twin's
 // sources while this runs cannot reload the page under a running OpMode or a headless test. The build is reused when
@@ -102,7 +104,7 @@ const gradlew = join(root, "runtime", isWin ? "gradlew.bat" : "gradlew");
 // --low-priority (twin-test uses it): the Gradle daemon and everything it launches, including the host JVM, run at
 // low scheduling priority so a headless test never starves the human's session or the desktop
 const lowPriority = has("--low-priority");
-const gradleArgs = [":host:run", "--console=plain", "-q", "--max-workers=4", ...(lowPriority ? ["--priority=low"] : []), `--args=${hostPort}`];
+const gradleArgs = [":host:run", "--console=plain", "--max-workers=4", ...(lowPriority ? ["--priority=low"] : []), `--args=${hostPort}`];
 // Files that import Android-only or robot-only packages can never compile on the desktop. Skip them
 // automatically unless a sim override with the same relative path exists in <TeamCode>/src/sim/java.
 const ANDROID_ONLY = /^import (android\.|androidx\.|org\.opencv\.|fi\.iki\.elonen|com\.qualcomm\.ftccommon|org\.firstinspires\.ftc\.ftccommon|org\.firstinspires\.ftc\.robotcore\.internal|com\.acmerobotics\.dashboard)/m;
@@ -146,8 +148,21 @@ if (bindingsFile && existsSync(bindingsFile)) console.log(`sim: bindings  ${bind
 console.log(`sim: settings  ${settingsFile}${existsSync(settingsFile) ? "" : "  (not created yet: Session → Save to repo file)"}`);
 console.log(`sim: JDK       ${javaHome ?? "from PATH"}`);
 console.log(`sim: host      ws://127.0.0.1:${hostPort}${watch ? "  (auto-rebuilds and restarts when your code changes)" : ""}`);
-console.log(`sim: twin      http://localhost:${port}/?runtime=1${built ? "  (built bundle, no hot reload)" : ""}`);
+const twinUrl = `http://localhost:${port}/?runtime=1&sim=1&hostPort=${hostPort}`;
+console.log(`sim: twin      ${twinUrl}${built ? "  (built bundle, no hot reload)" : ""}`);
 
+const startupDir = mkdtempSync(join(tmpdir(), 'biobuzz-startup-'));
+const statusFile = join(startupDir, 'status.json');
+const startup = startupTracker(state => {
+  writeFileSync(statusFile, JSON.stringify(state));
+  console.log(`sim: ${state.message}`);
+});
+const heartbeat = setInterval(() => {
+  const s = startup.state;
+  if (s && !['ready', 'error'].includes(s.phase)) console.log(`sim: ${s.phase} · ${Math.floor((Date.now() - s.startedAt) / 1000)}s elapsed — ${s.message}`);
+}, 5000);
+heartbeat.unref();
+if (!openBrowser) console.log(`sim: browser auto-open disabled (${has('--no-browser') ? '--no-browser' : 'BROWSER=none'}). Open ${twinUrl}`);
 const children = [];
 const prefix = (name, color) => { let buf = ""; return (chunk) => { buf += chunk.toString(); const lines = buf.split(/\r?\n/); buf = lines.pop() ?? ""; for (const line of lines) if (line.trim()) process.stdout.write(`\x1b[${color}m[${name}]\x1b[0m ${line}\n`); }; };
 
@@ -158,10 +173,14 @@ let host;
 let restarting = false;
 let shuttingDown = false;
 const startHost = () => {
+  startup.set('compiling', 'Starting Gradle: resolving dependencies and compiling TeamCode + runtime. First builds can take longer; the browser will connect when ready.', true);
   host = spawn(gradlew, gradleArgs, { cwd: join(root, "runtime"), env: { ...process.env, ...(javaHome ? { JAVA_HOME: javaHome } : {}) }, shell: isWin });
-  host.stdout.on("data", hostOut);
-  host.stderr.on("data", hostOut);
-  host.on("exit", (code) => { if (!restarting && !shuttingDown && code && code !== 130) console.log(`\x1b[33m[host]\x1b[0m exited with code ${code}`); });
+  host.stdout.on("data", lineReader(hostOut));
+  host.stderr.on("data", lineReader(hostOut));
+  host.on("error", error => startup.set('error', `Could not start Gradle: ${error.message}`));
+  host.on("exit", (code, signal) => {
+    if (!restarting && !shuttingDown) startup.set('error', `Runtime stopped (${signal ?? `exit ${code}`}). Check the terminal above.${watch ? ' Fix a source file to rebuild automatically.' : ' Run pnpm sim again after fixing the error.'}`);
+  });
   return host;
 };
 const errFiles = new Set();
@@ -170,7 +189,8 @@ let hostPid; // the host JVM itself (announced on its first stdout line), distin
 // reads, which garbled the OpMode list and sometimes swallowed the "listening on ws:" line twin-test waits for
 const hostPrefix = prefix("host", "33");
 const hostOut = (chunk) => {
-  hostPrefix(chunk);
+  hostPrefix(chunk + "\n");
+  startup.line(chunk);
   const pm = /sim-host pid (\d+) port/.exec(chunk.toString());
   if (pm) hostPid = +pm[1];
   for (const m of chunk.toString().matchAll(/^\s*(\S+\.java):\d+: error:/gm)) errFiles.add(m[1]);
@@ -223,9 +243,24 @@ if (built) {
   }
 }
 const viteArgs = built ? [viteBin, "preview", "--port", port, "--strictPort", "--outDir", previewDir] : [viteBin, "--port", port, "--strictPort"];
-if (openBrowser) viteArgs.push("--open", "/?runtime=1");
-const vite = spawn(process.execPath, viteArgs, { cwd: root, env: process.env });
-vite.stdout.on("data", prefix("twin", "36"));
+
+const vite = spawn(process.execPath, viteArgs, { cwd: root, env: { ...process.env, BIOBUZZ_STARTUP_FILE: statusFile } });
+let opened = false;
+const twinOut = prefix("twin", "36");
+vite.stdout.on("data", lineReader(line => {
+  twinOut(line + "\n");
+  if (!opened && /Local:.*https?:/.test(line)) {
+    opened = true;
+    console.log(`sim: UI ready at ${twinUrl} — runtime build/startup progress is shown there.`);
+    if (openBrowser) {
+      console.log(`sim: opening browser → ${twinUrl}`);
+      const [command, openerArgs] = browserLaunch(process.platform, process.env.BROWSER, twinUrl);
+      const opener = spawn(command, openerArgs, { stdio: 'ignore' });
+      opener.on('error', e => console.error(`sim: browser could not open (${e.message}). Open ${twinUrl}`));
+      opener.on('exit', code => { if (code) console.error(`sim: browser opener exited ${code}. Open ${twinUrl}`); });
+    }
+  }
+}));
 vite.stderr.on("data", prefix("twin", "36"));
 children.push(vite);
 
@@ -242,6 +277,8 @@ const hostPids = () => {
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const shutdown = async () => {
   if (shuttingDown) return; shuttingDown = true;
+  clearInterval(heartbeat);
+  rmSync(startupDir, { recursive: true, force: true });
   for (const c of children) try { c.kill("SIGINT"); } catch {}
   try { host?.kill("SIGINT"); } catch {}
   // the host JVM runs under the Gradle daemon, so it must be stopped explicitly: TERM, wait, then KILL
@@ -267,6 +304,7 @@ if (watch) {
     timer = setTimeout(async () => {
       if (shuttingDown) return;
       restarting = true;
+      startup.set('restarting', 'Source changed. Stopping the old runtime before recompiling…', true);
       console.log(`\x1b[33m[host]\x1b[0m change in ${what ?? "sources"} — recompiling and restarting the host (re-INIT your OpMode when it is back)`);
       const pids = hostPids().filter(alive);
       try { host.kill("SIGINT"); } catch {}

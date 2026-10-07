@@ -23,6 +23,8 @@ export interface DriveCommand {
 
 export interface DriveParams {
   drivetrain: Drivetrain;
+  /** Driver forward heading for field-relative mecanum; omitted preserves world-axis callers. */
+  fieldHeading?: number;
   /** wheel free speed RPM and diameter -> max linear speed */
   wheelRpm: number;
   wheelDiameterM: number;
@@ -72,8 +74,9 @@ export function commandToVelocity(cmd: DriveCommand, pose: Pose, p: DriveParams)
   const t = clamp(cmd.turn, -1, 1) * scaleDown;
   let fx: number, fz: number, lx: number, lz: number;
   if (p.fieldCentric && p.drivetrain === "mecanum") {
-    // field-centric: forward = toward scoring side (-Z), left = toward red (-X)
-    fx = 0; fz = -1; lx = -1; lz = 0;
+    // Field-relative translation uses the driver heading, independently of robot yaw.
+    ({ x: fx, z: fz } = forwardVector(p.fieldHeading ?? 0));
+    ({ x: lx, z: lz } = leftVector(p.fieldHeading ?? 0));
   } else {
     ({ x: fx, z: fz } = forwardVector(pose.heading));
     ({ x: lx, z: lz } = leftVector(pose.heading));
@@ -201,3 +204,6 @@ export function headingToward(from: { x: number; z: number }, to: { x: number; z
   // forward = (-sin h, -cos h) => h = atan2(-dx, -dz)
   return Math.atan2(-dx, -dz);
 }
+
+/** W/up points away from the driver alliance wall: red +X, blue -X. */
+export function allianceDriveHeading(alliance: "red" | "blue"): number { return alliance === "red" ? -Math.PI / 2 : Math.PI / 2; }

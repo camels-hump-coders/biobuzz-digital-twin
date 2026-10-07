@@ -106,10 +106,15 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
       }
     }
   }
-  // the perimeter is solid whatever the sweep did (a ball squeezed by a chassis can start a frame inside the wall)
-  const lim = m(FIELD.sizeIn) / 2 - b.radius;
-  if (Math.abs(b.pos.x) > lim) { b.pos.x = Math.sign(b.pos.x) * lim; if (Math.sign(b.vel.x) === Math.sign(b.pos.x)) b.vel.x *= -RESTITUTION; }
-  if (Math.abs(b.pos.z) > lim) { b.pos.z = Math.sign(b.pos.z) * lim; if (Math.sign(b.vel.z) === Math.sign(b.pos.z)) b.vel.z *= -RESTITUTION; }
+  // The perimeter is only as tall as the visible wall. A shot that clears it
+  // must remain outside, including when it later descends below wall height.
+  const half = m(FIELD.sizeIn) / 2;
+  const lim = half - b.radius;
+  const startedInside = Math.abs(start.x) <= half && Math.abs(start.z) <= half;
+  if (startedInside && Math.min(start.y, b.pos.y) - b.radius < m(FIELD.wallHeightIn)) {
+    if (Math.abs(b.pos.x) > lim) { b.pos.x = Math.sign(b.pos.x) * lim; if (Math.sign(b.vel.x) === Math.sign(b.pos.x)) b.vel.x *= -RESTITUTION; }
+    if (Math.abs(b.pos.z) > lim) { b.pos.z = Math.sign(b.pos.z) * lim; if (Math.sign(b.vel.z) === Math.sign(b.pos.z)) b.vel.z *= -RESTITUTION; }
+  }
   // floor
   if (b.pos.y < b.radius) {
     b.pos.y = b.radius;

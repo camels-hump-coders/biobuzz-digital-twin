@@ -102,3 +102,20 @@ describe("rotated chassis vs obstacles", () => {
     expect(0.95 + push.x).toBeCloseTo(1 - fp.widthM / 2, 6);
   });
 });
+
+import { allianceDriveHeading } from '../src/sim/drive';
+describe('alliance-relative mecanum', () => {
+  for (const alliance of ['red', 'blue'] as const) for (const heading of [0, 1.2, Math.PI]) {
+    it(`${alliance} W moves away from alliance regardless of robot heading ${heading}`, () => {
+      const params = { ...p, fieldCentric: true, fieldHeading: allianceDriveHeading(alliance) };
+      const pose = { x: 0, z: 0, heading };
+      const up=commandToVelocity({forward:1,left:0,turn:0},pose,params);
+      const down=commandToVelocity({forward:-1,left:0,turn:0},pose,params);
+      expect(up.vx * (alliance==='red' ? 1 : -1)).toBeGreaterThan(0);
+      expect(up.vz).toBeCloseTo(0);
+      expect(down.vx).toBeCloseTo(-up.vx);
+      const left=commandToVelocity({forward:0,left:1,turn:0},pose,params);
+      expect(left.vz * (alliance==='red' ? -1 : 1)).toBeGreaterThan(0);
+    });
+  }
+});

@@ -14,24 +14,22 @@ export interface Actions {
 export class Input {
   private keys = new Set<string>();
   private edges = new Set<string>();
-  private typing = false;
+  private fieldFocused() {
+    return document.activeElement?.id === "view" && !document.querySelector("dialog[open]");
+  }
 
   constructor() {
     window.addEventListener("keydown", (e) => {
-      const t = e.target as HTMLElement | null;
-      // Only real text entry swallows keys. A focused <select>, checkbox or button (which is where focus ends up
-      // after using the panel) must not disable driving; drop focus from it so Space does not re-click it either.
-      const textEntry = !!t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "range"].includes((t as HTMLInputElement).type)));
-      this.typing = textEntry;
-      if (this.typing) return;
-      if (t && (t.tagName === "SELECT" || t.tagName === "BUTTON" || t.tagName === "INPUT")) { t.blur(); e.preventDefault(); }
+      // Drive shortcuts belong to the field. Native form and dialog navigation must remain intact.
+      if (!this.fieldFocused() || e.metaKey || e.altKey) return;
+      if (e.code === "Tab" || e.code === "Escape") { this.keys.clear(); return; }
       if (!this.keys.has(e.code)) this.edges.add(e.code);
       this.keys.add(e.code);
-      if (e.code === "Tab") { e.preventDefault(); this.keyboardPad = this.keyboardPad === 1 ? 2 : 1; }
       if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
     window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("focusin", () => { if (!this.fieldFocused()) { this.keys.clear(); this.edges.clear(); } });
   }
 
   private pad(): Gamepad | null {
@@ -41,7 +39,7 @@ export class Input {
   }
 
   private prevButtons = new Set<number>();
-  /** which gamepad the keyboard emulates; Tab toggles */
+  /** which gamepad the keyboard emulates; selected explicitly in the workspace */
   keyboardPad: 1 | 2 = 1;
   /** values injected by a test script (pnpm twin-test); they override keyboard/gamepad fields until cleared */
   private injected: { 1: Partial<GamepadPacket>; 2: Partial<GamepadPacket> } = { 1: {}, 2: {} };
@@ -71,7 +69,7 @@ export class Input {
       guide: k.has("KeyG"), start: k.has("Enter"), back: k.has("Backspace"), ls: k.has("KeyV"), rs: k.has("KeyN"),
       du: k.has("ArrowUp"), dd: k.has("ArrowDown"), dl: k.has("ArrowLeft"), dr: k.has("ArrowRight"),
     };
-    // physical pads take their slots; the keyboard fills whichever slot it is assigned to (Tab toggles) if free
+    // physical pads take their slots; the keyboard fills whichever slot it is assigned to (control bar selects) if free
     let g1 = pads[0] ? fromPad(pads[0]) : emptyGamepad();
     let g2 = pads[1] ? fromPad(pads[1]) : emptyGamepad();
     if (this.keyboardPad === 1 && !pads[0]) g1 = kb; else if (this.keyboardPad === 2 && !pads[1]) g2 = kb; else if (!pads[0]) g1 = kb;

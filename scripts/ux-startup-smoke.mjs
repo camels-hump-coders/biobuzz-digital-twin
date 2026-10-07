@@ -1,0 +1,35 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+const base=process.env.BASE_URL ?? 'http://localhost:5184';
+const browser=await chromium.launch({headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1000}});
+let status={phase:'compiling',message:'Compiling TeamCode and runtime…',startedAt:Date.now()-5000};
+await page.route('**/__sim/status',route=>route.fulfill({json:status}));
+await page.routeWebSocket(/ws:\/\//,socket=>socket.close());
+await page.addInitScript(()=>localStorage.setItem('biobuzz-twin',JSON.stringify({settingsAutoLoad:false,pip:false,stadium:false})));
+await page.goto(`${base}/?runtime=1&sim=1&hostPort=8788&ci=1`);
+await page.waitForFunction(()=>document.querySelector('.runtime-guidance')?.textContent.includes('Building TeamCode'));
+assert.match(await page.locator('.runtime-guidance').innerText(),/elapsed/);
+await page.screenshot({path:'/tmp/biobuzz-startup.png'});
+await page.setViewportSize({width:390,height:844});
+await page.screenshot({path:'/tmp/biobuzz-startup-mobile.png'});
+assert.equal(await page.locator('.startup-elapsed').isVisible(),true);
+await page.emulateMedia({reducedMotion:'reduce'});
+assert.equal(await page.locator('.startup-spinner').evaluate(e=>getComputedStyle(e).animationName),'none');
+await page.setViewportSize({width:1440,height:1000});
+status={...status,phase:'starting',message:'Discovering programs…'};
+await page.waitForFunction(()=>document.querySelector('.runtime-guidance')?.textContent.includes('Starting runtime'));
+status={...status,phase:'error',message:'TeamCode build failed. Check compiler errors in the terminal.'};
+await page.waitForFunction(()=>document.querySelector('.runtime-guidance')?.textContent.includes('Runtime startup failed'));
+if (!process.argv.includes('--mock-only')) {
+const live=await browser.newPage();
+const response=await live.request.get(`${base}/__sim/status`);
+assert.equal(response.status(),200);
+assert.equal((await response.json()).phase,'ready');
+await live.addInitScript(()=>localStorage.setItem('biobuzz-twin',JSON.stringify({settingsAutoLoad:false,pip:false,stadium:false})));
+await live.goto(`${base}/?runtime=1&sim=1&hostPort=8788&ci=1`);
+await live.waitForFunction(()=>window.__twin?.link.connected);
+assert.equal(await live.evaluate(()=>window.__twin.link.url),'ws://127.0.0.1:8788');
+}
+console.log('Startup UI checks passed' + (process.argv.includes('--mock-only') ? ' (mock status).' : ', including live runtime.'));
+await browser.close();

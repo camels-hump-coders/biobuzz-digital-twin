@@ -32,6 +32,8 @@ by `pnpm install`.
 
 ## 2. Run an OpMode against the twin
 
+The browser now has **Practice**, **Run TeamCode**, and **Tune** workspaces; robot configuration is in **Robot setup**, and **All settings** searches the complete control surface. In Run TeamCode use the persistent bottom bar's **Initialize (INIT) → Start → Stop**. Stop remains available in every workspace while a program owns the robot. Keyboard driving requires focus on `#view`; Tab is ordinary focus navigation, and Gamepad 1/2 is selected in the control bar. Browser automation must focus the field before sending driving keys. Agent API and `__twin` control contracts are unchanged.
+
 From the twin directory:
 
 ```bash
@@ -196,15 +198,20 @@ shooter direction, alliance, start pose. Rules:
    the panel; unknown knob names are the usual mistake.
 5. The committed asset values still drive the real robot. When the twin's measurement changes, write the merged file
    back into the repo: `curl -s -X POST $A/api/save -d '{"file": "robot-profile.json"}'` (or `{"all": true}`), or the
-   *Save to repo* button in the TeamCode settings panel. The host patches the file in place (key order and indentation
+   *Review changes → Save to project* button in the TeamCode settings panel. The host patches the file in place (key order and indentation
    kept, only changed values differ), then the overrides for it are cleared because the values are now in the file.
    Review `git diff` and commit. Without a host, *Export* downloads the files instead.
 
 ## 4c. The twin's own settings live in `twin-settings.json`
 
+Use **Settings & files** or **All settings → Settings & session** for the twin's configuration file. TeamCode asset edits are separate: **Run TeamCode → Open settings editor → Review changes → Save to project** shows a before/after review before writing. Linked values have **Open linked setting** navigation. Undo and per-field reset affect browser configuration only; they do not revert files already saved. Pins and workspace selection are browser preferences, not robot configuration.
+
+Replay is in **Tune → Replay**. Its timeline sits below the field with synchronized events and telemetry. Driving does not resume the live scene: use **Return to live** or an explicit lifecycle action. API `/api/replay` behavior is unchanged.
+
+
 In server mode the twin's settings (robot preset and dimensions, cameras, launcher, hardware map, asset overrides,
 calibration, start positions, …) are saved to `TeamCode/twin-settings.json` (sorted JSON, next to
-`twin-bindings.json`) by *Settings & session → Save to repo file* or `POST $A/api/settings {"save": true}`, and applied on
+`twin-bindings.json`) by *Settings & session → Save to project file* or `POST $A/api/settings {"save": true}`, and applied on
 connect or with `{"load": true}`. Commit that file with the code when the robot's measured setup changes; `GET
 $A/api/settings` tells whether the browser differs from the file. Do not hand-edit numbers that have a bound asset
 key instead (see 4): bindings derive those from the twin, so change them in the twin and save.
@@ -255,7 +262,7 @@ of twin-bindings.json rather than writing a schema for it.
 ## 4b. Shooter calibration: make the twin shoot like the robot
 
 The twin's launcher knobs (`launcher.efficiency`, `launcher.elevationDeg`, `launcher.exitHeightIn`, backspin, the
-flywheel's `freeRpm`) are measured, not guessed, with the **Shooter calibration** wizard (its own panel section)
+flywheel's `freeRpm`) are measured, not guessed, with the **Tune → Calibration** workspace (Setup → Measure → Review & apply)
 and the `Twin: Shooter Calibration` OpMode (`runtime/samples/.../TwinCalibration.java`, copied into TeamCode as
 `opmodes/TwinCalibration.java`). Humans fire the robot at a wall and type/click where each ball hit; the fitter tunes
 the knobs until the twin's flight model reproduces every impact.

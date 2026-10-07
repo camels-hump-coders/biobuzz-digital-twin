@@ -1,0 +1,51 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+const browser = await chromium.launch({headless:true});
+const page = await browser.newPage({viewport:{width:1440,height:1000}});
+const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+await page.addInitScript(()=>localStorage.setItem('biobuzz-twin',JSON.stringify({runtimeEnabled:false,settingsAutoLoad:false,pip:true,stadium:true,opponents:false})));
+await page.goto('http://localhost:5173/?ci=1');
+await page.waitForFunction(()=>!!window.__twin);
+assert.equal(await page.getByRole('button',{name:'Hide sidebar',exact:true}).getAttribute('aria-expanded'),'true');
+await page.getByRole('button',{name:'Hide sidebar',exact:true}).click();
+assert.equal(await page.getByRole('button',{name:'Show sidebar',exact:true}).getAttribute('aria-expanded'),'false');
+await page.getByRole('button',{name:'Show sidebar',exact:true}).click();
+for (const alliance of ['red','blue']) {
+  await page.getByRole('button',{name:alliance==='red'?'Red alliance':'Blue alliance',exact:true}).click();
+  await page.waitForFunction(a=>{
+    const t=window.__twin;
+    return t.state.alliance===a && Math.abs(t.orbitCam.position.z)<0.001 && t.orbitCam.position.x*(a==='red'?-1:1)>5;
+  },alliance);
+}
+const field=page.locator('details[data-title="Field & target"]');
+if (!await field.evaluate(d=>d.open)) await field.locator(':scope > summary').click();
+await field.getByRole('combobox',{name:'Our alliance',exact:true}).selectOption('blue');
+assert.equal(await field.evaluate(d=>d.open),true);
+assert.equal(await page.locator('#panel').evaluate(p=>p.classList.contains('hidden')),false);
+await field.locator('[data-group="Field & target/Hive physics"] > summary').click();
+const hive=field.getByRole('combobox',{name:'Blue hive up cell',exact:true});
+await hive.focus();
+await hive.selectOption('audience');
+assert.equal(await field.evaluate(d=>d.open),true);
+assert.equal(await hive.isVisible(),true);
+assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Blue hive up cell');
+const visual=await page.evaluate(()=>({pip:window.__twin.state.pip,stadium:window.__twin.state.stadium,hitmap:window.__twin.state.overlays.hitmap,reach:window.__twin.state.overlays.reach}));
+await page.locator('.view-tools > summary').click();
+await page.getByRole('button',{name:'Reduce visual detail',exact:true}).click();
+await page.locator('#quick-controls').getByRole('button',{name:'Restore visual detail',exact:true}).click();
+assert.deepEqual(await page.evaluate(()=>({pip:window.__twin.state.pip,stadium:window.__twin.state.stadium,hitmap:window.__twin.state.overlays.hitmap,reach:window.__twin.state.overlays.reach})),visual);
+assert.equal(await page.evaluate(()=>window.__twin.state.fieldCentric),true);
+assert.match(await page.locator('#drive-compass').innerText(),/away from blue alliance/);
+await page.getByRole('button',{name:'Focus field',exact:true}).click();
+await page.waitForFunction(()=>document.activeElement?.id==='view');
+assert.equal(await page.locator('#panel').evaluate(p=>p.classList.contains('hidden')),true);
+const before=await page.evaluate(()=>({...window.__twin.state.pose}));
+await page.keyboard.down('w');
+await page.waitForFunction(p=>Math.hypot(window.__twin.state.pose.x-p.x,window.__twin.state.pose.z-p.z)>0.02,before);
+await page.keyboard.up('w');
+
+await page.waitForTimeout(1200);
+await page.screenshot({path:'/tmp/biobuzz-compass.png'});
+assert.equal(errors.length,0,errors.join('\n'));
+console.log('Follow-up UX checks passed: field disclosure/focus, reversible detail, default drive mode, compass.');
+await browser.close();

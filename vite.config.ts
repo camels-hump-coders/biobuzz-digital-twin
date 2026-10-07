@@ -1,12 +1,30 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
+import { readFileSync } from "node:fs";
 import { VitePWA } from "vite-plugin-pwa";
 
 // BASE_PATH lets the same build be served from a sub-path, e.g. GitHub Pages at /<repo>/ (see .github/workflows/pages.yml).
 const base = process.env.BASE_PATH ?? "/";
 
+const startupStatus: Plugin = {
+  name: 'biobuzz-startup-status',
+  configureServer(server) { installStatus(server.middlewares); },
+  configurePreviewServer(server) { installStatus(server.middlewares); },
+};
+function installStatus(middlewares: import('vite').Connect.Server) {
+  middlewares.use('/__sim/status', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const path = process.env.BIOBUZZ_STARTUP_FILE;
+      if (!path) { res.statusCode = 404; res.end('{}'); return; }
+      res.end(readFileSync(path, 'utf8'));
+    } catch { res.statusCode = 503; res.end('{}'); }
+  });
+}
 export default defineConfig({
   base,
   plugins: [
+    startupStatus,
     VitePWA({
       // "prompt": the app shows a Reload toast when a new build is deployed instead of swapping under the user's feet
       registerType: "prompt",

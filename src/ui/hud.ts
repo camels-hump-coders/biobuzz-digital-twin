@@ -12,6 +12,8 @@ export interface HudData {
   hoodDeg: number;
   requiredSpeed?: number;
   requiredRpm?: number;
+  requiredPower?: number;
+  currentPower?: number;
   rpmOk: boolean;
   currentRpm: number;
   currentSpeed: number;
@@ -48,6 +50,7 @@ export interface HudData {
   supply: string;
   theirHive: string;
   launchBlocked?: string;
+  pickupBlocked?: boolean;
   /** match phase + clock */
   match: string;
   matchClass?: string;
@@ -67,8 +70,11 @@ export interface HudData {
 export class Hud {
   private root = document.getElementById("hud")!;
   /** which fold-out sections are open; remembered across reloads */
-  private open = new Set<string>(["tags"]);
+  private open = new Set<string>();
+  onAction?: (action: string) => void;
+  private updatedAt = 0;
   constructor() {
+    this.root.addEventListener("click", e => { const action = (e.target as HTMLElement).closest<HTMLElement>("[data-hud-action]")?.dataset.hudAction; if (action) this.onAction?.(action); });
     try { const saved = localStorage.getItem("biobuzz-hud-open"); if (saved) this.open = new Set(JSON.parse(saved)); } catch { /* ignore */ }
     // <details> toggles do not bubble, so listen in the capture phase on the root (innerHTML re-renders every frame)
     this.root.addEventListener("toggle", (e) => {
@@ -78,6 +84,15 @@ export class Hud {
     }, true);
   }
   update(d: HudData) {
+    const now = performance.now();
+    if (now - this.updatedAt < 250) return;
+    this.updatedAt = now;
+    const focused = document.activeElement as HTMLElement | null;
+    const focusAction = focused?.dataset.hudAction;
+    const focusSection = focused?.tagName === 'SUMMARY' ? focused.parentElement?.dataset.k : undefined;
+    const escape = (text: string) => text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+    d = { ...d, target: escape(d.target), runtime: escape(d.runtime), cameraName: escape(d.cameraName), notice: d.notice ? escape(d.notice) : undefined, launchBlocked: d.launchBlocked ? escape(d.launchBlocked) : undefined };
+
     const f = (v: number | undefined, p = 1) => (v === undefined || !Number.isFinite(v) ? "–" : v.toFixed(p));
     const cls = (ok: boolean | undefined) => (ok === undefined ? "" : ok ? "ok" : "bad");
     const tags = d.tags.map((t) => `<span class="tag ${t.visible ? "vis" : t.inFov && t.facing ? "occ" : ""}" title="${t.alliance} ${t.side} · ${f(t.distanceM / 0.0254, 0)} in · ${f(t.pixels, 0)} px">${t.id}</span>`).join("");
@@ -95,8 +110,24 @@ export class Hud {
     const predicted = d.hit === undefined ? "–" : d.hit ? "HIT" : "MISS";
     const bearing = `${f(d.bearingErrDeg, 1)}° ${d.turretOk ? "in turret range" : "turn robot"}`;
 
+    const ready = !d.launchBlocked && d.turretOk && d.rpmOk && !!d.actualHit;
+    const title = d.launchBlocked ? 'Shot unavailable' : !d.turretOk ? 'Aim toward the target' : unreachable ? 'Try another position' : d.actualHit ? 'Ready to try a shot' : 'Adjust your shot';
+    const advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'This hood angle and motor limit cannot reach the cell from here.' : !d.actualHit ? 'Open shot analysis to compare the arc, speed, and target.' : 'The predicted arc enters the cell. Shoot to test it.');
     this.root.innerHTML = `
-      <div class="hero">
+      ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
+      ${d.pickupBlocked ? '<section class="robot-alert intake-blocked" role="status"><strong>⚠ Ball not collected · intake off</strong><p>You have room for a ball. Turn on the intake motor using your TeamCode controls, then drive the intake over the ball.</p></section>' : ''}
+      <div class="readiness ${ready ? 'ready' : ''}"><span class="eyebrow">${document.body.classList.contains('is-replaying') ? 'RECORDED FIELD · LIVE SHOT ANALYSIS' : 'SHOT READINESS'}</span><h2>${title}</h2><p>${advice}</p>
+      <div class="hud-actions">${!d.turretOk && !d.runtime.startsWith('RUNNING') && !d.runtime.startsWith('INIT') && !document.body.classList.contains('is-replaying') ? '<button data-hud-action="aim">Aim at target</button>' : ''}<button data-hud-action="analyze">Tune shot →</button></div>
+      <div class="shot-summary"><span>${d.carrying}</span><span>${d.shotsFired} fired · ${d.shotsHit} settled in target</span></div></div>
+      <section class="shot-at-glance" aria-label="Shot summary">
+        <div><strong class="${pClass}">${p === undefined ? '—' : `${(p * 100).toFixed(0)}%`}</strong> hit chance after aiming</div>
+        <div>As fired now: ${d.pHit === undefined ? 'calculating' : `${(d.pHit * 100).toFixed(0)}%`}</div>
+        <div>Required: <b>${f(d.requiredRpm, 0)} RPM</b> · hood <b>${f(d.hoodDeg, 1)}°</b></div>
+        <div title="Estimated motor power = RPM / configured free RPM">Power need / now: ${f(d.requiredPower, 2)} / ${f(d.currentPower, 2)}</div>
+        <div>Current: ${f(d.currentRpm, 0)} RPM · aim error ${f(d.bearingErrDeg, 1)}°</div>
+        <div>Lowest-energy shot: ${f(d.bestAngleDeg, 1)}° · ${f(d.bestRpm, 0)} RPM</div>
+      </section>
+      <details data-k="prediction" ${this.open.has('prediction') ? 'open' : ''}><summary>Scoring estimate · ${p === undefined ? 'calculating' : `${(p * 100).toFixed(0)}%`} after aiming</summary><div class="hero">
         <div class="tile p ${pClass}"><div class="big">${pBig}</div><div class="lbl">hit chance from here, once aimed &amp; spun up</div><div class="sub">${pSub}</div></div>
         <div class="tile">
           <div class="kv"><span>Predicted${d.aimed ? "" : " once aimed"}</span><b class="${cls(d.hit)}">${predicted}</b></div>
@@ -106,12 +137,13 @@ export class Hud {
           <div class="kv"><span>Carrying</span><b class="${d.launchBlocked ? "bad" : ""}">${d.carrying}</b></div>
         </div>
       </div>
+      </details>
       <div class="target">Target: ${d.target}</div>
       <div class="status">
         <span class="pill ${d.matchClass ?? ""}">${d.match}</span>
         <span class="pill rt">${d.runtime}</span>
       </div>
-      ${d.notice ? `<div class="notice ${d.noticeBad ? "bad" : "warn"}">${d.notice}</div>` : ""}
+      ${d.notice ? `<details class="performance-notice"><summary>${d.noticeBad ? "Action needed" : "Simulation advice"}</summary><p>${d.notice}</p>${/fps/.test(d.notice) ? `<button data-hud-action="detail">${document.body.classList.contains('visual-detail-reduced') ? 'Restore visual detail' : 'Reduce visual detail'}</button>` : ""}</details>` : ""}
       ${fold("shot", `Shot details · hood ${f(d.hoodDeg, 1)}° · ${f(d.requiredRpm, 0)} RPM needed`, `<table>
         <tr><td>Hood angle</td><td>${f(d.hoodDeg, 1)}°</td></tr>
         <tr><td>Exit speed need / now</td><td class="${cls(d.rpmOk)}">${f(d.requiredSpeed, 2)} m/s (${f(d.requiredRpm, 0)} RPM) / ${f(d.currentSpeed, 2)} m/s (${f(d.currentRpm, 0)} RPM)</td></tr>
@@ -134,5 +166,7 @@ export class Hud {
       </table>`)}
       ${fold("tags", `AprilTags · ${d.cameraName} · ${d.tags.filter((t) => t.visible).length} visible`, `<div class="tags">${tags || '<span class="tag">no camera</span>'}</div>`)}
     `;
+    if (focusAction) this.root.querySelector<HTMLElement>(`[data-hud-action="${focusAction}"]`)?.focus({ preventScroll: true });
+    else if (focusSection) this.root.querySelector<HTMLElement>(`[data-k="${focusSection}"] > summary`)?.focus({ preventScroll: true });
   }
 }

@@ -334,6 +334,21 @@ export class Match {
     }
   }
 
+  /** Detect before chassis pushing moves the missed ball away. */
+  pickupBlockedByIntake(ag: Agent): boolean {
+    return !ag.intakeActive && ag.inventory.pollen + ag.inventory.nectar < ag.caps.capacity
+      && this.flying.some(b => this.atCollectibleBall(ag, b));
+  }
+
+  private atCollectibleBall(ag: Agent, b: LiveBall): boolean {
+    if (b.inCell || b.carried || b.pos.y > 0.25) return false;
+    if (!b.settled && b.vel.length() > 0.6) return false;
+    if ((b as any).launchedBy === ag.id && this.time - ((b as any).launchedAt ?? -Infinity) < 2) return false;
+    if (b.kind === "pollen" && !ag.caps.pollen) return false;
+    if (b.kind === "nectar" && (!ag.caps.nectar || b.alliance !== ag.alliance)) return false;
+    return inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M);
+  }
+
   private pickup(ag: Agent) {
     if (!ag.intakeActive) return;
     const held = ag.inventory.pollen + ag.inventory.nectar;
@@ -343,12 +358,7 @@ export class Match {
     // loose balls on the floor
     for (let i = 0; i < this.flying.length; i++) {
       const b = this.flying[i];
-      if (b.inCell || b.pos.y > 0.25) continue;
-      if (!b.settled && b.vel.length() > 0.6) continue; // flying or rolling fast: cannot be swallowed
-      if ((b as any).launchedBy === ag.id && this.time - ((b as any).launchedAt ?? -Infinity) < 2) continue; // our own shot leaving
-      if (b.kind === "pollen" && !ag.caps.pollen) continue;
-      if (b.kind === "nectar" && (!ag.caps.nectar || b.alliance !== ag.alliance)) continue;
-      if (!inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M)) continue;
+      if (!this.atCollectibleBall(ag, b)) continue;
       b.mesh.removeFromParent();
       this.flying.splice(i, 1);
       ag.inventory[b.kind]++;
