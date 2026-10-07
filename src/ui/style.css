@@ -383,7 +383,11 @@ body.panel-hidden #view { right: 0; width: 100%; }
 #hud .hero .tile { margin-bottom: 6px; }
 #hud .hero .big { font-size: 28px; }
 #hud .hero .lbl { font-size: 9px; }
-#hud .hud-actions { display: flex; gap: 6px; }
+#hud .hud-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+#hud .hud-actions button.secondary { background: transparent; border-color: transparent; color: var(--muted); font-size: 11px; padding-left: 2px; }
+#hud .hud-actions button.secondary:hover { color: var(--fg); text-decoration: underline; }
+#panel .experiment.flash { animation: experiment-flash 1.6s ease-out; border-radius: 8px; }
+@keyframes experiment-flash { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 #hud button { font-size: 11px; padding: 6px 8px; }
 #hud .shot-summary { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 10px; margin: 10px 0; }
 #hud details { border-top: 1px solid #354152; padding-top: 7px; margin-top: 8px; }

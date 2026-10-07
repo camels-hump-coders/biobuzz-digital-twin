@@ -253,6 +253,18 @@ export class Workspace {
     }
     box.append(alliances, starts); return box;
   }
+  /** Bring a control of the Experiment card into view and focus it (the HUD's guidance points here). */
+  focusExperiment(which: 'hood' | 'camera' | 'drivetrain') {
+    if (this.task !== 'practice') this.navigate('practice');
+    this.root.classList.remove('hidden'); this.updateLayout();
+    const sel = which === 'hood' ? '#panel .experiment input[aria-label^="Hood angle"]' : which === 'camera' ? '#panel .experiment input[aria-label^="Camera diagonal"]' : '#panel .experiment .bot-choice';
+    const target = document.querySelector<HTMLElement>(sel);
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    target.focus({ preventScroll: true });
+    const card = target.closest<HTMLElement>('.experiment'); if (card) { card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1600); }
+    this.say(which === 'hood' ? 'Slide the hood angle; the hit chance and the hit map follow it.' : which === 'camera' ? 'Change the camera and its field of view; watch the preview and the AprilTags row.' : 'Pick a drivetrain and drive a lap.');
+  }
   /** Hood angle and camera field of view, first-class in Practice: the two knobs whose effect on the hit map and on
    *  AprilTag visibility a new user should see before anything else. Bounded sliders; the full controls stay in the
    *  Launcher and Cameras sections. */

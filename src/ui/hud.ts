@@ -115,12 +115,16 @@ export class Hud {
 
     const ready = !d.launchBlocked && d.turretOk && d.rpmOk && !!d.actualHit;
     const title = d.launchBlocked ? 'Shot unavailable' : !d.turretOk ? 'Aim toward the target' : unreachable ? 'Try another position' : d.actualHit ? 'Ready to try a shot' : 'Adjust your shot';
-    const advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'This hood angle and motor limit cannot reach the cell from here.' : !d.actualHit ? 'Open shot analysis to compare the arc, speed, and target.' : 'The predicted arc enters the cell. Shoot to test it.');
+    // guidance order: aim first, then the hood slider in Practice (the one knob a newcomer should touch), then shoot;
+    // "Tune shot" with every knob and lever is where the guide ends, so it stays a quiet secondary link
+    const advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'No arc reaches the cell from here with this hood angle: slide the Hood angle in the Experiment card, or move.' : !d.actualHit ? 'Slide the Hood angle in the Experiment card and watch the hit chance climb.' : 'The predicted arc enters the cell. Shoot to test it.');
+    const live = !d.runtime.startsWith('RUNNING') && !d.runtime.startsWith('INIT') && !document.body.classList.contains('is-replaying');
+    const primary = !live ? '' : !d.turretOk ? '<button data-hud-action="aim">Aim at target</button>' : (!d.actualHit || unreachable) ? '<button data-hud-action="hood">Adjust hood angle →</button>' : '<button data-hud-action="shoot">Shoot · Space</button>';
     this.root.innerHTML = `
       ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
       ${d.pickupBlocked ? '<section class="robot-alert intake-blocked" role="status"><strong>⚠ Ball not collected · intake off</strong><p>You have room for a ball. Turn on the intake motor using your TeamCode controls, then drive the intake over the ball.</p></section>' : ''}
       <div class="readiness ${ready ? 'ready' : ''}"><span class="eyebrow">${document.body.classList.contains('is-replaying') ? 'RECORDED FIELD · LIVE SHOT ANALYSIS' : 'SHOT READINESS'}</span><h2>${title}</h2><p>${advice}</p>
-      <div class="hud-actions">${!d.turretOk && !d.runtime.startsWith('RUNNING') && !d.runtime.startsWith('INIT') && !document.body.classList.contains('is-replaying') ? '<button data-hud-action="aim">Aim at target</button>' : ''}<button data-hud-action="analyze">Tune shot →</button></div>
+      <div class="hud-actions">${primary}<button class="secondary" data-hud-action="analyze" title="Every knob and lever: arc, speed, target, variability">All knobs: Tune shot →</button></div>
       <div class="shot-summary"><span>${d.carrying}</span><span>${d.shotsFired} fired · ${d.shotsHit} settled in target</span></div></div>
       <section class="shot-at-glance" aria-label="Shot summary">
         <div><strong class="${pClass}">${p === undefined ? '—' : `${(p * 100).toFixed(0)}%`}</strong> hit chance after aiming</div>

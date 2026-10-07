@@ -634,6 +634,8 @@ const workspace = new Workspace(state, panel, link, input, onChange);
 hud.onAction = (action) => {
   if (action === "aim" && !link.running && recorder.cursor === undefined) { state.aimRequest = true; canvas.focus(); }
   if (action === "analyze") workspace.navigate("analyze", "shots");
+  if (action === "hood") workspace.focusExperiment("hood");
+  if (action === "shoot" && !link.running && recorder.cursor === undefined) { state.shootRequest = true; canvas.focus(); }
   if (action === "detail") workspace.toggleVisualDetail();
 };
 window.addEventListener("keydown", (e) => {
