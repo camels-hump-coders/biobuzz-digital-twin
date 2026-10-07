@@ -633,14 +633,21 @@ syncRuntime();
 Object.assign(overlays.show, state.overlays);
 const workspace = new Workspace(state, panel, link, input, onChange);
 hud.onAction = (action) => {
-  if (action === "aim" && !link.running && recorder.cursor === undefined) { state.aimRequest = true; canvas.focus(); }
+  if (action === "aim" && !link.running && recorder.cursor === undefined) { state.aimRequest = true; workspace.focusKeyboard(); }
   if (action === "analyze") workspace.navigate("analyze", "shots");
   if (action === "hood") workspace.focusExperiment("hood");
-  if (action === "shoot" && !link.running && recorder.cursor === undefined) { state.shootRequest = true; canvas.focus(); }
+  if (action === "shoot" && !link.running && recorder.cursor === undefined) { state.shootRequest = true; workspace.focusKeyboard(); }
   if (action === "detail") workspace.toggleVisualDetail();
 };
+const DRIVE_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyR", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 window.addEventListener("keydown", (e) => {
   if (document.activeElement === canvas && e.code === "KeyH") panel.toggle();
+  // drive keys typed somewhere else (a button, the page body): the robot will not move, so say why and offer the fix
+  if (document.activeElement !== canvas && DRIVE_KEYS.has(e.code) && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector("dialog[open]")) {
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable);
+    if (!typing) workspace.hintFocus();
+  }
 });
 new ResizeObserver(() => resize()).observe(canvas);
 

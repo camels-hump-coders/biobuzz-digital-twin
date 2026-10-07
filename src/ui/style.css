@@ -409,6 +409,8 @@ body[data-workspace=setup] #hud, body[data-workspace=settings] #hud, body.wide-w
 body:has(.overlay-choice[aria-pressed=true]) #map-legend { z-index: 4; }
 .field-marker { position: absolute; background: #172434e8; color: #e9f3fc; padding: 4px 8px; border: 1px solid #8ab1da; border-radius: 12px; font-size: 10px; transform: translate(-50%,-100%); box-shadow: 0 2px 8px #0004; pointer-events: none; }
 .target-marker { border-color: #e0bd54; color: #f1d680; }
+#workspace-notice .notice-action { margin-left: 10px; padding: 3px 10px; border-radius: 6px; border: 1px solid #7ea98a; background: #1f3a2a; color: #dcf3e4; font-weight: 600; cursor: pointer; pointer-events: auto; }
+#workspace-notice .notice-action:hover { background: #2a4d38; }
 #workspace-notice { position: absolute; top: calc(var(--header-height) + 12px); left: 50%; transform: translateX(-50%); z-index: 25; background: #294435; color: #dcf3e4; border-radius: 7px; padding: 10px 14px; max-width: 550px; box-shadow: 0 4px 20px #0005; font-size: 12px; }
 #workspace-notice:empty { display: none; }
 #panel-toast { top: calc(var(--header-height) + 12px); right: calc(var(--panel-width) + 12px); max-width: 350px; }

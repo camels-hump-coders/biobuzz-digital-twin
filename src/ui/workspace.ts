@@ -181,7 +181,20 @@ export class Workspace {
     }
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
-  private say(message: string) { this.notice.textContent = message; setTimeout(() => { if (this.notice.textContent === message) this.notice.textContent = ''; }, 6000); }
+  private noticeToken = 0;
+  private say(message: string, action?: { label: string; onClick: () => void }, ms = 6000) {
+    const token = ++this.noticeToken;
+    this.notice.replaceChildren(message, ...(action ? [el('button', { class: 'notice-action', onclick: () => { action.onClick(); this.notice.replaceChildren(); } }, action.label)] : []));
+    setTimeout(() => { if (this.noticeToken === token) this.notice.replaceChildren(); }, ms);
+  }
+  private lastFocusHint = 0;
+  /** A drive key arrived while the field was not focused: say so, with a button that focuses it. */
+  hintFocus() {
+    const now = performance.now();
+    if (now - this.lastFocusHint < 8000) return;
+    this.lastFocusHint = now;
+    this.say('Trying to drive? The field is not focused, so the keys are not reaching the robot.', { label: 'Focus the field', onClick: () => this.focusKeyboard() }, 9000);
+  }
   /** Give the field keyboard focus without hiding the panel (used when TeamCode starts so controls reach the robot). */
   focusKeyboard(message?: string) {
     if (document.querySelector('dialog[open]')) return;
