@@ -622,11 +622,11 @@ body.panel-hidden #drive-compass { right: 16px; }
 .team-mark img { width: 54px; height: 54px; object-fit: contain; border-radius: 12px; background: #fff; padding: 3px; box-shadow: 0 0 0 1px #2a3542; }
 .brand-lines { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
 .brand-lockup .brand { display: flex; align-items: center; gap: 10px; font-size: inherit; letter-spacing: 0; line-height: 1; }
-.brand-lockup .season-logo { height: 34px; width: auto; display: block; }
-.twin-word { display: flex; flex-direction: column; justify-content: center; line-height: .86; font-weight: 900; font-size: 16px; letter-spacing: .14em; text-transform: uppercase;
+.brand-lockup .season-hex { height: 30px; width: auto; display: block; border-radius: 7px; }
+.brand-lockup .season-wordmark { height: 18px; width: auto; display: block; }
+.twin-word { font-weight: 900; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; line-height: 1; padding-left: 10px; border-left: 2px solid #c09f20;
   background: linear-gradient(180deg, #fff6b0 0%, #f6e200 55%, #c09f20 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 1px 0 #0f1821); font-family: "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif; }
-.twin-word span:first-child { font-size: 11px; letter-spacing: .32em; }
+  font-family: "Avenir Next Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif; }
 .team-credit { display: flex; align-items: baseline; gap: 5px; color: #f0cc58; text-decoration: none; font-size: 11px; line-height: 1.2; white-space: nowrap; }
 .team-credit small { font-size: 10px; color: #b8c4d2; }
 .team-credit strong { font-weight: 650; }
