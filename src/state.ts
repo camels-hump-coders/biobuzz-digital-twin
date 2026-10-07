@@ -29,7 +29,7 @@ export interface AppState {
   stadium: boolean;
   /** other robots use the CAD chassis (tinted in their alliance colour) instead of boxes */
   opponentsCad: boolean;
-  /** carve the CAD's wheels out and spin them with the drive */
+  /** carve the CAD's wheels out and spin them with the drive (on by default: a one-off geometry pass, then free) */
   wheelSpin: boolean;
   /** transient: rotate to face the target on the next frame */
   aimRequest?: boolean;
@@ -99,7 +99,7 @@ export function defaultState(): AppState {
     pip: true,
     stadium: true,
     opponentsCad: false,
-    wheelSpin: false,
+    wheelSpin: true,
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: true },
     showPerf: false,
     panelAdvanced: false,

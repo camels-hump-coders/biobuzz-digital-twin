@@ -280,6 +280,17 @@ export class Workspace {
       card.append(el('div', { class: 'range-row' }, el('label', {}, `Camera · ${cam.name}`), sel), el('div', { class: 'range-row' }, el('label', {}, 'Field of view'), fovVal), fov,
         el('p', { class: 'note' }, `Wider sees more of the field but each AprilTag gets fewer pixels; narrower reads tags further away but loses them sooner when you turn. Stock ${presetById(cam.presetId).name}: ${presetById(cam.presetId).diagFovDeg ?? presetById(cam.presetId).hfovDeg}°. Watch the camera preview and the AprilTags row.`),
         el('button', { class: 'text-button', onclick: () => { cam.diagFovDeg = undefined; cam.hfovDeg = undefined; this.modify(() => {}, 'cameras'); } }, 'Back to the camera\u2019s own field of view'));
+      // mount: where the camera looks decides which tags it can see at all
+      const pitchVal = el('b', {}, `${cam.pitchDeg.toFixed(0)}° ${cam.pitchDeg >= 0 ? 'down' : 'up'}`);
+      const pitch = el('input', { type: 'range', min: '-30', max: '60', step: '1', value: String(cam.pitchDeg), 'aria-label': 'Camera mount pitch (degrees, positive down)' }) as HTMLInputElement;
+      pitch.oninput = () => { const v = parseFloat(pitch.value); cam.pitchDeg = v; pitchVal.textContent = `${v.toFixed(0)}° ${v >= 0 ? 'down' : 'up'}`; this.change('cameras'); if (this.tutorial === 5) this.tutorial = 6; };
+      pitch.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
+      const heightVal = el('b', {}, `${(cam.heightM / 0.0254).toFixed(1)} in`);
+      const height = el('input', { type: 'range', min: '2', max: '29', step: '0.5', value: String(cam.heightM / 0.0254), 'aria-label': 'Camera mount height (inches)' }) as HTMLInputElement;
+      height.oninput = () => { const v = parseFloat(height.value); cam.heightM = v * 0.0254; heightVal.textContent = `${v.toFixed(1)} in`; this.change('cameras'); if (this.tutorial === 5) this.tutorial = 6; };
+      height.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
+      card.append(el('div', { class: 'range-row' }, el('label', {}, 'Mount pitch'), pitchVal), pitch, el('div', { class: 'range-row' }, el('label', {}, 'Mount height'), heightVal), height,
+        el('p', { class: 'note' }, 'Tilt down to keep the near tags and the floor in view; tilt up (or mount higher) to see the raised cell\u2019s tags from across the field. The camera preview and the viewing cone on the field show what changes.'));
     }
     return card;
   }
@@ -294,7 +305,7 @@ export class Workspace {
     box.querySelectorAll<HTMLButtonElement>('button').forEach(b => { if (b.textContent === 'Reset position') b.disabled = disabled; });
     box.append(this.startControls());
     box.append(this.experimentCard());
-    if (this.sample) box.append(el('div', { class: 'sample-banner' }, el('b', {}, 'Sample setup active'), el('p', {}, ['','1 / 5 · Move a little with WASD.','2 / 5 · Aim toward the highlighted target.','3 / 5 · Shoot and watch the flight.','4 / 5 · Try another position. Tune adjusts the launcher; the field overlay explains your shot.','5 / 5 · Experiment below: slide the hood angle and watch the hit chance and hit map move, then change the camera and its field of view and watch which AprilTags stay in view.'][this.tutorial] || 'Explore at your own pace.'), button('Restore my setup', () => this.restoreSample()), button('Tune this shot', () => this.navigate('analyze', 'shots'))));
+    if (this.sample) box.append(el('div', { class: 'sample-banner' }, el('b', {}, 'Sample setup active'), el('p', {}, ['','1 / 6 · Move a little with WASD.','2 / 6 · Aim toward the highlighted target.','3 / 6 · Shoot and watch the flight.','4 / 6 · Try another position. Tune adjusts the launcher; the field overlay explains your shot.','5 / 6 · Experiment below: slide the hood angle and watch the hit chance and hit map move, then change the camera and its field of view and watch which AprilTags stay in view.','6 / 6 · Now tilt the camera mount and change its height: the viewing cone on the field and the AprilTags row show which tags you can still see.'][this.tutorial] || 'Explore at your own pace.'), button('Restore my setup', () => this.restoreSample()), button('Tune this shot', () => this.navigate('analyze', 'shots'))));
     else box.append(button('Try a sample setup', () => this.trySample(), 'text-button'));
     return box;
   }

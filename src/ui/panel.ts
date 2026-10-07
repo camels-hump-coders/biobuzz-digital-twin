@@ -907,7 +907,7 @@ export class Panel {
       chk("Camera insets (all cameras)", () => st.pip, (v) => { st.pip = v; change("view"); }),
       chk("Stadium backdrop", () => st.stadium, (v) => { st.stadium = v; change("view"); }),
       chk("Spinning wheels on the CAD", () => st.wheelSpin, (v) => { st.wheelSpin = v; change("view"); }),
-      adv(el("div", { class: "note" }, "Carves the wheels out of the CAD mesh once and turns them with the drive (mecanum rollers spin for strafes too). Off by default.")),
+      adv(el("div", { class: "note" }, "Carves the wheels out of the CAD mesh once and turns them with the drive (mecanum rollers spin for strafes too). On by default; the carve is a one-off pass.")),
       adv(chk("Arc if aimed at target (green/red)", () => o.trajectory, (v) => { o.trajectory = v; change("overlays"); }),
       chk("Arc as launcher points now (orange)", () => o.actualArc, (v) => { o.actualArc = v; change("overlays"); }),
       chk("Dispersion cloud", () => o.dispersion, (v) => { o.dispersion = v; change("overlays"); }),
