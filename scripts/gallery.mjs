@@ -30,7 +30,8 @@ const shot = async (page, name) => { await page.screenshot({ path: OUT + name + 
 {
   const browser = await launch();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
-  const seed = { alliance: "red", pose: { x: -0.95, z: 1.55, heading: 0 }, opponents: true, opponentsScore: false, pauseOpponents: true, runtimeEnabled: false, pip: true, panelAdvanced: false, settingsAutoLoad: false,
+  // far audience-side corner: with the StarterBot's fixed 55° hood that is where the twin scores reliably (close shots arrive rising)
+  const seed = { alliance: "red", pose: { x: -1.55, z: 1.6, heading: 0 }, opponents: true, opponentsScore: false, pauseOpponents: true, runtimeEnabled: false, pip: true, panelAdvanced: false, settingsAutoLoad: false, introSeen: true,
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: false } };
   await page.addInitScript((s) => { localStorage.setItem("biobuzz-twin", JSON.stringify(s)); }, seed);
   await page.goto(base, { waitUntil: "networkidle" });
@@ -53,10 +54,17 @@ const shot = async (page, name) => { await page.screenshot({ path: OUT + name + 
     await t(() => { const t = window.__twin; t.state.overlays.hitmap = false; t.state.overlays.dispersion = true; Object.assign(t.overlays.show, t.state.overlays); });
   }
   if (want("hive-tipping")) {
-    await t(() => { const t = window.__twin; t.state.view = "orbit"; t.state.capacity = 12; t.playerAgent.caps.capacity = 12; t.playerAgent.inventory = { pollen: 12, nectar: 0 }; t.state.overlays.dispersion = false; Object.assign(t.overlays.show, t.state.overlays); t.orbitCam.position.set(2.4, 1.9, 2.6); t.controls.target.set(-0.3, 0.9, 0.3); t.controls.update(); });
+    // a tip needs three POLLEN in the cell: shoot many, with the shot variability turned down so the scene is deterministic
+    await t(() => { const t = window.__twin; t.state.view = "orbit"; t.state.capacity = 16; t.playerAgent.caps.capacity = 16; t.playerAgent.inventory = { pollen: 16, nectar: 0 }; for (const k of Object.keys(t.state.noise)) if (typeof t.state.noise[k] === "number") t.state.noise[k] *= 0.2; t.state.overlays.dispersion = false; Object.assign(t.overlays.show, t.state.overlays); t.orbitCam.position.set(2.4, 1.9, 2.6); t.controls.target.set(-0.3, 0.9, 0.3); t.controls.update(); });
+    // find a spot on the audience side from which the fixed-hood shot is a predicted HIT (the HUD's "if aimed" solve)
+    for (const [x, z] of [[-1.6, 1.6], [-1.6, 1.5], [0.8, 1.7], [-1.2, 1.7]]) {
+      await t(([x, z]) => { const t = window.__twin; t.state.pose = { x, z, heading: 0 }; t.state.aimRequest = true; }, [x, z]);
+      await page.waitForTimeout(450);
+      if (await t(() => !!window.__twin.ifAimed()?.hit)) break;
+    }
     await page.mouse.click(800, 500);
-    for (let i = 0; i < 9; i++) { await page.keyboard.press("Space"); await page.waitForTimeout(700); }
-    await page.waitForFunction(() => !!window.__twin.match.hives.red.tipping, null, { timeout: 15_000 }).catch(() => console.log("gallery: no tip"));
+    for (let i = 0; i < 14; i++) { await page.keyboard.press("Space"); await page.waitForTimeout(500); if (await t(() => !!window.__twin.match.hives.red.tipping)) break; }
+    await page.waitForFunction(() => !!window.__twin.match.hives.red.tipping, null, { timeout: 25_000 }).catch(() => console.log("gallery: no tip"));
     await page.waitForTimeout(900); await shot(page, "hive-tipping");
   }
   await browser.close();
