@@ -156,6 +156,9 @@ const scriptedObjs = scripted.map((s) => {
   scene.add(o.group);
   return o;
 });
+// saved toggles: the player's CAD is still loading at this point, so the flag is read when the load lands
+robot.wheelSpin = state.wheelSpin;
+applyScriptedModels();
 
 // ---------- match dynamics (inventories, pickup, flowers, both hives)
 const flying: LiveBall[] = [];
@@ -259,8 +262,18 @@ const input = new Input();
 const hud = new Hud();
 let panel: Panel;
 
+/** Other robots: box or the CAD chassis (the player's model, or the mecanum StarterBot when the player is a box). */
+function applyScriptedModels() {
+  const model = state.opponentsCad ? (state.robot.model === "box" ? "starterbot-mecanum" : state.robot.model) : "box";
+  scriptedObjs.forEach((o) => {
+    o.setWheelSpin(state.wheelSpin);
+    if (o.spec.model !== model) o.applySpec({ ...o.spec, model, modelYawDeg: model === "box" ? 0 : (state.robot.model === model ? state.robot.modelYawDeg : -90) });
+  });
+}
 function applyRobotSpec() {
+  robot.setWheelSpin(state.wheelSpin);
   robot.applySpec(state.robot);
+  applyScriptedModels();
   if (!state.robot.cameras.some((c) => c.id === state.selectedCameraId)) state.selectedCameraId = state.robot.cameras[0]?.id ?? "";
 }
 function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
@@ -272,6 +285,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides));
   if (what === "robot" || what === "cameras" || what === "launcher" || what === "hardware" || what === "sim" || what === "reset") syncBindings();
   if (what === "view") venueFx.group.visible = state.stadium;
+  if (what === "sim" || what === "view") applyScriptedModels();
   if (what === "sim") {
     for (const a of ["red", "blue"] as Alliance[]) if (match.hives[a].upCell !== state.hive[a] && !match.hives[a].tipping) match.resetHive(a);
     playerAgent.alliance = state.alliance;
@@ -1005,6 +1019,10 @@ function frame(now: number) {
   const prevPose = state.pose;
   state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, fieldObstacles(), WALL_MU[state.robot.drivetrain]);
   robot.setPose(state.pose);
+  if (state.wheelSpin) { // world velocity -> robot frame (+X forward, +left)
+    const h = state.pose.heading;
+    robot.spinWheels(dt, vel.vx * -Math.sin(h) + vel.vz * -Math.cos(h), vel.vx * -Math.cos(h) + vel.vz * Math.sin(h), vel.yawRate);
+  }
   perf.mark("drive");
 
   // aim after the collision push-out so a teleport into the frame still ends up pointed at the target
@@ -1080,7 +1098,7 @@ function frame(now: number) {
     if (pins.lastCall && pins.lastCall.at !== lastFoulLogged) { lastFoulLogged = pins.lastCall.at; recorder.event(Date.now(), "foul", pins.lastCall.text); }
     if (pins.lastCall && match.now() - pins.lastCall.at < 4) { contactText = `${pins.lastCall.text}${contactText ? " · " + contactText : ""}`; contactBad = true; }
   }
-  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
+  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); if (state.wheelSpin) o.spinFromPose(dt); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
   // our agent
   playerAgent.pose = state.pose;
   playerAgent.footprint = { lengthM: state.robot.lengthM, widthM: state.robot.widthM };

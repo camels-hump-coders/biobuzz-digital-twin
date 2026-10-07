@@ -27,6 +27,10 @@ export interface AppState {
   pip: boolean;
   /** stadium backdrop: audience stands, lighting truss and sweeping colour spots around the field */
   stadium: boolean;
+  /** other robots use the CAD chassis (tinted in their alliance colour) instead of boxes */
+  opponentsCad: boolean;
+  /** carve the CAD's wheels out and spin them with the drive */
+  wheelSpin: boolean;
   /** transient: rotate to face the target on the next frame */
   aimRequest?: boolean;
   shootRequest?: boolean;
@@ -94,6 +98,8 @@ export function defaultState(): AppState {
     view: "orbit",
     pip: true,
     stadium: true,
+    opponentsCad: false,
+    wheelSpin: false,
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: true },
     showPerf: false,
     panelAdvanced: false,

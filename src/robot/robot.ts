@@ -6,6 +6,7 @@ import type { RobotSpec, CameraMount } from "./robotSpec";
 import { type Intrinsics, fromDiagonal, fromHorizontal } from "../camera/cameraMath";
 import { presetById } from "../camera/cameraPresets";
 import type { Pose } from "../sim/drive";
+import { splitWheelGeometry, wheelAngularSpeed } from "./wheels";
 
 const loader = new GLTFLoader();
 const draco = new DRACOLoader();
@@ -51,6 +52,12 @@ export class RobotObject {
   /** 'box' | 'loading' | 'loaded' | 'failed' */
   modelStatus: "box" | "loading" | "loaded" | "failed" = "box";
   private pollenLoad: THREE.Mesh[] = [];
+  /** carve the CAD's wheels out so they can spin (off by default: a one-off geometry pass per model) */
+  wheelSpin = false;
+  private wheels: { mesh: THREE.Mesh; x: number; z: number; r: number; angle: number }[] = [];
+  private spinPrevPose?: Pose;
+  /** crown clusters the last carve saw (diagnostics via window.__twin) */
+  wheelClusters: { side: number; x: number; span: number; n: number; ok: boolean }[] = [];
 
   readonly isPlayer: boolean;
 
@@ -159,17 +166,21 @@ export class RobotObject {
       wrapper.add(model);
       wrapper.name = "cadWrapper";
       wrapper.rotation.y = ((spec.modelYawDeg ?? 0) * Math.PI) / 180;
+      // our robot is bare aluminium; the other robots carry their alliance colour in the metal so they stay tellable apart
+      const tint = this.isPlayer ? new THREE.Color(0xd8d8d8) : new THREE.Color(0xd8d8d8).lerp(new THREE.Color(spec.color), 0.55);
       model.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) {
           const mesh = o as THREE.Mesh;
           mesh.castShadow = true;
           const mat = mesh.material as THREE.MeshStandardMaterial;
           if (mat && !mat.map) {
-            mesh.material = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, metalness: 0.5, roughness: 0.45 });
+            mesh.material = new THREE.MeshStandardMaterial({ color: tint, metalness: 0.5, roughness: 0.45 });
           }
         }
       });
       this.chassis.add(wrapper);
+      this.wheels = [];
+      if (this.wheelSpin) this.carveWheels(wrapper, spec);
       this.modelStatus = "loaded";
       const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 12), new THREE.MeshBasicMaterial({ color: 0x00ff88 }));
       arrow.rotation.z = -Math.PI / 2;
@@ -182,6 +193,60 @@ export class RobotObject {
       this.spec = { ...this.spec, model: "box" };
       this.rebuildChassis();
     });
+  }
+
+  /** Turn wheel spinning on or off; the CAD is rebuilt from the cached model so the split happens (or is undone). */
+  setWheelSpin(on: boolean) {
+    if (this.wheelSpin === on) return;
+    this.wheelSpin = on;
+    if (this.modelKey !== "box" && this.modelStatus === "loaded") { this.modelKey = ""; this.rebuildChassis(); }
+  }
+
+  /** Carve the wheels out of the welded CAD mesh into separate meshes positioned on their axles (robot-local frame). */
+  private carveWheels(wrapper: THREE.Group, spec: RobotSpec) {
+    wrapper.updateMatrixWorld(true);
+    this.chassis.updateMatrixWorld(true);
+    const toLocal = new THREE.Matrix4().copy(this.chassis.matrixWorld).invert();
+    const meshes: THREE.Mesh[] = [];
+    wrapper.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+    for (const mesh of meshes) {
+      const local = mesh.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld));
+      const split = splitWheelGeometry(local, { widthM: spec.widthM, wheelDiameterM: spec.wheelDiameterM });
+      if (split) this.wheelClusters = split.clusters;
+      if (!split || !split.wheels.length) { local.dispose(); continue; }
+      const body = new THREE.Mesh(split.body, mesh.material); body.castShadow = true;
+      this.chassis.add(body);
+      for (const w of split.wheels) {
+        const wm = new THREE.Mesh(w.geometry, mesh.material); wm.castShadow = true;
+        wm.position.set(w.x, w.y, w.z);
+        this.chassis.add(wm);
+        this.wheels.push({ mesh: wm, x: w.x, z: w.z, r: w.r, angle: 0 });
+      }
+      mesh.visible = false; // the welded original stays in the wrapper (for bounds), hidden
+      local.dispose();
+    }
+  }
+
+  /** Advance the wheels for a body moving with these robot-frame speeds (m/s, rad/s CCW). */
+  spinWheels(dt: number, fwd: number, left: number, yaw: number) {
+    if (!this.wheels.length) return;
+    for (const w of this.wheels) {
+      w.angle -= wheelAngularSpeed(w.x, w.z, w.r, fwd, left, yaw, this.spec.drivetrain) * dt; // forward motion rolls the top of the wheel forward (+X)
+      w.mesh.rotation.z = w.angle;
+    }
+  }
+
+  /** For robots the twin moves by pose (scripted robots, replay): derive the speeds from the pose change. */
+  spinFromPose(dt: number) {
+    const prev = this.spinPrevPose, cur = this.pose;
+    this.spinPrevPose = { ...cur };
+    if (!prev || dt <= 0 || !this.wheels.length) return;
+    const dx = cur.x - prev.x, dz = cur.z - prev.z;
+    let dh = cur.heading - prev.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+    const h = cur.heading;
+    const fwd = (dx * -Math.sin(h) + dz * -Math.cos(h)) / dt, left = (dx * -Math.cos(h) + dz * Math.sin(h)) / dt;
+    if (Math.hypot(dx, dz) > 0.5) return; // teleport, not motion
+    this.spinWheels(dt, fwd, left, dh / dt);
   }
 
   private updateLoad() {
