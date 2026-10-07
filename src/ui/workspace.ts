@@ -187,7 +187,7 @@ export class Workspace {
     this.notice.replaceChildren(message, ...(action ? [el('button', { class: 'notice-action', onclick: () => { action.onClick(); this.notice.replaceChildren(); } }, action.label)] : []));
     setTimeout(() => { if (this.noticeToken === token) this.notice.replaceChildren(); }, ms);
   }
-  private lastFocusHint = 0;
+  private lastFocusHint = -Infinity; // so the very first hint shows immediately, not 8 s after load
   /** A drive key arrived while the field was not focused: say so, with a button that focuses it. */
   hintFocus() {
     const now = performance.now();
