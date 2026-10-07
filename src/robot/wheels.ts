@@ -66,35 +66,36 @@ export function splitWheelGeometry(geo: THREE.BufferGeometry, p: WheelSplitParam
             if (z < zLo) zLo = z; if (z > zHi) zHi = z;
           }
           // Kåsa fit for the axle x (robust: the arc is symmetric about it even on mecanum rollers)
-          let plausible = n >= 12, cx = cx0, cy = r, rr = r;
+          let plausible = n >= 12, cx = cx0, cy = r, rr = r, zLoW = zLo, zHiW = zHi;
           if (plausible) {
             const A = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]], B = [-sxz, -syz, -sz];
             const sol = solve3(A, B);
             if (sol) cx = -sol[0] / 2; else plausible = false;
           }
-          // radius from the arc's outer envelope: per height band the widest point lies on the wheel circle (on a mecanum
-          // wheel that is the roller crest; the roller barrels inside it would make a plain fit far too small), and a
-          // chord at height y gives r = (dx² + y²) / 2y
+          // radius and axle height from the tyre's own top and bottom: within the tyre's lateral extent (taken from
+          // the bottom arc, so hubs and brackets inboard of the tyre are excluded) the highest point directly above the
+          // axle is the tyre top. Chord fits on mecanum rollers overshoot by millimetres; this does not.
           if (plausible) {
-            let bottom = Infinity;
-            const bands = new Map<number, number>();
+            let bottom = Infinity, zLo = Infinity, zHi = -Infinity;
             for (let i = 0; i < pos.count; i++) {
               const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-              if (z < zMin - 0.006 || z > zMax + 0.006 || Math.abs(x - cx) > r * 1.1 || y > r * 0.5) continue;
-              if (y < bottom) bottom = y;
-              const b = Math.round(y / 0.003);
-              bands.set(b, Math.max(bands.get(b) ?? 0, Math.abs(x - cx)));
+              if (z < zMin - 0.006 || z > zMax + 0.006 || Math.abs(x - cx) > r * 0.6 || y > r * 0.35) continue;
+              if (y < bottom) bottom = y; if (z < zLo) zLo = z; if (z > zHi) zHi = z;
             }
-            const est: number[] = [];
-            for (const [b, dx] of bands) { const y = b * 0.003 - bottom; if (y > r * 0.04 && y < r * 0.5) est.push((dx * dx + y * y) / (2 * y)); }
-            est.sort((a, b) => a - b);
-            if (est.length >= 2) { rr = est[Math.floor(est.length / 2)]; cy = bottom + rr; } else plausible = false;
+            let top = -Infinity;
+            for (let i = 0; i < pos.count; i++) {
+              const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+              if (z < zLo || z > zHi || Math.abs(x - cx) > r * 0.15 || y > p.wheelDiameterM * 1.15) continue;
+              if (y > top) top = y;
+            }
+            if (Number.isFinite(bottom) && Number.isFinite(top)) { rr = (top - bottom) / 2; cy = (top + bottom) / 2; } else plausible = false;
             plausible = plausible && bottom < 0.015;
+            if (plausible) { zLoW = zLo; zHiW = zHi; }
           }
           // a drive wheel: about the configured size, standing on the floor, axle where the crown said
           plausible = plausible && Math.abs(rr - r) < r * 0.2 && Math.abs(cx - cx0) < r * 0.5;
           clusters[clusters.length - 1].ok = plausible; clusters[clusters.length - 1].fit = { n, cx, cy, r: rr };
-          const zMinW = Number.isFinite(zLo) ? zLo : zMin, zMaxW = Number.isFinite(zHi) ? zHi : zMax;
+          const zMinW = Number.isFinite(zLoW) ? zLoW : zMin, zMaxW = Number.isFinite(zHiW) ? zHiW : zMax;
           if (plausible) centres.push({ x: cx, z: (zMinW + zMaxW) / 2, zMin: zMinW, zMax: zMaxW, r: rr, cy });
         }
         start = i;

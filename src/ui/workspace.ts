@@ -529,8 +529,11 @@ export class Workspace {
     select.onchange = () => { this.state.overlays.hitmap = select.value === 'hitmap'; this.state.overlays.reach = select.value === 'reach'; this.change('overlays'); this.panel.render(); };
     return select;
   }
+  private viewToolsOpen = false;
   private buildViewTools() {
-    const box = el('details', { class: 'view-tools' }, el('summary', {}, 'Field view')); // the panel's "View & overlays" section holds every overlay checkbox
+    // the box is rebuilt on every change; remember whether the user had it open so toggling a setting does not close it
+    const box = el('details', { class: 'view-tools', ...(this.viewToolsOpen ? { open: '' } : {}) }, el('summary', {}, 'Field view')); // the panel's "View & overlays" section holds every overlay checkbox
+    box.addEventListener('toggle', () => { this.viewToolsOpen = box.open; });
     const views = el('div', { class: 'view-buttons' });
     for (const [value, label] of [['orbit', 'Orbit'], ['top', 'Top'], ['chase', 'Chase'], ['robot', 'Camera']] as const) views.append(el('button', { 'aria-pressed': String(this.state.view === value), onclick: () => this.modify(() => this.state.view = value, 'view') }, label));
     box.append(views, this.overlaySelector());
