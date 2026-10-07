@@ -177,6 +177,15 @@ export class Workspace {
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
   private say(message: string) { this.notice.textContent = message; setTimeout(() => { if (this.notice.textContent === message) this.notice.textContent = ''; }, 6000); }
+  /** Give the field keyboard focus without hiding the panel (used when TeamCode starts so controls reach the robot). */
+  focusKeyboard(message?: string) {
+    if (document.querySelector('dialog[open]')) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && active !== document.body && active !== this.canvas && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return; // never steal a field being typed in
+    this.canvas.focus({ preventScroll: true });
+    requestAnimationFrame(() => this.canvas.focus({ preventScroll: true }));
+    if (message) this.say(message);
+  }
   focusField() {
     if (document.querySelector('dialog[open]')) return;
     this.root.classList.add('hidden'); this.updateLayout();

@@ -596,6 +596,8 @@ link.onChange = () => {
   // Driver-Station flow: INIT parks everything at the start positions, START releases the match clock and the other
   // robots together with the OpMode, STOP freezes them
   if (link.status !== lastLinkStatus) {
+    // START on TeamCode: the keyboard drives gamepad1 straight away, no click on the field needed first
+    if (link.status === "RUNNING") workspace.focusKeyboard("TeamCode started: keyboard is gamepad1. Press Tab for gamepad2.");
     if ((link.status === "INIT" || link.status === "RUNNING") && recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } // a new run: back to live
     if (link.status === "INIT") resetBoard();
     else if (link.status === "RUNNING") startMatch();
