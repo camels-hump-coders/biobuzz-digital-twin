@@ -14,7 +14,7 @@ export interface WheelSplitParams {
   gapM?: number;
 }
 export interface WheelPart { geometry: THREE.BufferGeometry; x: number; z: number; r: number; /** axle height */ y: number }
-export interface WheelSplit { body: THREE.BufferGeometry; wheels: WheelPart[]; /** every crown cluster seen, accepted or not (diagnostics) */ clusters: { side: number; x: number; span: number; n: number; ok: boolean }[] }
+export interface WheelSplit { body: THREE.BufferGeometry; wheels: WheelPart[]; /** every crown cluster seen, accepted or not (diagnostics) */ clusters: { side: number; x: number; span: number; n: number; ok: boolean; fit?: { n: number; cx: number; cy: number; r: number } }[] }
 
 /**
  * Split a robot-local geometry (+X forward, +Y up, +Z right, bottom at y=0) into body + wheels. Wheel centres are found
@@ -54,32 +54,54 @@ export function splitWheelGeometry(geo: THREE.BufferGeometry, p: WheelSplitParam
         if (ok) {
           const cx0 = core.reduce((a, c) => a + c.x, 0) / core.length;
           const zMin = Math.min(...core.map((c) => c.z)), zMax = Math.max(...core.map((c) => c.z));
-          // refine the circle inside this wheel's lateral slice: a narrow vertical column through the rough centre gives
-          // top and bottom (radius and axle height), a narrow row at axle height gives the x extent (axle x). Narrow
-          // strips are far less polluted by bumpers or intake rollers sharing the slice than the whole extent would be.
-          let top = -Infinity, bottom = Infinity;
+          // refine the circle from the wheel's bottom arc: at floor level in this lateral slice nothing but the tyre
+          // exists (brackets and motor mounts sit higher), so an algebraic circle fit through those points gives the
+          // axle and radius without bias. The slice's own z extent at the bottom is the tyre width.
+          let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, sxz = 0, syz = 0, sz = 0, n = 0, zLo = Infinity, zHi = -Infinity;
           for (let i = 0; i < pos.count; i++) {
             const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-            if (z < zMin - 0.004 || z > zMax + 0.004 || Math.abs(x - cx0) > r * 0.3 || y > p.wheelDiameterM * 1.1) continue;
-            if (y > top) top = y; if (y < bottom) bottom = y;
+            if (z < zMin - 0.006 || z > zMax + 0.006 || Math.abs(x - cx0) > r * 1.1 || y > r * 0.35) continue;
+            const q = x * x + y * y;
+            sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; sxz += x * q; syz += y * q; sz += q; n++;
+            if (z < zLo) zLo = z; if (z > zHi) zHi = z;
           }
-          const rr = (top - bottom) / 2, cy = (top + bottom) / 2;
-          let xMin = Infinity, xMax = -Infinity;
-          for (let i = 0; i < pos.count; i++) {
-            const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-            if (z < zMin - 0.004 || z > zMax + 0.004 || Math.abs(y - cy) > rr * 0.3 || Math.abs(x - cx0) > rr * 1.3) continue;
-            if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+          // Kåsa fit for the axle x (robust: the arc is symmetric about it even on mecanum rollers)
+          let plausible = n >= 12, cx = cx0, cy = r, rr = r;
+          if (plausible) {
+            const A = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]], B = [-sxz, -syz, -sz];
+            const sol = solve3(A, B);
+            if (sol) cx = -sol[0] / 2; else plausible = false;
           }
-          // a drive wheel: about the configured size and standing on the floor (intake rollers sit higher, bumpers are flat)
-          const plausible = Number.isFinite(rr) && Math.abs(rr - r) < r * 0.2 && bottom < 0.015 && Number.isFinite(xMin);
-          clusters[clusters.length - 1].ok = plausible;
-          if (plausible) centres.push({ x: (xMin + xMax) / 2, z: (zMin + zMax) / 2, zMin, zMax, r: rr, cy });
+          // radius from the arc's outer envelope: per height band the widest point lies on the wheel circle (on a mecanum
+          // wheel that is the roller crest; the roller barrels inside it would make a plain fit far too small), and a
+          // chord at height y gives r = (dx² + y²) / 2y
+          if (plausible) {
+            let bottom = Infinity;
+            const bands = new Map<number, number>();
+            for (let i = 0; i < pos.count; i++) {
+              const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+              if (z < zMin - 0.006 || z > zMax + 0.006 || Math.abs(x - cx) > r * 1.1 || y > r * 0.5) continue;
+              if (y < bottom) bottom = y;
+              const b = Math.round(y / 0.003);
+              bands.set(b, Math.max(bands.get(b) ?? 0, Math.abs(x - cx)));
+            }
+            const est: number[] = [];
+            for (const [b, dx] of bands) { const y = b * 0.003 - bottom; if (y > r * 0.04 && y < r * 0.5) est.push((dx * dx + y * y) / (2 * y)); }
+            est.sort((a, b) => a - b);
+            if (est.length >= 2) { rr = est[Math.floor(est.length / 2)]; cy = bottom + rr; } else plausible = false;
+            plausible = plausible && bottom < 0.015;
+          }
+          // a drive wheel: about the configured size, standing on the floor, axle where the crown said
+          plausible = plausible && Math.abs(rr - r) < r * 0.2 && Math.abs(cx - cx0) < r * 0.5;
+          clusters[clusters.length - 1].ok = plausible; clusters[clusters.length - 1].fit = { n, cx, cy, r: rr };
+          const zMinW = Number.isFinite(zLo) ? zLo : zMin, zMaxW = Number.isFinite(zHi) ? zHi : zMax;
+          if (plausible) centres.push({ x: cx, z: (zMinW + zMaxW) / 2, zMin: zMinW, zMax: zMaxW, r: rr, cy });
         }
         start = i;
       }
     }
   }
-  if (!centres.length) return undefined;
+  if (!centres.length) return { body: geo, wheels: [], clusters };
   // 2) partition triangles: all three vertices inside a wheel cylinder -> that wheel
   const normal = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
   const buckets: number[][] = centres.map(() => []);
@@ -87,7 +109,7 @@ export function splitWheelGeometry(geo: THREE.BufferGeometry, p: WheelSplitParam
   // membership: inside the wheel's cylinder, within the lateral extent its own crown showed (plus a little for the hub)
   const inWheel = (i: number, c: { x: number; z: number; zMin: number; zMax: number; r: number; cy: number }) => {
     const dx = pos.getX(i) - c.x, dy = pos.getY(i) - c.cy, z = pos.getZ(i);
-    return Math.hypot(dx, dy) <= c.r * 1.08 && z >= c.zMin - 0.006 && z <= c.zMax + 0.006;
+    return Math.hypot(dx, dy) <= c.r * 1.06 && z >= c.zMin - 0.003 && z <= c.zMax + 0.003;
   };
   for (let t = 0; t < triCount; t++) {
     let hit = -1;
@@ -110,6 +132,15 @@ export function splitWheelGeometry(geo: THREE.BufferGeometry, p: WheelSplitParam
   };
   const wheels: WheelPart[] = centres.map((c, w) => ({ geometry: build(buckets[w], c.x, c.cy, c.z), x: c.x, z: c.z, r: c.r, y: c.cy })).filter((w) => w.geometry.getAttribute("position").count > 0);
   return { body: build(bodyTris, 0, 0, 0), wheels, clusters };
+}
+
+/** 3x3 linear solve by Cramer's rule; undefined when singular. */
+function solve3(A: number[][], B: number[]): number[] | undefined {
+  const det = (m: number[][]) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const d = det(A);
+  if (Math.abs(d) < 1e-18) return undefined;
+  const col = (k: number) => A.map((row, i) => row.map((v, j) => (j === k ? B[i] : v)));
+  return [det(col(0)) / d, det(col(1)) / d, det(col(2)) / d];
 }
 
 /**

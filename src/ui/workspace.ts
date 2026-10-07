@@ -530,7 +530,7 @@ export class Workspace {
     return select;
   }
   private buildViewTools() {
-    const box = el('details', { class: 'view-tools' }, el('summary', {}, 'View & overlays'));
+    const box = el('details', { class: 'view-tools' }, el('summary', {}, 'Field view')); // the panel's "View & overlays" section holds every overlay checkbox
     const views = el('div', { class: 'view-buttons' });
     for (const [value, label] of [['orbit', 'Orbit'], ['top', 'Top'], ['chase', 'Chase'], ['robot', 'Camera']] as const) views.append(el('button', { 'aria-pressed': String(this.state.view === value), onclick: () => this.modify(() => this.state.view = value, 'view') }, label));
     box.append(views, this.overlaySelector());

@@ -40,9 +40,10 @@ describe("CAD wheel split", () => {
     const split = splitWheelGeometry(chassisWithWheels([-0.18, 0, 0.18]), { widthM: 0.42, wheelDiameterM: 0.104 })!;
     expect(split.wheels.length).toBe(6);
   });
-  it("returns undefined when there is nothing wheel-like", () => {
+  it("finds no wheels when there is nothing wheel-like", () => {
     const body = new THREE.BoxGeometry(0.4, 0.3, 0.3); body.translate(0, 0.15, 0);
-    expect(splitWheelGeometry(body.toNonIndexed(), { widthM: 0.42, wheelDiameterM: 0.104 })).toBeUndefined();
+    const split = splitWheelGeometry(body.toNonIndexed(), { widthM: 0.42, wheelDiameterM: 0.104 });
+    expect(split === undefined || split.wheels.length === 0).toBe(true);
   });
 });
 
