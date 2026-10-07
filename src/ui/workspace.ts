@@ -275,16 +275,18 @@ export class Workspace {
       const diag = cam.diagFovDeg ?? (Math.atan(Math.hypot(Math.tan(intr.hfov / 2), Math.tan(intr.vfov / 2))) * 2 * 180) / Math.PI;
       const fovVal = el('b', {}, `${diag.toFixed(0)}° diagonal`);
       const fov = el('input', { type: 'range', min: '30', max: '160', step: '1', value: String(Math.round(diag)), 'aria-label': 'Camera diagonal field of view (degrees)' }) as HTMLInputElement;
-      fov.oninput = () => { const v = parseFloat(fov.value); cam.diagFovDeg = v; cam.hfovDeg = undefined; fovVal.textContent = `${v.toFixed(0)}° diagonal`; this.change('cameras'); if (this.tutorial === 4) this.tutorial = 5; };
+      fov.oninput = () => {
+        // a hand-set field of view makes this a Custom camera (keeping the resolution it had), so the picker says so
+        const v = parseFloat(fov.value);
+        if (cam.presetId !== 'custom') { const was = intrinsicsFor(cam); cam.width = was.width; cam.height = was.height; cam.presetId = 'custom'; sel.value = 'custom'; }
+        cam.diagFovDeg = v; cam.hfovDeg = undefined; fovVal.textContent = `${v.toFixed(0)}° diagonal`; this.change('cameras'); if (this.tutorial === 4) this.tutorial = 5;
+      };
       fov.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
       card.append(el('div', { class: 'range-row' }, el('label', {}, `Camera · ${cam.name}`), sel), el('div', { class: 'range-row' }, el('label', {}, 'Field of view'), fovVal), fov,
-        el('p', { class: 'note' }, `Wider sees more of the field but each AprilTag gets fewer pixels; narrower reads tags further away but loses them sooner when you turn. Stock ${presetById(cam.presetId).name}: ${presetById(cam.presetId).diagFovDeg ?? presetById(cam.presetId).hfovDeg}°. Watch the camera preview and the AprilTags row.`),
-        ...(cam.diagFovDeg !== undefined || cam.hfovDeg !== undefined
-          ? [el('button', { class: 'text-button', onclick: () => { cam.diagFovDeg = undefined; cam.hfovDeg = undefined; this.modify(() => {}, 'cameras'); } }, 'Back to the camera\u2019s own field of view')]
-          : []));
+        el('p', { class: 'note' }, `Wider sees more of the field but each AprilTag gets fewer pixels; narrower reads tags further away but loses them sooner when you turn. ${cam.presetId === 'custom' ? 'Pick a real camera to go back to its own lens.' : `Sliding makes this a Custom camera; ${presetById(cam.presetId).name} itself is ${presetById(cam.presetId).diagFovDeg ?? presetById(cam.presetId).hfovDeg}°.`} Watch the camera preview and the AprilTags row.`));
       // mount: where the camera looks decides which tags it can see at all
       const pitchVal = el('b', {}, `${cam.pitchDeg.toFixed(0)}° ${cam.pitchDeg >= 0 ? 'down' : 'up'}`);
-      const pitch = el('input', { type: 'range', min: '-30', max: '60', step: '1', value: String(cam.pitchDeg), 'aria-label': 'Camera mount pitch (degrees, positive down)' }) as HTMLInputElement;
+      const pitch = el('input', { type: 'range', min: '-60', max: '60', step: '1', value: String(cam.pitchDeg), 'aria-label': 'Camera mount pitch (degrees, positive down)' }) as HTMLInputElement;
       pitch.oninput = () => { const v = parseFloat(pitch.value); cam.pitchDeg = v; pitchVal.textContent = `${v.toFixed(0)}° ${v >= 0 ? 'down' : 'up'}`; this.change('cameras'); if (this.tutorial === 5) this.tutorial = 6; };
       pitch.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
       const heightVal = el('b', {}, `${(cam.heightM / 0.0254).toFixed(1)} in`);

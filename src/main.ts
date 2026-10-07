@@ -45,7 +45,7 @@ import { analyseTags as analyseTagsFor } from "./camera/robotCamera";
 import { velocityFrom } from "./ballistics/projectile";
 import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
 import { IN, clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
-import { clonePreset } from "./robot/presets";
+import { clonePreset, ROBOT_PRESETS } from "./robot/presets";
 
 const state: AppState = loadState();
 // `pnpm sim` opens the page with ?runtime=1 so the twin connects to the host straight away
@@ -268,7 +268,8 @@ function applyScriptedModels() {
   const model = state.opponentsCad ? (state.robot.model === "box" ? "starterbot-mecanum" : state.robot.model) : "box";
   scriptedObjs.forEach((o) => {
     o.setWheelSpin(state.wheelSpin);
-    if (o.spec.model !== model) o.applySpec({ ...o.spec, model, modelYawDeg: model === "box" ? 0 : (state.robot.model === model ? state.robot.modelYawDeg : -90) });
+    const preset = Object.values(ROBOT_PRESETS).find((p) => p.model === model);
+    if (o.spec.model !== model) o.applySpec({ ...o.spec, model, modelYawDeg: model === "box" ? 0 : (preset?.modelYawDeg ?? state.robot.modelYawDeg ?? 0) });
   });
 }
 function applyRobotSpec() {

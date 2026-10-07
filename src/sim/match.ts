@@ -432,8 +432,10 @@ export class Match {
     }
     if (brain.mode === "aim") {
       r.target = undefined;
+      // like the StarterBot: the intake is at the front and the launcher fires out over the back, so turn the back
+      // toward the cell (the robot drives in forwards to collect, then spins round to shoot)
       const target = aimPoint(this.upFrame(ag.alliance), 0.05);
-      const want = headingToward(r.pose, target);
+      const want = headingToward(r.pose, target) + Math.PI;
       const err = wrapAngle(want - r.pose.heading);
       r.pose = { ...r.pose, heading: r.pose.heading + clamp(err, -2.5 * dt, 2.5 * dt) };
       if (Math.abs(err) < 0.03) { brain.mode = "fire"; brain.timer = 0; brain.shots = 0; }
@@ -447,7 +449,7 @@ export class Match {
       // shot: 55-degree hood, solver speed, modest noise
       const frame = this.upFrame(ag.alliance);
       const target = aimPoint(frame, 0.05);
-      const exit = new THREE.Vector3(r.pose.x - Math.sin(r.pose.heading) * 0.1, 0.33, r.pose.z - Math.cos(r.pose.heading) * 0.1);
+      const exit = new THREE.Vector3(r.pose.x + Math.sin(r.pose.heading) * 0.1, 0.33, r.pose.z + Math.cos(r.pose.heading) * 0.1); // 0.1 m behind the centre: the ramp end
       const kind: BallKind = ag.inventory.nectar > 0 ? "nectar" : "pollen";
       const props = kind === "pollen" ? BALL.pollen : BALL.nectarRed;
       const ball = { massKg: props.massKg, diameterM: m(props.diaIn), cd: 0.45, cl: 0 };
