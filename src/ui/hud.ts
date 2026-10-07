@@ -59,40 +59,71 @@ export interface HudData {
 
 export class Hud {
   private root = document.getElementById("hud")!;
+  /** which fold-out sections are open; remembered across reloads */
+  private open = new Set<string>(["tags"]);
+  constructor() {
+    try { const saved = localStorage.getItem("biobuzz-hud-open"); if (saved) this.open = new Set(JSON.parse(saved)); } catch { /* ignore */ }
+    // <details> toggles do not bubble, so listen in the capture phase on the root (innerHTML re-renders every frame)
+    this.root.addEventListener("toggle", (e) => {
+      const d = e.target as HTMLDetailsElement; const k = d.dataset.k; if (!k) return;
+      if (d.open) this.open.add(k); else this.open.delete(k);
+      try { localStorage.setItem("biobuzz-hud-open", JSON.stringify([...this.open])); } catch { /* ignore */ }
+    }, true);
+  }
   update(d: HudData) {
     const f = (v: number | undefined, p = 1) => (v === undefined || !Number.isFinite(v) ? "–" : v.toFixed(p));
     const cls = (ok: boolean | undefined) => (ok === undefined ? "" : ok ? "ok" : "bad");
     const tags = d.tags.map((t) => `<span class="tag ${t.visible ? "vis" : t.inFov && t.facing ? "occ" : ""}" title="${t.alliance} ${t.side} · ${f(t.distanceM / 0.0254, 0)} in · ${f(t.pixels, 0)} px">${t.id}</span>`).join("");
+    const fold = (k: string, title: string, body: string) => `<details data-k="${k}" ${this.open.has(k) ? "open" : ""}><summary>${title}</summary>${body}</details>`;
+
+    // ---- hero: hit chance from here, colour coded; never waits for the Monte Carlo (shows "computing" until it lands)
+    const unreachable = d.requiredSpeed === undefined || !d.rpmOk;
+    const pClass = d.pHit === undefined ? (unreachable ? "bad" : "pending") : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad";
+    const pBig = d.pHit === undefined ? (unreachable ? "—" : "…") : `${(d.pHit * 100).toFixed(0)}<small>%</small>`;
+    const pSub = d.pHit === undefined
+      ? (d.requiredSpeed === undefined ? "no arc reaches the cell at this hood" : !d.rpmOk ? `needs ${f(d.requiredRpm, 0)} RPM, over the flywheel's max` : "computing…")
+      : `95% CI ${(d.pLo! * 100).toFixed(0)}–${(d.pHi! * 100).toFixed(0)} · n=${d.mcN}${d.meanMissIn ? ` · misses by ${f(d.meanMissIn, 1)} in` : ""}`;
+    const predicted = d.hit === undefined ? "–" : d.hit ? "HIT" : "MISS";
+    const bearing = `${f(d.bearingErrDeg, 1)}° ${d.turretOk ? "in turret range" : "turn robot"}`;
+
     this.root.innerHTML = `
-      <h2>Robot</h2>
-      <table>
+      <div class="hero">
+        <div class="tile p ${pClass}"><div class="big">${pBig}</div><div class="lbl">hit chance from here</div><div class="sub">${pSub}</div></div>
+        <div class="tile">
+          <div class="kv"><span>Predicted${d.aimed ? "" : " once aimed"}</span><b class="${cls(d.hit)}">${predicted}</b></div>
+          <div class="kv"><span>Pointed now</span><b class="${cls(d.actualHit)}">${d.actualHit === undefined ? "–" : d.actualHit ? "HIT" : "MISS"}</b></div>
+          <div class="kv"><span>Range</span><b>${f(d.rangeIn, 1)} in</b></div>
+          <div class="kv"><span>Bearing</span><b class="${cls(d.turretOk)}">${bearing}</b></div>
+          <div class="kv"><span>Carrying</span><b class="${d.launchBlocked ? "bad" : ""}">${d.carrying}</b></div>
+        </div>
+      </div>
+      <div class="target">Target: ${d.target}</div>
+      <div class="status">
+        <span class="pill ${d.matchClass ?? ""}">${d.match}</span>
+        <span class="pill rt">${d.runtime}</span>
+      </div>
+      ${d.notice ? `<div class="notice ${d.noticeBad ? "bad" : "warn"}">${d.notice}</div>` : ""}
+      ${fold("shot", `Shot details · hood ${f(d.hoodDeg, 1)}° · ${f(d.requiredRpm, 0)} RPM needed`, `<table>
+        <tr><td>Hood angle</td><td>${f(d.hoodDeg, 1)}°</td></tr>
+        <tr><td>Exit speed need / now</td><td class="${cls(d.rpmOk)}">${f(d.requiredSpeed, 2)} m/s (${f(d.requiredRpm, 0)} RPM) / ${f(d.currentSpeed, 2)} m/s (${f(d.currentRpm, 0)} RPM)</td></tr>
+        <tr><td>Entry</td><td>Δh ${f(d.heightErrorIn, 1)} in · entry ${f(d.entryAngleDeg, 0)}°</td></tr>
+        <tr><td>Flight</td><td>${f(d.flightTime, 2)} s · apex ${f(d.apexIn, 0)} in</td></tr>
+        <tr><td>Lowest-energy</td><td>${d.bestAngleDeg === undefined ? "no feasible angle in hood range" : `${f(d.bestAngleDeg, 1)}° @ ${f(d.bestSpeed, 2)} m/s (${f(d.bestRpm, 0)} RPM)`}</td></tr>
+        <tr><td>Fired / hit</td><td>${d.shotsFired} / ${d.shotsHit}</td></tr>
+      </table>`)}
+      ${fold("match", `Match & field · ${d.tipping ?? d.cellLoad.replace(/ = .*$/, "")} · ${d.tips} tip${d.tips === 1 ? "" : "s"}`, `<table>
+        <tr><td>Our up cell</td><td class="${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad} · ${d.tips} tip${d.tips === 1 ? "" : "s"} (${d.tips * 20} pts)</td></tr>
+        <tr><td>Their hive</td><td>${d.theirHive}</td></tr>
+        <tr><td>Score</td><td>${d.score}</td></tr>
+        <tr><td>Robot contact</td><td class="${d.contact ? (d.contactBad ? "bad" : "warn") : "quiet"}">${d.contact ?? "none"}</td></tr>
+        <tr><td>Field supply</td><td>${d.supply}</td></tr>
+      </table>`)}
+      ${fold("robot", `Robot · ${f(d.poseIn.x)}, ${f(d.poseIn.z)} in · ${f(d.poseIn.headingDeg, 0)}° · ${f(d.speedMps, 2)} m/s`, `<table>
         <tr><td>Position</td><td>${f(d.poseIn.x)} , ${f(d.poseIn.z)} in · ${f(d.poseIn.headingDeg, 0)}°</td></tr>
         <tr><td>Speed</td><td>${f(d.speedMps, 2)} m/s · ${d.drivetrain}${d.fieldCentric ? " · field-centric" : ""}</td></tr>
         <tr><td>Chassis</td><td>${d.modelStatus}</td></tr>
-        <tr><td>Runtime</td><td class="two">${d.runtime}</td></tr>
-        <tr><td>Match</td><td class="two ${d.matchClass ?? ""}">${d.match}</td></tr>
-        <tr><td>Notice</td><td class="two clamp ${d.notice ? (d.noticeBad ? "bad" : "warn") : "quiet"}">${d.notice ?? "—"}</td></tr>
-      </table>
-      <h2 style="margin-top:8px">Shot → ${d.target}</h2>
-      <table>
-        <tr><td>Range (horizontal)</td><td>${f(d.rangeIn, 1)} in</td></tr>
-        <tr><td>Bearing error</td><td class="${cls(d.turretOk)}">${f(d.bearingErrDeg, 1)}° ${d.turretOk ? "(in turret range)" : "(turn robot)"}</td></tr>
-        <tr><td>Hood angle</td><td>${f(d.hoodDeg, 1)}°</td></tr>
-        <tr><td>Exit speed need / now</td><td class="${cls(d.rpmOk)}">${f(d.requiredSpeed, 2)} m/s (${f(d.requiredRpm, 0)} RPM) / ${f(d.currentSpeed, 2)} m/s (${f(d.currentRpm, 0)} RPM)</td></tr>
-        <tr><td>Predicted${d.aimed ? "" : " (once aimed)"}</td><td class="${cls(d.hit)}">${d.hit === undefined ? "–" : d.hit ? "HIT" : "MISS"} · Δh ${f(d.heightErrorIn, 1)} in · entry ${f(d.entryAngleDeg, 0)}°</td></tr>
-        <tr><td>Flight</td><td>${f(d.flightTime, 2)} s · apex ${f(d.apexIn, 0)} in</td></tr>
-        <tr><td>Lowest-energy</td><td>${d.bestAngleDeg === undefined ? "no feasible angle in hood range" : `${f(d.bestAngleDeg, 1)}° @ ${f(d.bestSpeed, 2)} m/s (${f(d.bestRpm, 0)} RPM)`}</td></tr>
-        <tr><td>As pointed now</td><td class="${cls(d.actualHit)}">${d.actualHit === undefined ? "–" : d.actualHit ? "HIT" : "MISS"}</td></tr>
-        <tr><td>Hit probability</td><td class="two ${d.pHit === undefined ? "" : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad"}">${d.pHit === undefined ? "–" : `${(d.pHit * 100).toFixed(0)}% (95% CI ${(d.pLo! * 100).toFixed(0)}–${(d.pHi! * 100).toFixed(0)}, n=${d.mcN})`}${d.meanMissIn ? ` · misses by ${f(d.meanMissIn, 1)} in` : ""}</td></tr>
-        <tr><td>Carrying · fired/hit</td><td class="${d.launchBlocked ? "bad" : ""}">${d.carrying} · ${d.shotsFired}/${d.shotsHit}</td></tr>
-        <tr><td>Our up cell</td><td class="two ${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad} · ${d.tips} tip${d.tips === 1 ? "" : "s"} (${d.tips * 20} pts)</td></tr>
-        <tr><td>Their hive</td><td>${d.theirHive}</td></tr>
-        <tr><td>Score</td><td class="two clamp">${d.score}</td></tr>
-        <tr><td>Robot contact</td><td class="two ${d.contact ? (d.contactBad ? "bad" : "warn") : "quiet"}">${d.contact ?? "none"}</td></tr>
-        <tr><td>Field supply</td><td class="two">${d.supply}</td></tr>
-      </table>
-      <h2 style="margin-top:8px">AprilTags — ${d.cameraName}</h2>
-      <div class="tags">${tags || '<span class="tag">no camera</span>'}</div>
+      </table>`)}
+      ${fold("tags", `AprilTags · ${d.cameraName} · ${d.tags.filter((t) => t.visible).length} visible`, `<div class="tags">${tags || '<span class="tag">no camera</span>'}</div>`)}
     `;
   }
 }

@@ -196,6 +196,8 @@ Two field-wide maps live in **View & overlays**:
 
 ## What the HUD tells you
 
+The HUD (top left) leads with the one number that matters when you are lining up a shot: a big colour-coded **hit chance from here** (green above 80 %, amber above 40 %, red below), with its confidence interval and mean miss underneath. It never waits for the maths: while the Monte Carlo for a new spot is running it shows a pulsing ellipsis, and when no arc can reach the cell at this hood or RPM it says so instead. Beside it sit the predicted HIT/MISS once aimed and as pointed now, range, bearing and what you carry; below are the target, match and runtime status pills and any notice (intake off, flywheel stopped, low frame rate). Everything else lives in four fold-out rows, *Shot details*, *Match & field*, *Robot* and *AprilTags*, whose headers carry a one-line summary; click to expand, and the choice is remembered.
+
 - **Range** and **bearing error** from the launcher exit point to the aim point (centre of the up-cell opening, 2 in inside).
 - **Required exit speed / RPM** for the current hood angle. With *Auto-RPM* on, the commanded RPM tracks this as you drive.
 - **Two arcs**: green/red is the arc *if the robot were aimed* at the target with the current hood angle and RPM; orange is the arc along the direction the launcher *actually points right now*. They coincide once you press R or turn to face the target. Either can be switched off in View & overlays.
