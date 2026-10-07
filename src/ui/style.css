@@ -154,10 +154,6 @@ dialog.about-dialog .fine { color: var(--muted); font-size: 11px; margin-top: 12
 #panel details[open] > summary::before { content: "▾"; }
 #panel summary .stitle { flex: 1 1 auto; }
 #panel summary .hint { font-weight: 400; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
-#panel details.tier { background: transparent; border-style: dashed; }
-#panel details.tier > summary { color: var(--muted); }
-#panel details.tier > summary .hint { max-width: 100%; white-space: normal; }
-#panel .tier-body { padding: 4px 6px 0; }
 #panel .mode { display: flex; align-items: center; gap: 4px; margin: -4px 0 10px; }
 #panel .mode button { padding: 3px 10px; font-size: 12px; border-radius: 12px; white-space: nowrap; }
 #panel .mode button.on { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }

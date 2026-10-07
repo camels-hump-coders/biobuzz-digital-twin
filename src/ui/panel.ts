@@ -63,8 +63,6 @@ function adv(...rows: Row[]): AdvGroup {
 const isAdv = (r: unknown): r is AdvGroup => !!r && typeof r === "object" && !Array.isArray(r) && !(r instanceof HTMLElement) && "adv" in (r as object);
 /** Set by render() so section() knows which advanced rows to show. */
 let sectionCtx: { advanced: boolean; more: Set<string>; toggle: (title: string) => void; hints: Map<string, string> } = { advanced: true, more: new Set(), toggle: () => {}, hints: new Map() };
-/** Sections a newcomer does not need on day one; in Essential mode they sit together under one collapsed "More sections" group. */
-const EXPERT_SECTIONS = ["Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "Settings & session"];
 /** A pill-shaped on/off button for the quick bar at the top of the panel. */
 function chip(label: string, title: string, get: () => boolean, set: (v: boolean) => void): HTMLElement {
   return el("button", { class: get() ? "chip on" : "chip", title, "aria-pressed": get() ? "true" : "false", onclick: () => set(!get()) }, label);
@@ -879,16 +877,7 @@ export class Panel {
     // lay the sections out in ORDER (anything new goes last), then refresh the bits that read the DOM
     const title = (d: HTMLElement) => d.dataset.title ?? "";
     sections.sort((a, b) => { const ia = Panel.ORDER.indexOf(title(a)), ib = Panel.ORDER.indexOf(title(b)); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
-    if (st.panelAdvanced) this.root.append(...sections);
-    else {
-      // Essential: everyday sections first, the expert ones together under one collapsed group so the list stays short
-      const everyday = sections.filter((d) => !EXPERT_SECTIONS.includes(title(d))), expert = sections.filter((d) => EXPERT_SECTIONS.includes(title(d)));
-      this.root.append(...everyday);
-      const MORE = "More sections";
-      this.root.append(el("details", { class: "tier", "data-title": MORE, ...(open(MORE, false) ? { open: "" } : {}) },
-        el("summary", {}, el("span", { class: "stitle" }, MORE), el("span", { class: "hint" }, expert.map((d) => title(d).replace(/ \(assets\)$/, "")).join(" · "))),
-        el("div", { class: "tier-body" }, ...expert)));
-    }
+    this.root.append(...sections);
     this.refreshTimeline();
     if (this.assetDialogOpen) this.renderAssetDialog();
   }
