@@ -103,7 +103,10 @@ export class Hud {
     const p = d.pIdeal;
     const pClass = p === undefined ? (unreachable ? "bad" : "pending") : p > 0.8 ? "ok" : p > 0.4 ? "warn" : "bad";
     const pBig = p === undefined ? (unreachable ? "—" : "…") : `${(p * 100).toFixed(0)}<small>%</small>`;
-    const nowLine = d.nowReason && d.pHit !== undefined && p !== undefined && Math.abs(d.pHit - p) > 0.1 ? `<div class="now">as fired now ${(d.pHit * 100).toFixed(0)}% · ${d.nowReason}</div>` : "";
+    // the shot as it would leave right now, when it is materially different: same colour scale as the big number
+    const nowClass = d.pHit === undefined ? "" : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad";
+    const nowLine = d.nowReason && d.pHit !== undefined && p !== undefined && Math.abs(d.pHit - p) > 0.1
+      ? `<div class="now ${nowClass}"><span class="now-lbl">as fired now</span><span class="now-val">${(d.pHit * 100).toFixed(0)}<small>%</small></span><span class="now-why">${d.nowReason}</span></div>` : "";
     const pSub = p === undefined
       ? (d.requiredSpeed === undefined ? "no arc reaches the cell at this hood" : !d.rpmOk ? `needs ${f(d.requiredRpm, 0)} RPM, over the flywheel's max` : "computing…")
       : `95% CI ${(d.pIdealLo! * 100).toFixed(0)}–${(d.pIdealHi! * 100).toFixed(0)} · n=${d.mcN}${d.idealMissIn ? ` · misses by ${f(d.idealMissIn, 1)} in` : ""}${nowLine}`;
@@ -121,7 +124,7 @@ export class Hud {
       <div class="shot-summary"><span>${d.carrying}</span><span>${d.shotsFired} fired · ${d.shotsHit} settled in target</span></div></div>
       <section class="shot-at-glance" aria-label="Shot summary">
         <div><strong class="${pClass}">${p === undefined ? '—' : `${(p * 100).toFixed(0)}%`}</strong> hit chance after aiming</div>
-        <div>As fired now: ${d.pHit === undefined ? 'calculating' : `${(d.pHit * 100).toFixed(0)}%`}</div>
+        <div class="as-fired"><strong class="${nowClass}">${d.pHit === undefined ? '—' : `${(d.pHit * 100).toFixed(0)}%`}</strong> as fired now${d.nowReason && d.pHit !== undefined && p !== undefined && Math.abs(d.pHit - p) > 0.1 ? ` <span class="why">· ${d.nowReason}</span>` : ''}</div>
         <div>Required: <b>${f(d.requiredRpm, 0)} RPM</b> · hood <b>${f(d.hoodDeg, 1)}°</b></div>
         <div title="Estimated motor power = RPM / configured free RPM">Power need / now: ${f(d.requiredPower, 2)} / ${f(d.currentPower, 2)}</div>
         <div>Current: ${f(d.currentRpm, 0)} RPM · aim error ${f(d.bearingErrDeg, 1)}°</div>

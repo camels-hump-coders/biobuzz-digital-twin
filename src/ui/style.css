@@ -59,7 +59,12 @@ dialog.about-dialog .fine { color: var(--muted); font-size: 11px; margin-top: 12
 #hud .tile.p .big small { font-size: 20px; font-weight: 700; margin-left: 1px; }
 #hud .tile.p .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: 4px; }
 #hud .tile.p .sub { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.3; }
-#hud .tile.p .now { margin-top: 4px; padding-top: 3px; border-top: 1px dashed #3a434e; color: var(--bad); font-weight: 600; }
+#hud .tile.p .now { margin-top: 5px; padding: 4px 6px 3px; border-radius: 6px; background: #0b0e13; display: grid; grid-template-columns: auto auto; column-gap: 8px; align-items: baseline; justify-content: center; text-align: left; }
+#hud .tile.p .now .now-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+#hud .tile.p .now .now-val { font-size: 20px; font-weight: 800; line-height: 1; }
+#hud .tile.p .now .now-val small { font-size: 11px; font-weight: 700; margin-left: 1px; }
+#hud .tile.p .now .now-why { grid-column: 1 / -1; font-size: 10px; color: var(--muted); text-align: center; }
+#hud .tile.p .now.ok .now-val { color: var(--ok); } #hud .tile.p .now.warn .now-val { color: var(--accent); } #hud .tile.p .now.bad .now-val { color: var(--bad); }
 #hud .tile.p.ok { border-color: var(--ok); background: #0f2a1c; } #hud .tile.p.ok .big { color: var(--ok); }
 #hud .tile.p.warn { border-color: var(--accent); background: #2a2208; } #hud .tile.p.warn .big { color: var(--accent); }
 #hud .tile.p.bad { border-color: var(--bad); background: #2e1410; } #hud .tile.p.bad .big { color: var(--bad); }
@@ -579,6 +584,9 @@ body.panel-hidden #map-legend { right: 18px; }
 @keyframes clock-pulse { from { transform: scale(1); } to { transform: scale(1.12); } }
 .shot-at-glance { padding: 10px 0; border-top: 1px solid #354152; font-size: 11px; line-height: 1.65; }
 .shot-at-glance strong { font-size: 22px; }
+.shot-at-glance .as-fired strong { font-size: 17px; }
+.shot-at-glance .as-fired .why { color: var(--muted); }
+.shot-at-glance strong.ok { color: var(--ok); } .shot-at-glance strong.warn { color: var(--accent); } .shot-at-glance strong.bad { color: var(--bad); }
 #quick-controls select { width: auto; font-size: 12px; background: #172330; padding: 6px 8px; }
 @media (max-width: 1150px) { #control-dock { flex-wrap: wrap; } .match-clock { font-size: 11px; } }
 @media (max-width: 800px) {
