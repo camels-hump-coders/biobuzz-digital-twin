@@ -171,7 +171,7 @@ export class Panel {
     setTimeout(() => t.remove(), bad ? 8000 : 4000);
   }
   /** server mode: the twin's settings file on disk (set by main) */
-  settingsFile?: { save: () => Promise<{ ok: boolean; path?: string; error?: string }>; load: () => { ok: boolean; error?: string }; differs: () => boolean; unsaved: () => boolean };
+  settingsFile?: { save: () => Promise<{ ok: boolean; path?: string; error?: string }>; load: () => { ok: boolean; error?: string }; differs: () => boolean; unsaved: () => boolean; unsavedPaths: () => string[]; filePaths: () => string[] };
   private sessionFlashEl?: HTMLElement;
   /** survives the re-renders that follow a save (the host re-broadcasts the settings) */
   private sessionFlash?: { text: string; bad: boolean; until: number };
@@ -331,7 +331,9 @@ export class Panel {
       const fl = this.sessionFlash && this.sessionFlash.until > Date.now() ? this.sessionFlash : undefined;
       this.sessionFlashEl = el("span", { class: `note aflash${fl?.bad ? " bad" : ""}` }, fl?.text ?? "");
       settingsRows.push(el("div", { class: "sub" }, "Settings file (server mode)"));
-      settingsRows.push(el("div", { class: `status-badge ${badge[1]} full` }, el("span", { class: "dot" }), badge[0]));
+      const diffPaths = state === "unsaved" ? sf.unsavedPaths() : state === "fileNewer" ? sf.filePaths() : [];
+      settingsRows.push(el("div", { class: `status-badge ${badge[1]} full`, title: diffPaths.length ? `Differs in: ${diffPaths.join(", ")}` : "" }, el("span", { class: "dot" }), badge[0]));
+      if (diffPaths.length) settingsRows.push(el("div", { class: "note full" }, "Differs in: ", el("code", {}, diffPaths.slice(0, 8).join(", ") + (diffPaths.length > 8 ? ` +${diffPaths.length - 8} more` : ""))));
       settingsRows.push(el("div", { class: "row full", style: "align-items:center;gap:6px" },
         el("button", { class: state === "sync" ? "" : "primary", ...(state === "sync" ? { disabled: "" } : {}), title: "Write every setting in this panel (robot, cameras, launcher, hardware map, overrides, calibration, starts…) to the file so it can be committed and shared", onclick: async () => { await sf.save(); } }, state === "none" ? "Create repo file" : "Save to repo file"),
         el("button", { class: state === "fileNewer" ? "primary" : "", ...(f.exists && differs ? {} : { disabled: "" }), title: f.exists ? "Replace this browser's settings with the file's" : "No file yet", onclick: () => { if (!sf.unsaved() || confirm("Replace this browser's settings with the repo file? Unsaved changes here are lost.")) { const r = sf.load(); if (!r.ok) alert(r.error); } } }, "Load from repo file"),

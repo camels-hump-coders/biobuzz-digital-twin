@@ -23,7 +23,7 @@ import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
 import { Hud, type HudData } from "./ui/hud";
-import { hydrateState, loadState, saveState, serializeSettings, type AppState } from "./state";
+import { hydrateState, loadState, saveState, serializeSettings, settingsDiffPaths, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveSpeedAdaptive } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { ReachJob } from "./ballistics/reachability";
@@ -561,7 +561,9 @@ link.onChange = () => {
 };
 panel = new Panel(state, onChange);
 panel.saveAssetToRepo = saveAssetToRepo;
-panel.settingsFile = { save: saveSettingsToFile, load: loadSettingsFromFile, differs: settingsDiffer, unsaved: localUnsaved };
+panel.settingsFile = { save: saveSettingsToFile, load: loadSettingsFromFile, differs: settingsDiffer, unsaved: localUnsaved,
+  unsavedPaths: () => settingsDiffPaths(localStorage.getItem(SYNC_KEY), serializeSettings(state)),
+  filePaths: () => settingsDiffPaths(link.settings?.text, serializeSettings(state)) };
 panel.link = link;
 syncRuntime();
 Object.assign(overlays.show, state.overlays);

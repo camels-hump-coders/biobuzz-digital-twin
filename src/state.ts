@@ -121,11 +121,37 @@ const KEY = "biobuzz-twin";
 /** Fields that describe the moment, not the setup: never saved to the settings file, never restored from it. */
 export const TRANSIENT_KEYS = ["pose", "aimRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchRequest"] as const;
 /** Deterministic JSON of the settings (sorted keys, transient fields dropped) so a committed file diffs cleanly. */
-export function serializeSettings(s: AppState): string {
-  const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])])) : v;
+/** The settings as they go into the file: transient fields and values the simulation itself writes every frame removed. */
+export function settingsForFile(s: AppState): Record<string, unknown> {
   const copy: Record<string, unknown> = { ...s };
   for (const k of TRANSIENT_KEYS) delete copy[k];
-  return JSON.stringify({ biobuzzTwinSettings: 1, ...(sorted(copy) as object) }, null, 2) + "\n";
+  // which cell is up is match state (tips flip it, every match start resets it), not setup
+  delete copy.hive;
+  // with auto-RPM / auto-hood on, the commanded RPM and hood angle follow the robot around: outputs, not settings
+  const l = { ...s.robot.launcher } as Record<string, unknown>;
+  if (s.autoRpm) delete l.rpm;
+  if (s.autoHood) delete l.elevationDeg;
+  copy.robot = { ...s.robot, launcher: l };
+  return copy;
+}
+export function serializeSettings(s: AppState): string {
+  const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])])) : v;
+  return JSON.stringify({ biobuzzTwinSettings: 1, ...(sorted(settingsForFile(s)) as object) }, null, 2) + "\n";
+}
+/** Dotted paths where two settings JSON texts differ (for the sync badge): recurses into objects, compares arrays whole. */
+export function settingsDiffPaths(a: string | null | undefined, b: string): string[] {
+  let x: any, y: any;
+  try { x = a ? JSON.parse(a) : {}; y = JSON.parse(b); } catch { return ["(unparseable)"]; }
+  const out: string[] = [];
+  const walk = (p: any, q: any, path: string) => {
+    for (const k of new Set([...Object.keys(p ?? {}), ...Object.keys(q ?? {})])) {
+      const pv = p?.[k], qv = q?.[k], here = path ? `${path}.${k}` : k;
+      if (pv && qv && typeof pv === "object" && typeof qv === "object" && !Array.isArray(pv) && !Array.isArray(qv)) walk(pv, qv, here);
+      else if (JSON.stringify(pv) !== JSON.stringify(qv)) out.push(here);
+    }
+  };
+  walk(x, y, "");
+  return out;
 }
 /** Turn saved JSON (localStorage or the repo's twin-settings.json) into a complete, migrated state. */
 export function hydrateState(s: any): AppState {

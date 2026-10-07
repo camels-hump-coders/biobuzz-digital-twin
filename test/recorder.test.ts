@@ -53,3 +53,21 @@ describe("runs and stepping", () => {
     expect(r.step(200, -1)?.t).toBe(100); expect(r.step(200, 5)?.t).toBe(300); expect(r.indexAt(250)).toBe(2);
   });
 });
+
+describe("settings file contents", () => {
+  it("leaves out match state and sim-driven launcher values, and reports differing paths", async () => {
+    const { defaultState, serializeSettings, settingsForFile, settingsDiffPaths } = await import("../src/state");
+    const s = defaultState();
+    s.autoRpm = true; s.autoHood = false; s.robot.launcher.rpm = 2345; s.hive.blue = "audience";
+    const f = settingsForFile(s) as any;
+    expect(f.hive).toBeUndefined();
+    expect(f.robot.launcher.rpm).toBeUndefined();
+    expect(f.robot.launcher.elevationDeg).toBe(s.robot.launcher.elevationDeg);
+    expect(f.pose).toBeUndefined();
+    const a = serializeSettings(s);
+    s.robot.launcher.rpm = 100; s.hive.blue = "scoring"; // neither counts as a change to the file
+    expect(serializeSettings(s)).toBe(a);
+    s.autoRpm = false; // now the commanded RPM is a setting again
+    expect(settingsDiffPaths(a, serializeSettings(s)).sort()).toEqual(["autoRpm", "robot.launcher.rpm"]);
+  });
+});
