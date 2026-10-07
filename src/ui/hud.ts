@@ -29,6 +29,13 @@ export interface HudData {
   pHi?: number;
   mcN?: number;
   meanMissIn?: number;
+  /** hit probability from this spot once aimed and spun up to the required speed (what the hit map shows) */
+  pIdeal?: number;
+  pIdealLo?: number;
+  pIdealHi?: number;
+  idealMissIn?: number;
+  /** why the shot as it would be fired right now differs from that (not aimed, flywheel speed) */
+  nowReason?: string;
   actualHit?: boolean;
   shotsFired: number;
   shotsHit: number;
@@ -78,17 +85,19 @@ export class Hud {
 
     // ---- hero: hit chance from here, colour coded; never waits for the Monte Carlo (shows "computing" until it lands)
     const unreachable = d.requiredSpeed === undefined || !d.rpmOk;
-    const pClass = d.pHit === undefined ? (unreachable ? "bad" : "pending") : d.pHit > 0.8 ? "ok" : d.pHit > 0.4 ? "warn" : "bad";
-    const pBig = d.pHit === undefined ? (unreachable ? "—" : "…") : `${(d.pHit * 100).toFixed(0)}<small>%</small>`;
-    const pSub = d.pHit === undefined
+    const p = d.pIdeal;
+    const pClass = p === undefined ? (unreachable ? "bad" : "pending") : p > 0.8 ? "ok" : p > 0.4 ? "warn" : "bad";
+    const pBig = p === undefined ? (unreachable ? "—" : "…") : `${(p * 100).toFixed(0)}<small>%</small>`;
+    const nowLine = d.nowReason && d.pHit !== undefined && p !== undefined && Math.abs(d.pHit - p) > 0.1 ? `<div class="now">as fired now ${(d.pHit * 100).toFixed(0)}% · ${d.nowReason}</div>` : "";
+    const pSub = p === undefined
       ? (d.requiredSpeed === undefined ? "no arc reaches the cell at this hood" : !d.rpmOk ? `needs ${f(d.requiredRpm, 0)} RPM, over the flywheel's max` : "computing…")
-      : `95% CI ${(d.pLo! * 100).toFixed(0)}–${(d.pHi! * 100).toFixed(0)} · n=${d.mcN}${d.meanMissIn ? ` · misses by ${f(d.meanMissIn, 1)} in` : ""}`;
+      : `95% CI ${(d.pIdealLo! * 100).toFixed(0)}–${(d.pIdealHi! * 100).toFixed(0)} · n=${d.mcN}${d.idealMissIn ? ` · misses by ${f(d.idealMissIn, 1)} in` : ""}${nowLine}`;
     const predicted = d.hit === undefined ? "–" : d.hit ? "HIT" : "MISS";
     const bearing = `${f(d.bearingErrDeg, 1)}° ${d.turretOk ? "in turret range" : "turn robot"}`;
 
     this.root.innerHTML = `
       <div class="hero">
-        <div class="tile p ${pClass}"><div class="big">${pBig}</div><div class="lbl">hit chance from here</div><div class="sub">${pSub}</div></div>
+        <div class="tile p ${pClass}"><div class="big">${pBig}</div><div class="lbl">hit chance from here, once aimed &amp; spun up</div><div class="sub">${pSub}</div></div>
         <div class="tile">
           <div class="kv"><span>Predicted${d.aimed ? "" : " once aimed"}</span><b class="${cls(d.hit)}">${predicted}</b></div>
           <div class="kv"><span>Pointed now</span><b class="${cls(d.actualHit)}">${d.actualHit === undefined ? "–" : d.actualHit ? "HIT" : "MISS"}</b></div>

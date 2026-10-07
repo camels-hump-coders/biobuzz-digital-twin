@@ -1054,6 +1054,9 @@ function frame(now: number) {
   const mc = computeMonteCarlo(exit, tf, fireDir);
   // the analysed arc is always toward the target (what the robot would do if aimed); the fired ball goes where the launcher points
   const { shot, scan, required } = computeShot(exit, tf);
+  // hit chance from this spot once aimed and spun up (what the hit map shows); equals mc when the robot already is
+  const spunUp = required !== undefined && Math.abs(exitSpeed(l) - required) <= 0.02 * required;
+  const mcIdeal = required === undefined ? undefined : turretOk && spunUp ? mc : computeMonteCarloIdeal(exit, tf, required);
   robot.launcherMarker.rotation.y = (l.yawOffsetDeg * Math.PI) / 180 + turretYaw; // local +Y rotation = yaw left
   if (actions.launch && !runtimeActive) launch(exit, fireDir);
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
@@ -1146,6 +1149,8 @@ function frame(now: number) {
     flightTime: flight,
     apexIn: apex !== undefined ? mToIn(apex) : undefined,
     pHit: mc?.pHit, pLo: mc?.lo, pHi: mc?.hi, mcN: mc?.n, meanMissIn: mc ? mToIn(mc.meanMissM) : undefined,
+    pIdeal: mcIdeal?.pHit, pIdealLo: mcIdeal?.lo, pIdealHi: mcIdeal?.hi, idealMissIn: mcIdeal ? mToIn(mcIdeal.meanMissM) : undefined,
+    nowReason: mcIdeal && mc && mcIdeal !== mc ? [turretOk ? undefined : "not aimed", spunUp ? undefined : `flywheel at ${Math.round(l.rpm)} RPM`].filter(Boolean).join(", ") : undefined,
     actualHit: actualShot?.hit,
     shotsFired, shotsHit,
     cellLoad: (() => { const c = match.cellLoad(state.alliance); return `${c.nectar} nectar + ${c.pollen} pollen = ${(c.massKg * 1000).toFixed(0)} g / ${state.tipMassG} g to tip`; })(),
@@ -1293,6 +1298,23 @@ function computeActual(exit: Vec3, frame: CellFrame, dir: { x: number; z: number
   return shot;
 }
 let mcCache: { key: string; mc?: MonteCarlo; at: number } = { key: "", at: 0 };
+let mcIdealCache: { key: string; mc?: MonteCarlo; at: number } = { key: "", at: 0 };
+/** Monte Carlo for the shot the robot would take from here once aimed at the target and spun up to the required speed. */
+function computeMonteCarloIdeal(exit: Vec3, frame: CellFrame, required: number): MonteCarlo | undefined {
+  const l = state.robot.launcher;
+  const q = (v: number) => Math.round(v * 50) / 50; // 2 cm
+  const key = JSON.stringify([q(exit.x), q(exit.y), q(exit.z), Math.round(required * 50), l.elevationDeg, l.wheelDiameterM, l.efficiency, l.spinFraction, state.ballKind, state.drag, state.alliance, state.hive, state.noise, state.monteCarloN]);
+  if (key === mcIdealCache.key) return mcIdealCache.mc;
+  const now = performance.now();
+  if (now - mcIdealCache.at < 120) return mcIdealCache.mc; // throttle while driving
+  const ap = aimPoint(frame, 0.05);
+  const dx = ap.x - exit.x, dz = ap.z - exit.z, d = Math.hypot(dx, dz) || 1;
+  const speed = Math.min(required, exitSpeed(l, l.maxRpm));
+  const nominal = { speed, elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ: { x: dx / d, z: dz / d }, spin: spinRate(l, rpmForExitSpeed(l, speed)) };
+  const mc = monteCarlo({ ball: ballProps(), launchPos: exit, target: ap, frame, spin: nominal.spin }, nominal, state.noise, state.monteCarloN, 7);
+  mcIdealCache = { key, mc, at: now };
+  return mc;
+}
 function computeMonteCarlo(exit: Vec3, frame: CellFrame, dir: { x: number; z: number }): MonteCarlo | undefined {
   const l = state.robot.launcher;
   const q = (v: number) => Math.round(v * 50) / 50; // 2 cm
