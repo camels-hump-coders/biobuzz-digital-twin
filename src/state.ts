@@ -1,4 +1,4 @@
-import { type StartPositions, defaultStarts } from "./sim/starts";
+import { type StartPositions, defaultStarts, startPose } from "./sim/starts";
 import type { RobotSpec } from "./robot/robotSpec";
 import type { Pose } from "./sim/drive";
 import type { Alliance, CellSide } from "./field/hive";
@@ -84,7 +84,7 @@ export function defaultState(): AppState {
   return {
     robotPresetId: "starterbotMecanum",
     robot,
-    pose: { x: -1.2, z: 1.5, heading: 0 },
+    pose: startPose(defaultStarts(), "you", "blue", { red: "audience", blue: "scoring" }), // on blue's far-side start square, as a match begins
     alliance: "blue",
     hive: { red: "audience", blue: "scoring" },
     selectedCameraId: robot.cameras[0].id,

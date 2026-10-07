@@ -279,7 +279,9 @@ export class Workspace {
       fov.onchange = () => { this.history.record(before.config, captureConfig(this.state)); before.config = captureConfig(this.state); this.panel.render(); };
       card.append(el('div', { class: 'range-row' }, el('label', {}, `Camera · ${cam.name}`), sel), el('div', { class: 'range-row' }, el('label', {}, 'Field of view'), fovVal), fov,
         el('p', { class: 'note' }, `Wider sees more of the field but each AprilTag gets fewer pixels; narrower reads tags further away but loses them sooner when you turn. Stock ${presetById(cam.presetId).name}: ${presetById(cam.presetId).diagFovDeg ?? presetById(cam.presetId).hfovDeg}°. Watch the camera preview and the AprilTags row.`),
-        el('button', { class: 'text-button', onclick: () => { cam.diagFovDeg = undefined; cam.hfovDeg = undefined; this.modify(() => {}, 'cameras'); } }, 'Back to the camera\u2019s own field of view'));
+        ...(cam.diagFovDeg !== undefined || cam.hfovDeg !== undefined
+          ? [el('button', { class: 'text-button', onclick: () => { cam.diagFovDeg = undefined; cam.hfovDeg = undefined; this.modify(() => {}, 'cameras'); } }, 'Back to the camera\u2019s own field of view')]
+          : []));
       // mount: where the camera looks decides which tags it can see at all
       const pitchVal = el('b', {}, `${cam.pitchDeg.toFixed(0)}° ${cam.pitchDeg >= 0 ? 'down' : 'up'}`);
       const pitch = el('input', { type: 'range', min: '-30', max: '60', step: '1', value: String(cam.pitchDeg), 'aria-label': 'Camera mount pitch (degrees, positive down)' }) as HTMLInputElement;
