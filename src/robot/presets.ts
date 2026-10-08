@@ -1,5 +1,6 @@
 import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import type { CameraMount, RobotSpec } from "./robotSpec";
+import { defaultLook } from "./look";
 
 const IN = 0.0254;
 
@@ -48,6 +49,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     intake: { side: "rear", widthM: 13 * IN, kind: "brushes" }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
+    look: defaultLook(0xe8e8e8),
   },
   starterbotMecanum: {
     name: "goBILDA StarterBot (Strafer mecanum)",
@@ -65,6 +67,41 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     intake: { side: "rear", widthM: 13 * IN, kind: "brushes" }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
+    look: defaultLook(0xe8e8e8),
+  },
+  pollinator: {
+    name: "Pollinator (fast mecanum turret bot)",
+    // an archetype, not a kit: 435 rpm mecanum, brushes at the front, dual flywheels with an adjustable hood, a camera up high
+    drivetrain: "mecanum",
+    lengthM: 16 * IN,
+    widthM: 17 * IN,
+    heightM: 15 * IN,
+    wheelRpm: 435,
+    wheelDiameterM: 0.104,
+    model: "box",
+    cameras: [{ ...defaultCamera(), heightM: 14 * IN, pitchDeg: -20 }],
+    launcher: { ...LAUNCHER_PRESETS.dualFlywheel },
+    intake: { side: "front", widthM: 15 * IN, kind: "brushes" },
+    massKg: 13,
+    color: 0xf2c200,
+    look: { color: 0xf2c200, accent: 0x15181c, decal: "stripe", plateText: "36682" },
+  },
+  forager: {
+    name: "Forager (heavy 6WD pusher)",
+    // an archetype: slow, heavy tank bot that collects at the back and wins pushing matches
+    drivetrain: "tank",
+    lengthM: 18 * IN,
+    widthM: 17 * IN,
+    heightM: 13 * IN,
+    wheelRpm: 312,
+    wheelDiameterM: 0.096,
+    model: "box",
+    cameras: [defaultCamera()],
+    launcher: { ...LAUNCHER_PRESETS.starterbot },
+    intake: { side: "rear", widthM: 14 * IN, kind: "brushes" },
+    massKg: 15.5,
+    color: 0x3e8e2f,
+    look: { color: 0x3e8e2f, accent: 0xf2c200, decal: "chevron", plateText: "36682" },
   },
   custom18: {
     name: "Custom 18 in mecanum",
@@ -80,8 +117,44 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     intake: { side: "front", widthM: 14 * IN, kind: "brushes" },
     massKg: 13,
     color: 0x3aa0c8,
+    look: defaultLook(0x3aa0c8),
   },
 };
+
+/** Card copy for the customizer's starter profiles, in display order. */
+export const PROFILES: { id: string; title: string; tagline: string; kit?: boolean }[] = [
+  { id: "starterbotMecanum", title: "StarterBot Strafer", tagline: "goBILDA kit · mecanum · lines up without turning", kit: true },
+  { id: "starterbot6wd", title: "StarterBot 6WD", tagline: "goBILDA kit · 6 wheels · holds its ground when pushed", kit: true },
+  { id: "pollinator", title: "Pollinator", tagline: "Fast mecanum · front brushes · dual flywheel hood" },
+  { id: "forager", title: "Forager", tagline: "Heavy 6WD · rear brushes · wins pushing matches" },
+  { id: "custom18", title: "Custom 18 in", tagline: "Blank mecanum box to build on" },
+];
+
+/** The fields a profile is defined by: everything that changes how the robot drives, collects or shoots.
+ *  Identity (name) and look are left out so recolouring a StarterBot keeps it a StarterBot. */
+function buildSignature(s: RobotSpec): string {
+  const l = s.launcher;
+  return JSON.stringify([s.drivetrain, +s.lengthM.toFixed(4), +s.widthM.toFixed(4), +s.heightM.toFixed(4), s.wheelRpm, +s.wheelDiameterM.toFixed(4), s.model, s.modelYawDeg ?? 0, s.massKg,
+    s.intake.side, +s.intake.widthM.toFixed(4), s.intake.kind ?? "brushes", l.wheelDiameterM, l.maxRpm, l.efficiency, l.yawOffsetDeg ?? 0, l.elevationMinDeg, l.elevationMaxDeg, l.spinFraction, l.exitHeightM, l.exitForwardM]);
+}
+/** Id of the profile this spec is a copy of (build fields only), or undefined when it has been customised. */
+export function matchingProfile(spec: RobotSpec): string | undefined {
+  const sig = buildSignature(spec);
+  return Object.keys(ROBOT_PRESETS).find((id) => buildSignature(ROBOT_PRESETS[id]) === sig);
+}
+/** Free top speed from wheel RPM and diameter, m/s. */
+export function topSpeedMps(spec: Pick<RobotSpec, "wheelRpm" | "wheelDiameterM">): number {
+  return (spec.wheelRpm / 60) * Math.PI * spec.wheelDiameterM;
+}
+/** Starting-configuration check (R102: 18 x 18 x 18 in). Returns the problems, empty when legal. */
+export function sizingIssues(spec: Pick<RobotSpec, "lengthM" | "widthM" | "heightM">): string[] {
+  const out: string[] = [];
+  const lim = 18 * IN + 1e-6;
+  if (spec.lengthM > lim) out.push(`length ${(spec.lengthM / IN).toFixed(1)} in > 18 in`);
+  if (spec.widthM > lim) out.push(`width ${(spec.widthM / IN).toFixed(1)} in > 18 in`);
+  if (spec.heightM > lim) out.push(`height ${(spec.heightM / IN).toFixed(1)} in > 18 in`);
+  return out;
+}
 
 export function clonePreset(id: string): RobotSpec {
   const p = ROBOT_PRESETS[id] ?? ROBOT_PRESETS.starterbotMecanum;

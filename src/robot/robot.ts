@@ -7,6 +7,7 @@ import { type Intrinsics, fromDiagonal, fromHorizontal } from "../camera/cameraM
 import { presetById } from "../camera/cameraPresets";
 import type { Pose } from "../sim/drive";
 import { splitWheelGeometry, wheelAngularSpeed } from "./wheels";
+import { lookOf, lookSignature, paintLivery } from "./look";
 
 const loader = new GLTFLoader();
 const draco = new DRACOLoader();
@@ -125,10 +126,40 @@ export class RobotObject {
 
   applySpec(spec: RobotSpec) {
     this.syncIntakeMarker(spec);
+    const lookChanged = this.lookSig !== lookSignature(lookOf(spec)) || this.spec.lengthM !== spec.lengthM || this.spec.widthM !== spec.widthM || this.spec.heightM !== spec.heightM;
     this.spec = spec;
     this.rebuildChassis();
+    if (lookChanged) this.applyLook();
     this.rebuildCameras();
     this.updateLauncherMarker();
+  }
+
+  private lookSig = "";
+  /** Paint the robot: box chassis in the look's colour, CAD lightly tinted (bare aluminium when the colour is
+   *  aluminium), and a livery panel on top with the decal and team number. Part of the robot, so cameras see it. */
+  private applyLook() {
+    const spec = this.spec;
+    const look = lookOf(spec);
+    this.lookSig = lookSignature(look);
+    const color = new THREE.Color(look.color);
+    if (this.modelKey === "box") {
+      this.chassis.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.userData.painted) (m.material as THREE.MeshStandardMaterial).color.copy(color); });
+    } else if (this.isPlayer) {
+      const bare = look.color === 0xe8e8e8;
+      const tint = bare ? new THREE.Color(0xd8d8d8) : new THREE.Color(0xd8d8d8).lerp(color, 0.35);
+      this.chassis.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.userData.cadTint) (m.material as THREE.MeshStandardMaterial).color.copy(tint); });
+    }
+    this.group.getObjectByName("livery")?.removeFromParent();
+    const canvas = paintLivery(look, spec.lengthM / spec.widthM);
+    if (!canvas) return;
+    const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    const w = spec.lengthM * 0.72, h = spec.widthM * 0.72;
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }));
+    plane.name = "livery";
+    // lie flat on top of the robot with the texture's up pointing forward (+X)
+    plane.rotation.set(-Math.PI / 2, -Math.PI / 2, 0, "YXZ"); // flat first (normal +Y), then turn so the texture's up points +X
+    plane.position.set(-spec.lengthM * 0.05, spec.heightM + 0.004, 0);
+    this.group.add(plane);
   }
 
   private rebuildChassis() {
@@ -139,14 +170,15 @@ export class RobotObject {
       this.modelKey = "box";
       if (this.modelStatus !== "failed") this.modelStatus = "box";
       const geo = new THREE.BoxGeometry(spec.lengthM, spec.heightM * 0.5, spec.widthM);
-      const mat = new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.6, metalness: 0.2 });
+      const mat = new THREE.MeshStandardMaterial({ color: lookOf(spec).color, roughness: 0.6, metalness: 0.2 });
       const box = new THREE.Mesh(geo, mat);
       box.position.y = spec.heightM * 0.25 + 0.02;
-      box.castShadow = true;
+      box.castShadow = true; box.userData.painted = true;
       this.chassis.add(box);
       // upper structure
       const tower = new THREE.Mesh(new THREE.BoxGeometry(spec.lengthM * 0.5, spec.heightM * 0.5, spec.widthM * 0.6), mat);
       tower.position.set(-spec.lengthM * 0.1, spec.heightM * 0.75, 0);
+      tower.userData.painted = true;
       this.chassis.add(tower);
       // wheels
       const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
@@ -162,6 +194,7 @@ export class RobotObject {
       arrow.position.set(spec.lengthM / 2 + 0.04, spec.heightM * 0.25, 0);
       this.chassis.add(arrow);
       this.updateLoad();
+      this.lookSig = "";
       return;
     }
     if (this.modelKey === key) {
@@ -207,6 +240,7 @@ export class RobotObject {
           const mat = mesh.material as THREE.MeshStandardMaterial;
           if (mat && !mat.map) {
             mesh.material = new THREE.MeshStandardMaterial({ color: tint, metalness: 0.5, roughness: 0.45 });
+            mesh.userData.cadTint = true;
           }
         }
       });
@@ -219,6 +253,7 @@ export class RobotObject {
       arrow.position.set(spec.lengthM / 2 + 0.04, 0.1, 0);
       this.chassis.add(arrow);
       this.updateLoad();
+      this.lookSig = ""; this.applyLook();
     }).catch(() => {
       // fall back to a box
       this.modelStatus = "failed";

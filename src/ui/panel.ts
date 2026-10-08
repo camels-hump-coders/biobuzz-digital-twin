@@ -1,6 +1,7 @@
 /** Side panel built from plain DOM. Edits the AppState and calls onChange. */
 import type { AppState } from "../state";
-import { ROBOT_PRESETS, clonePreset, defaultCamera } from "../robot/presets";
+import { PROFILES, ROBOT_PRESETS, clonePreset, defaultCamera, matchingProfile, sizingIssues, topSpeedMps } from "../robot/presets";
+import { COLOR_SWATCHES, DECALS, hex, lookOf, luminance } from "../robot/look";
 import { CAMERA_PRESETS, presetById } from "../camera/cameraPresets";
 import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
@@ -737,10 +738,44 @@ export class Panel {
     hwRows.push(adv(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 })));
     addSection(section("Hardware map", open("Hardware map", false), ...hwRows));
 
-    // --- Robot
+    // --- Robot: starter profiles, build, look
     const r = st.robot;
+    const basedOn = matchingProfile(r);
+    const pickProfile = (id: string) => { st.robotPresetId = id; st.robot = clonePreset(id); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; change("robot"); };
+    const strip = el("div", { class: "profile-strip full", role: "group", "aria-label": "Starter robot profiles" });
+    for (const pr of PROFILES) {
+      const p = ROBOT_PRESETS[pr.id]; if (!p) continue;
+      const onField = basedOn === pr.id;
+      const look = lookOf(p);
+      const card = el("button", { class: onField ? "profile-card active" : "profile-card", "aria-pressed": String(onField), title: onField ? `${p.name} is on the field` : `Put the ${pr.title} on the field (your cameras and launcher settings are replaced by the profile's)`, onclick: () => { if (!onField) pickProfile(pr.id); } },
+        el("span", { class: "swatch", style: `background:${hex(look.color)}; border-color:${hex(look.accent)}` }),
+        el("b", {}, pr.title), pr.kit ? el("span", { class: "kit" }, "kit") : "",
+        el("small", {}, pr.tagline),
+        el("span", { class: "chips" }, el("i", {}, p.drivetrain === "mecanum" ? "mecanum" : "6WD tank"), el("i", {}, `${p.intake.side} ${p.intake.kind === "roller" ? "roller" : "brushes"}`), el("i", {}, `${p.launcher.elevationMinDeg === p.launcher.elevationMaxDeg ? "fixed hood" : "adj. hood"}`)),
+        el("span", { class: "stats" }, `${(topSpeedMps(p) * 3.281).toFixed(1)} ft/s · ${p.massKg} kg · ${(p.lengthM / IN).toFixed(0)}×${(p.widthM / IN).toFixed(0)} in`),
+        onField ? el("span", { class: "on-field" }, "✓ on the field") : "");
+      strip.append(card);
+    }
+    const issues = sizingIssues(r);
+    const readout = el("div", { class: "spec-readout full" },
+      el("b", {}, basedOn ? ROBOT_PRESETS[basedOn].name : `Custom · based on ${ROBOT_PRESETS[st.robotPresetId]?.name ?? "a profile"}`),
+      el("span", {}, `${(topSpeedMps(r) * 3.281).toFixed(1)} ft/s (${topSpeedMps(r).toFixed(2)} m/s) free · ${r.massKg} kg · ${(r.lengthM / IN).toFixed(1)} × ${(r.widthM / IN).toFixed(1)} × ${(r.heightM / IN).toFixed(1)} in`),
+      el("span", {}, `${r.drivetrain === "mecanum" ? "Mecanum" : "Tank"} · ${r.intake.side} ${r.intake.kind === "roller" ? "roller (floor only)" : "brushes (floor + FLOWER)"} ${(r.intake.widthM / IN).toFixed(0)} in · ${r.launcher.name}`),
+      issues.length ? el("span", { class: "bad" }, `⚠ Over the 18 in starting configuration (R102): ${issues.join(", ")}`) : el("span", { class: "ok" }, "✓ fits the 18 × 18 × 18 in starting configuration"));
+    const look = lookOf(r); r.look = look;
+    const swatches = (label: string, get: () => number, set: (v: number) => void) => {
+      const row = el("div", { class: "swatches", role: "group", "aria-label": label });
+      for (const sw of COLOR_SWATCHES) row.append(el("button", { class: get() === sw.hex ? "sw on" : "sw", style: `background:${hex(sw.hex)}; color:${luminance(sw.hex) > 0.55 ? "#111" : "#fff"}`, title: sw.name, "aria-label": `${label}: ${sw.name}`, "aria-pressed": String(get() === sw.hex), onclick: () => { set(sw.hex); change("robot"); } }, get() === sw.hex ? "✓" : ""));
+      return [el("label", {}, label), row];
+    };
+    const plate = el("input", { type: "text", maxlength: "8", value: look.plateText, placeholder: "team number" }) as HTMLInputElement;
+    plate.onchange = () => { look.plateText = plate.value.trim(); change("robot"); };
     addSection(section("Robot", open("Robot", false),
-      sel("Preset", Object.entries(ROBOT_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => st.robotPresetId, (v) => { st.robotPresetId = v; st.robot = clonePreset(v); change("robot"); }),
+      el("div", { class: "sub" }, "Start from a profile"),
+      strip,
+      el("div", { class: "sub" }, "Build"),
+      readout,
+      sel("Preset", Object.entries(ROBOT_PRESETS).map(([k, v]) => ({ value: k, label: v.name })), () => st.robotPresetId, (v) => pickProfile(v)),
       sel("Drivetrain", [{ value: "mecanum", label: "Mecanum (holonomic)" }, { value: "tank", label: "Tank / 6WD (no strafe)" }], () => r.drivetrain, (v) => { r.drivetrain = v as any; change("robot"); }),
       adv(sel("Chassis model", [{ value: "starterbot-mecanum", label: "goBILDA StarterBot mecanum CAD" }, { value: "starterbot-6wd", label: "goBILDA StarterBot 6WD CAD" }, { value: "box", label: "Simple box" }], () => r.model, (v) => { r.model = v as any; change("robot"); }),
       num("CAD yaw", () => r.modelYawDeg ?? 0, (v) => { r.modelYawDeg = v; change("robot"); }, { unit: "°", min: -180, max: 180, step: 90 }),
@@ -756,6 +791,12 @@ export class Panel {
       adv(num("Intake width", () => r.intake.widthM / IN, (v) => { r.intake.widthM = v * IN; change("robot"); }, { unit: "in", min: 2, max: 24, step: 0.5 }),
       el("div", { class: "note full" }, "Balls are only collected through the intake side (green edge on the floor outline) and only while the intake runs: press I to switch it on, hold K to run it, or power the intake motor from TeamCode. Every other side pushes balls, and so does the intake once the robot is full. Brushes at the mouth ends reach into a FLOWER's retrieval opening (line the mouth up on the FLOWER, within about 6 in); a plain roller cannot, it only takes balls off the floor."),
       chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); })),
+      el("div", { class: "sub" }, "Look"),
+      swatches("Chassis colour", () => look.color, (v) => { look.color = v; r.color = v; }),
+      swatches("Accent", () => look.accent, (v) => { look.accent = v; }),
+      sel("Decal", DECALS.map((d) => ({ value: d.id, label: d.label })), () => look.decal, (v) => { look.decal = v as any; change("robot"); }),
+      [labelControl("Number plate", plate), plate],
+      el("div", { class: "note full" }, "The box chassis takes the colour; the goBILDA CAD stays bare aluminium in Aluminium and is tinted otherwise. Decal and number sit on a livery panel on top of the robot, so the cameras of other robots can see it too."),
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),
         el("button", { onclick: () => { st.pose = startPose(st.starts, "you", st.alliance, st.hive); change("sim"); } }, "To start position"),

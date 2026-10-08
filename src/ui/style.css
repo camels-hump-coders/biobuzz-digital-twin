@@ -748,3 +748,23 @@ body.panel-hidden #pips.upper-right, body.panel-hidden #drive-compass, body.pane
   #tip-needed strong { font-size: 16px; }
   #control-dock .match-clock { max-width: 105px; font-size: 10px; }
 }
+
+/* robot customizer: starter profile cards, spec readout, colour swatches */
+#panel .profile-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scroll-snap-type: x proximity; }
+#panel .profile-card { flex: 0 0 150px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 8px 9px; border: 1px solid #2a313a; border-radius: 10px; background: #1b2129; color: var(--fg); cursor: pointer; position: relative; }
+#panel .profile-card:hover { border-color: #4a5260; }
+#panel .profile-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; cursor: default; }
+#panel .profile-card .swatch { width: 100%; height: 6px; border-radius: 3px; border-bottom: 2px solid; margin-bottom: 2px; }
+#panel .profile-card b { font-size: 12px; }
+#panel .profile-card .kit { position: absolute; top: 14px; right: 8px; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: #111; background: var(--accent); border-radius: 8px; padding: 1px 6px; }
+#panel .profile-card small { color: var(--muted); font-size: 10px; line-height: 1.3; }
+#panel .profile-card .chips { display: flex; flex-wrap: wrap; gap: 3px; }
+#panel .profile-card .chips i { font-style: normal; font-size: 9px; padding: 1px 5px; border-radius: 6px; background: #2a313a; color: var(--fg); }
+#panel .profile-card .stats { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#panel .profile-card .on-field { font-size: 10px; color: var(--accent); font-weight: 600; }
+#panel .spec-readout { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); padding: 6px 8px; border: 1px solid #2a313a; border-radius: 8px; background: #11151b; }
+#panel .spec-readout b { color: var(--fg); font-size: 12px; }
+#panel .spec-readout .ok { color: var(--ok); } #panel .spec-readout .bad { color: var(--bad); }
+#panel .swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+#panel .swatches .sw { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid transparent; font-size: 11px; line-height: 16px; cursor: pointer; }
+#panel .swatches .sw.on { border-color: var(--fg); }

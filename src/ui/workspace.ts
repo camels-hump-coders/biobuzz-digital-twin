@@ -294,7 +294,8 @@ export class Workspace {
       const b = el('button', { class: active ? 'bot-choice active' : 'bot-choice', 'aria-pressed': String(active), title: active ? 'This is the robot on the field' : `Switch the robot on the field to the ${label} StarterBot`, onclick: () => { if (this.state.robotPresetId === id) return; this.modify(() => { this.state.robotPresetId = id; this.state.robot = clonePreset(id); this.state.selectedCameraId = this.state.robot.cameras[0]?.id ?? ''; }, 'robot'); if (this.tutorial === 6) this.tutorial = 7; } }, active ? `✓ ${label} · on the field` : label);
       b.disabled = this.link.running || this.recorder?.cursor !== undefined; bots.append(b);
     }
-    card.append(el('div', { class: 'range-row' }, el('label', {}, 'StarterBot drivetrain')), bots,
+    const more = button('More robots & looks →', () => this.navigate('setup'), 'text-button'); more.title = 'Robot setup: starter profiles, build, colours and number plate';
+    card.append(el('div', { class: 'range-row' }, el('label', {}, 'StarterBot drivetrain'), more), bots,
       el('p', { class: 'note' }, this.state.robot.drivetrain === 'mecanum'
         ? 'Mecanum: strafes with A / D and lines up on the cell without turning, but its rollers give a little when pushed. Switch to the 6-wheel tank to feel the difference.'
         : '6-wheel tank: no strafing (A / D turn), so you line up by turning and driving, but it holds its ground when pushed and climbs the loading-zone edge more surely. Switch to mecanum to compare.'));
