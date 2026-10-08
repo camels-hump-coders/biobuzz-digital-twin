@@ -61,3 +61,41 @@ describe("wheel kinematics", () => {
     expect(wheelAngularSpeed(0.2, -0.2, r, 0, 1, 0, "tank")).toBe(0);
   });
 });
+
+describe("intake roller carve", async () => {
+  const { splitIntakeRoller } = await import("../src/robot/wheels");
+  /** a rear-intake robot: deck, two corner wheels reaching the floor, and 7 roller wheels on a shaft at y=0.09 */
+  function cadLike(): THREE.BufferGeometry {
+    const parts: THREE.BufferGeometry[] = [];
+    const box = (sx: number, sy: number, sz: number, x: number, y: number, z: number) => { const g = new THREE.BoxGeometry(sx, sy, sz, 2, 2, 2); g.translate(x, y, z); parts.push(g); };
+    box(0.44, 0.01, 0.40, 0, 0.2, 0); // deck
+    box(0.44, 0.02, 0.02, 0, 0.19, 0.2); box(0.44, 0.02, 0.02, 0, 0.19, -0.2); // rails
+    for (const sz of [-1, 1]) box(0.12, 0.17, 0.07, -0.17, 0.085, sz * 0.17); // corner wheels: floor to 0.17
+    const cyl = (r: number, len: number, z: number, segs: number) => { const g = new THREE.CylinderGeometry(r, r, len, 16, segs); g.rotateX(Math.PI / 2); g.translate(-0.15, 0.09, z); parts.push(g); };
+    for (let i = -3; i <= 3; i++) cyl(0.024, 0.016, i * 0.028, 3); // 7 compliant wheels on an axle at (-0.15, 0.09)
+    cyl(0.006, 0.24, 0, 48); // the shaft they sit on
+    return weld(parts);
+  }
+  function weld(gs: THREE.BufferGeometry[]): THREE.BufferGeometry {
+    const arrays = gs.map((g) => g.toNonIndexed().getAttribute("position").array as Float32Array);
+    const n = arrays.reduce((a, b) => a + b.length, 0); const P = new Float32Array(n); let k = 0;
+    for (const a of arrays) { P.set(a, k); k += a.length; }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(P, 3)); return g;
+  }
+  it("finds the flap roller at the rear, stops short of the corner wheels, and puts the axle at its centre", () => {
+    const r = splitIntakeRoller(cadLike(), { lengthM: 0.44, widthM: 0.44, side: "rear", mouthWidthM: 0.33 });
+    expect(r.roller).toBeDefined();
+    const ro = r.roller!;
+    expect(ro.x).toBeCloseTo(-0.15, 2); expect(ro.y).toBeCloseTo(0.09, 2); expect(ro.z).toBe(0);
+    expect(ro.r).toBeGreaterThan(0.022); expect(ro.r).toBeLessThan(0.032);
+    expect(ro.vMin).toBeGreaterThan(-0.13); expect(ro.vMax).toBeLessThan(0.13); // the corner wheels start at ±0.135
+    const tris = ro.geometry.getAttribute("position").count / 3;
+    const count = (g: THREE.BufferGeometry) => g.toNonIndexed().getAttribute("position").count / 3;
+    expect(tris).toBe(7 * count(new THREE.CylinderGeometry(0.024, 0.024, 0.016, 16, 3)) + count(new THREE.CylinderGeometry(0.006, 0.006, 0.24, 16, 48))); // exactly the 7 wheels and the shaft
+  });
+  it("leaves a robot without a roller alone", () => {
+    const g = new THREE.BoxGeometry(0.44, 0.1, 0.44, 4, 2, 4); g.translate(0, 0.25, 0);
+    const r = splitIntakeRoller(g, { lengthM: 0.44, widthM: 0.44, side: "front", mouthWidthM: 0.33 });
+    expect(r.roller).toBeUndefined();
+  });
+});

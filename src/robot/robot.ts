@@ -6,7 +6,7 @@ import type { RobotSpec, CameraMount } from "./robotSpec";
 import { type Intrinsics, fromDiagonal, fromHorizontal } from "../camera/cameraMath";
 import { presetById } from "../camera/cameraPresets";
 import type { Pose } from "../sim/drive";
-import { splitWheelGeometry, wheelAngularSpeed } from "./wheels";
+import { splitIntakeRoller, splitWheelGeometry, wheelAngularSpeed } from "./wheels";
 import { lookOf, lookSignature, paintLivery } from "./look";
 
 const loader = new GLTFLoader();
@@ -81,39 +81,49 @@ export class RobotObject {
     const hl = spec.lengthM / 2 + 0.01, hw = spec.widthM / 2 + 0.01;
     bar.position.set(g.side === "front" ? hl : g.side === "rear" ? -hl : 0, 0.003, g.side === "left" ? -hw : g.side === "right" ? hw : 0);
     this.group.add(bar);
-    // brushes: a short bristle wheel at each end of the mouth, spun by spinIntake() while the intake runs
+    // brushes on the box chassis: a flat star-wheel disc at each end of the mouth, lying horizontally and spinning about
+    // a vertical axis, counter-rotating so both sweep balls toward the mouth centre. The CAD chassis keep their own
+    // intake roller instead (carved out and spun in carveWheels).
     this.group.getObjectByName("intakeBrushes")?.removeFromParent();
     this.brushes = [];
-    if ((g.kind ?? "brushes") !== "brushes") return;
+    if ((g.kind ?? "brushes") !== "brushes" || spec.model !== "box") return;
     const brushGroup = new THREE.Group(); brushGroup.name = "intakeBrushes";
-    const along = g.side === "front" || g.side === "rear" ? "z" : "x";
-    const r = 0.035, len = 0.03;
+    const r = 0.04, thick = 0.018;
     const edgeX = g.side === "front" ? spec.lengthM / 2 : g.side === "rear" ? -spec.lengthM / 2 : 0;
     const edgeZ = g.side === "left" ? -spec.widthM / 2 : g.side === "right" ? spec.widthM / 2 : 0;
-    const out = 0.02; // just proud of the chassis so the bristles reach into a FLOWER's retrieval opening
+    const out = 0.025; // the disc centre sits just outside the chassis so the bristles reach into a FLOWER's opening
+    // outward unit vector of the intake edge and the mouth centre on it
+    const ox = Math.sign(edgeX), oz = Math.sign(edgeZ);
+    const cx = edgeX + ox * out, cz = edgeZ + oz * out;
     for (const sgn of [-1, 1]) {
-      const geo = new THREE.CylinderGeometry(r, r, len, 10, 1, false);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.95 });
-      const brush = new THREE.Mesh(geo, mat);
-      // bristle stripes so the spin reads
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(len * 0.9, r * 2.1, 0.006), new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.9 }));
-      stripe.rotation.z = Math.PI / 2; brush.add(stripe);
-      const offset = sgn * (g.widthM / 2 - r);
-      if (along === "z") { brush.position.set(edgeX + Math.sign(edgeX) * out, r + 0.01, offset); brush.rotation.z = Math.PI / 2; }
-      else { brush.position.set(offset, r + 0.01, edgeZ + Math.sign(edgeZ) * out); brush.rotation.x = Math.PI / 2; }
-      brushGroup.add(brush); this.brushes.push(brush);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(r, r, thick, 12, 1, false), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.95 }));
+      for (let k = 0; k < 3; k++) { // bristle spokes so the spin reads
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(r * 2.1, thick * 1.1, 0.006), new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.9 }));
+        spoke.rotation.y = (k * Math.PI) / 3; disc.add(spoke);
+      }
+      // along the edge: for front/rear the edge runs along Z, for left/right along X
+      const alongZ = edgeX !== 0;
+      const off = sgn * (g.widthM / 2 - r);
+      const dx = alongZ ? 0 : off, dz = alongZ ? off : 0; // disc offset from the mouth centre
+      disc.position.set(cx + dx, r * 0.5 + 0.01, cz + dz);
+      // spin sign: the disc's outer point (toward the ball) must move toward the mouth centre, i.e. along -d
+      const inward = Math.sign(-oz * dx + ox * dz) || 1;
+      brushGroup.add(disc); this.brushes.push({ mesh: disc, sign: inward, axis: "y" });
     }
     this.group.add(brushGroup);
   }
-  private brushes: THREE.Mesh[] = [];
-  /** Spin the brushes while the intake runs (about 6 rev/s), slow to a stop when it is off. */
+  /** spinning intake parts: the box robot's brush discs (about Y) or the CAD's carved roller (about its axle) */
+  brushes: { mesh: THREE.Mesh; sign: number; axis: "x" | "y" | "z" }[] = [];
+  /** Spin the intake parts while the intake runs (about 4 rev/s), slow to a stop when it is off. */
   spinIntake(dt: number, active: boolean) {
     if (!this.brushes.length) return;
-    this.brushSpeed = active ? Math.min(6 * Math.PI * 2, this.brushSpeed + 40 * dt) : Math.max(0, this.brushSpeed - 25 * dt);
+    this.brushSpeed = active ? Math.min(4 * Math.PI * 2, this.brushSpeed + 30 * dt) : Math.max(0, this.brushSpeed - 20 * dt);
     if (this.brushSpeed === 0) return;
-    for (const b of this.brushes) b.rotateY(this.brushSpeed * dt);
+    for (const b of this.brushes) b.mesh.rotation[b.axis] += b.sign * this.brushSpeed * dt;
   }
   private brushSpeed = 0;
+  /** diagnostics for the CAD intake carve (window.__twin.robot.intakeCarve) */
+  intakeCarve?: { candidates: number; vMin?: number; vMax?: number; box?: number[]; found: boolean };
 
   /** Green bar = intake running (balls on that side are collected); red = off (they get pushed). */
   setIntakeActive(active: boolean) {
@@ -127,6 +137,8 @@ export class RobotObject {
   applySpec(spec: RobotSpec) {
     this.syncIntakeMarker(spec);
     const lookChanged = this.lookSig !== lookSignature(lookOf(spec)) || this.spec.lengthM !== spec.lengthM || this.spec.widthM !== spec.widthM || this.spec.heightM !== spec.heightM;
+    // the CAD's intake roller is carved per intake side/kind: a change there needs the chassis rebuilt from the cached model
+    if (this.modelKey !== "box" && this.modelStatus === "loaded" && (this.spec.intake.side !== spec.intake.side || (this.spec.intake.kind ?? "brushes") !== (spec.intake.kind ?? "brushes"))) this.modelKey = "";
     this.spec = spec;
     this.rebuildChassis();
     if (lookChanged) this.applyLook();
@@ -246,6 +258,7 @@ export class RobotObject {
       });
       this.chassis.add(wrapper);
       this.wheels = [];
+      this.brushes = this.brushes.filter((b) => b.axis === "y"); // box discs only; carved rollers belong to the old chassis
       if (this.wheelSpin) this.carveWheels(wrapper, spec);
       this.modelStatus = "loaded";
       const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 12), new THREE.MeshBasicMaterial({ color: 0x00ff88 }));
@@ -281,7 +294,24 @@ export class RobotObject {
       const split = splitWheelGeometry(local, { widthM: spec.widthM, wheelDiameterM: spec.wheelDiameterM });
       if (split) this.wheelClusters = split.clusters;
       if (!split || !split.wheels.length) { local.dispose(); continue; }
-      const body = new THREE.Mesh(split.body, mesh.material); body.castShadow = true;
+      let bodyGeo = split.body;
+      // the kit intake: a roller of flaps just inside the intake edge; carve it so it spins while the intake runs
+      if ((spec.intake.kind ?? "brushes") === "brushes") {
+        const ir = splitIntakeRoller(bodyGeo, { lengthM: spec.lengthM, widthM: spec.widthM, side: spec.intake.side, mouthWidthM: spec.intake.widthM });
+        this.intakeCarve = { ...ir.diag, found: !!ir.roller };
+        if (ir.roller) {
+          bodyGeo = ir.body;
+          const rm = new THREE.Mesh(ir.roller.geometry, mesh.material); rm.castShadow = true;
+          rm.position.set(ir.roller.x, ir.roller.y, ir.roller.z);
+          this.chassis.add(rm);
+          // pull inward: the roller's underside moves into the robot. About +Z, +ω moves the bottom toward +X (so a
+          // rear intake, whose inside is +X, spins positive); about +X, +ω moves the bottom toward -Z.
+          const s = spec.intake.side;
+          const sign = s === "rear" ? 1 : s === "front" ? -1 : s === "left" ? -1 : 1;
+          this.brushes.push({ mesh: rm, sign, axis: s === "front" || s === "rear" ? "z" : "x" });
+        }
+      }
+      const body = new THREE.Mesh(bodyGeo, mesh.material); body.castShadow = true;
       this.chassis.add(body);
       for (const w of split.wheels) {
         const wm = new THREE.Mesh(w.geometry, mesh.material); wm.castShadow = true;
