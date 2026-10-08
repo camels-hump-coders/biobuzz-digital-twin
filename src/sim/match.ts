@@ -56,6 +56,8 @@ export interface Agent {
   lastPick: number;
   /** sim time the feeder last pulled a POLLEN out of a FLOWER */
   lastFlowerGrip: number;
+  /** balls this robot's feeder has swallowed (audio cues only follow the player's) */
+  picks?: number;
   carryGroup: THREE.Group;
 }
 
@@ -400,7 +402,7 @@ export class Match {
       if (u <= FEEDER.seatU && Math.abs(v) <= 0.08) {
         if (this.time - ag.lastPick >= PICK_INTERVAL) {
           b.mesh.removeFromParent(); this.flying.splice(i, 1);
-          ag.inventory[b.kind]++; ag.lastPick = this.time; this.intakeCount++;
+          ag.inventory[b.kind]++; ag.lastPick = this.time; this.intakeCount++; ag.picks = (ag.picks ?? 0) + 1;
           if ((b as any).fromFlower !== undefined) this.flowerPickCount++;
         } else { b.vel.set(0, 0, 0); b.settled = false; b.restFor = 0; }
         continue;

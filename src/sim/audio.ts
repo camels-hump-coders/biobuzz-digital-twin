@@ -16,7 +16,8 @@ export interface AudioSnapshot {
   clock: number;
   /** seconds left in the 8 s AUTO→TELEOP transition, undefined outside it */
   transition?: number;
-  /** running counters: balls launched by anyone, balls swallowed by any intake, tips started, tips completed */
+  /** running counters: balls launched and swallowed by OUR robot only (the other robots stay silent), tips started
+   *  and completed on either hive */
   shots: number;
   intakes: number;
   tipsStarted: number;

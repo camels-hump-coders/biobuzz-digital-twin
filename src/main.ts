@@ -1171,7 +1171,7 @@ function frame(now: number) {
       ag.footprint = s.footprint;
       const T = TIERS[state.aiTier];
       s.speed = T.speedMps;
-      if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) scriptedShots++; } else ag.intakeActive = false;
+      if (state.opponentsScore) match.driveScripted(s, ag, dt); else ag.intakeActive = false;
       // parking, per tier: Medium and Hard head for the LOADING ZONE when the time left is about the drive time plus a
       // margin (TELEOP PARK 5 pts); Hard does the same at the end of AUTO (AUTO PARK); Easy never parks
       const zone = LOADING_ZONE[ag.alliance];
@@ -1235,7 +1235,7 @@ function frame(now: number) {
   if (replaying || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   robot.spinIntake(dt, playerAgent.intakeActive);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
-  audio?.update({ phase: state.matchPhase ?? "setup", clock: state.matchClock ?? MATCH_SECONDS, transition: state.matchTransition, shots: shotsFired + scriptedShots, intakes: match.intakeCount, tipsStarted: match.tipsStarted, tipsDone: match.tipsDone, bounces: drainImpacts() }, dt);
+  audio?.update({ phase: state.matchPhase ?? "setup", clock: state.matchClock ?? MATCH_SECONDS, transition: state.matchTransition, shots: shotsFired, intakes: playerAgent.picks ?? 0, // only our robot's shots and swallows sound: the cue tells the driver what their robot did tipsStarted: match.tipsStarted, tipsDone: match.tipsDone, bounces: drainImpacts() }, dt);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
     scoreRobots().filter(r => r.alliance === state.alliance).length, replaying, state.infiniteAmmo, { massKg: match.cellLoad(state.alliance).massKg, thresholdKg: state.tipMassG / 1000, tipping: !!match.hives[state.alliance].tipping, autoTip: state.autoTip });
@@ -1488,7 +1488,6 @@ Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
-let scriptedShots = 0;
 let lastFireDir = { x: 0, z: -1 };
 let lastExit: Vec3 = { x: 0, y: 0, z: 0 };
 
