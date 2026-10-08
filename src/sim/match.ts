@@ -600,10 +600,12 @@ export class Match {
     group.userData.sig = want;
     group.clear();
     let i = 0;
-    // small translucent markers in a row just above the chassis: an inventory readout, not physical balls
+    // small translucent markers in a row floating above the robot's tallest point: an inventory readout, not physical
+    // balls. Drawn without a depth test so the tower or hood never hides them.
     const add = (color: number, r: number) => {
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 }));
-      mesh.position.set(-0.09 + i * 0.06, heightM + 0.03, 0);
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthTest: false }));
+      mesh.renderOrder = 10;
+      mesh.position.set(-0.09 + i * 0.06, heightM + 0.09, 0);
       group.add(mesh); i++;
     };
     for (let k = 0; k < inv.pollen; k++) add(BALL.pollen.color, 0.02);

@@ -199,7 +199,7 @@ function assignAlliances() {
     scriptedAgents[i].alliance = a;
     const spec = scriptedObjs[i].spec;
     const color = a === "red" ? (s.name === "Partner" ? 0xd44a4a : 0xc83a3a) : s.name === "Partner" ? 0x4a6ad4 : 0x6a8ae8;
-    if (spec.color !== color) { spec.color = color; scriptedObjs[i].applySpec({ ...spec, color }); }
+    if (spec.color !== color || spec.look?.color !== color) { spec.color = color; spec.look = { color }; scriptedObjs[i].applySpec({ ...spec, color, look: { color } }); }
   });
   // when we play blue, the field is mirrored for the scripted robots: start corners and patrol loops flip
   if (ours !== scriptedSide) {
@@ -1150,7 +1150,7 @@ function frame(now: number) {
     if (pins.lastCall && pins.lastCall.at !== lastFoulLogged) { lastFoulLogged = pins.lastCall.at; recorder.event(Date.now(), "foul", pins.lastCall.text); }
     if (pins.lastCall && match.now() - pins.lastCall.at < 4) { contactText = `${pins.lastCall.text}${contactText ? " · " + contactText : ""}`; contactBad = true; }
   }
-  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); if (state.wheelSpin) o.spinFromPose(dt); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
+  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); if (state.wheelSpin) o.spinFromPose(dt); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, o.spec.heightM); });
   // our agent
   playerAgent.pose = state.pose;
   playerAgent.footprint = footprintOf(state.robot);
