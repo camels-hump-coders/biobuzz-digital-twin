@@ -6,8 +6,8 @@ import type { RobotSpec, CameraMount } from "./robotSpec";
 import { type Intrinsics, fromDiagonal, fromHorizontal } from "../camera/cameraMath";
 import { presetById } from "../camera/cameraPresets";
 import type { Pose } from "../sim/drive";
-import { splitIntakeRoller, splitWheelGeometry, wheelAngularSpeed } from "./wheels";
-import { lookOf, lookSignature, paintLivery } from "./look";
+import { splitIntakeRoller, splitIntakeSideWheels, splitWheelGeometry, wheelAngularSpeed } from "./wheels";
+import { lookOf, lookSignature } from "./look";
 
 const loader = new GLTFLoader();
 const draco = new DRACOLoader();
@@ -123,7 +123,7 @@ export class RobotObject {
   }
   private brushSpeed = 0;
   /** diagnostics for the CAD intake carve (window.__twin.robot.intakeCarve) */
-  intakeCarve?: { candidates: number; vMin?: number; vMax?: number; box?: number[]; found: boolean };
+  intakeCarve?: { candidates: number; vMin?: number; vMax?: number; box?: number[]; found: boolean; sideWheels: number };
 
   /** Green bar = intake running (balls on that side are collected); red = off (they get pushed). */
   setIntakeActive(active: boolean) {
@@ -147,8 +147,7 @@ export class RobotObject {
   }
 
   private lookSig = "";
-  /** Paint the robot: box chassis in the look's colour, CAD lightly tinted (bare aluminium when the colour is
-   *  aluminium), and a livery panel on top with the decal and team number. Part of the robot, so cameras see it. */
+  /** Paint the robot: box chassis in the look's colour, CAD lightly tinted (bare aluminium when the colour is aluminium). */
   private applyLook() {
     const spec = this.spec;
     const look = lookOf(spec);
@@ -161,17 +160,6 @@ export class RobotObject {
       const tint = bare ? new THREE.Color(0xd8d8d8) : new THREE.Color(0xd8d8d8).lerp(color, 0.35);
       this.chassis.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.userData.cadTint) (m.material as THREE.MeshStandardMaterial).color.copy(tint); });
     }
-    this.group.getObjectByName("livery")?.removeFromParent();
-    const canvas = paintLivery(look, spec.lengthM / spec.widthM);
-    if (!canvas) return;
-    const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-    const w = spec.lengthM * 0.72, h = spec.widthM * 0.72;
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7, metalness: 0.1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }));
-    plane.name = "livery";
-    // lie flat on top of the robot with the texture's up pointing forward (+X)
-    plane.rotation.set(-Math.PI / 2, -Math.PI / 2, 0, "YXZ"); // flat first (normal +Y), then turn so the texture's up points +X
-    plane.position.set(-spec.lengthM * 0.05, spec.heightM + 0.004, 0);
-    this.group.add(plane);
   }
 
   private rebuildChassis() {
@@ -258,7 +246,7 @@ export class RobotObject {
       });
       this.chassis.add(wrapper);
       this.wheels = [];
-      this.brushes = this.brushes.filter((b) => b.axis === "y"); // box discs only; carved rollers belong to the old chassis
+      this.brushes = this.brushes.filter((b) => b.mesh.parent?.name === "intakeBrushes"); // box discs only; carved parts belong to the old chassis
       if (this.wheelSpin) this.carveWheels(wrapper, spec);
       this.modelStatus = "loaded";
       const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 12), new THREE.MeshBasicMaterial({ color: 0x00ff88 }));
@@ -297,8 +285,28 @@ export class RobotObject {
       let bodyGeo = split.body;
       // the kit intake: a roller of flaps just inside the intake edge; carve it so it spins while the intake runs
       if ((spec.intake.kind ?? "brushes") === "brushes") {
-        const ir = splitIntakeRoller(bodyGeo, { lengthM: spec.lengthM, widthM: spec.widthM, side: spec.intake.side, mouthWidthM: spec.intake.widthM });
-        this.intakeCarve = { ...ir.diag, found: !!ir.roller };
+        const ip = { lengthM: spec.lengthM, widthM: spec.widthM, side: spec.intake.side, mouthWidthM: spec.intake.widthM };
+        const ir = splitIntakeRoller(bodyGeo, ip);
+        this.intakeCarve = { ...ir.diag, found: !!ir.roller, sideWheels: 0 };
+        // the side wheels: vertical-axle compliant wheels at the mouth ends, counter-rotating so both sweep inward
+        const sw = splitIntakeSideWheels(ir.roller ? ir.body : bodyGeo, ip, ir.roller ? [ir.roller.vMin, ir.roller.vMax] : [0, 0]);
+        if (sw.wheels.length) {
+          if (ir.roller) ir.body = sw.body; else bodyGeo = sw.body;
+          this.intakeCarve.sideWheels = sw.wheels.length;
+          const s = spec.intake.side;
+          const [ox, oz] = s === "front" ? [1, 0] : s === "rear" ? [-1, 0] : s === "right" ? [0, 1] : [0, -1]; // outward
+          const [vx, vz] = s === "front" || s === "rear" ? [0, 1] : [1, 0]; // +v along the edge
+          for (const w of sw.wheels) {
+            const wm = new THREE.Mesh(w.geometry, mesh.material); wm.castShadow = true;
+            wm.position.set(w.x, 0, w.z);
+            this.chassis.add(wm);
+            // +ω about Y moves a point at offset (dx, dz) by (dz, -dx): the outer point (toward the ball, offset o) must
+            // move toward the mouth centre (−side · v)
+            const velX = oz, velZ = -ox;
+            const sign = Math.sign(-(w.side) * (vx * velX + vz * velZ)) || 1;
+            this.brushes.push({ mesh: wm, sign, axis: "y" });
+          }
+        }
         if (ir.roller) {
           bodyGeo = ir.body;
           const rm = new THREE.Mesh(ir.roller.geometry, mesh.material); rm.castShadow = true;

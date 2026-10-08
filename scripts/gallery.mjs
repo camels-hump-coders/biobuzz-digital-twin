@@ -59,11 +59,11 @@ const shot = async (page, name) => {
 
   }
   if (want("robot-setup")) {
-    // the customizer: profile cards, build readout and the Look swatches, with the Pollinator (box chassis, livery on top) on the field
+    // the customizer: profile cards, build readout and the colour swatches, with the Pollinator (box chassis) on the field
     await t(() => { const t = window.__twin; t.workspace.navigate("setup"); });
     await page.waitForTimeout(300);
     await page.locator('.profile-card', { hasText: 'Pollinator' }).click();
-    await t(() => { const t = window.__twin; t.state.robot.look.decal = "chevron"; t.robot.applySpec(t.state.robot); t.state.view = "orbit"; t.orbitCam.position.set(-0.6, 1.3, 3.0); t.controls.target.set(-1.4, 0.2, 1.5); t.controls.update(); const d = document.querySelector('details[data-title="Robot"]'); if (d) { d.open = true; d.scrollIntoView({ block: "start" }); } });
+    await t(() => { const t = window.__twin; t.state.view = "orbit"; t.orbitCam.position.set(-0.6, 1.3, 3.0); t.controls.target.set(-1.4, 0.2, 1.5); t.controls.update(); const d = document.querySelector('details[data-title="Robot"]'); if (d) { d.open = true; d.scrollIntoView({ block: "start" }); } });
     await page.waitForTimeout(1200); await dismissToasts(); await shot(page, "robot-setup");
     await page.locator('.profile-card', { hasText: 'StarterBot Strafer' }).click();
     await t(() => { window.__twin.workspace.navigate("practice"); window.__twin.state.aimRequest = true; });

@@ -1,7 +1,7 @@
 /** Side panel built from plain DOM. Edits the AppState and calls onChange. */
 import type { AppState } from "../state";
 import { PROFILES, ROBOT_PRESETS, clonePreset, defaultCamera, matchingProfile, sizingIssues, topSpeedMps } from "../robot/presets";
-import { COLOR_SWATCHES, DECALS, hex, lookOf, luminance } from "../robot/look";
+import { COLOR_SWATCHES, hex, lookOf, luminance } from "../robot/look";
 import { CUE_LABELS, EFFECT_LABELS, type CueName, type EffectName } from "../sim/audio";
 import { CAMERA_PRESETS, presetById } from "../camera/cameraPresets";
 import { LAUNCHER_PRESETS } from "../ballistics/launcher";
@@ -751,7 +751,7 @@ export class Panel {
       const onField = basedOn === pr.id;
       const look = lookOf(p);
       const card = el("button", { class: onField ? "profile-card active" : "profile-card", "aria-pressed": String(onField), title: onField ? `${p.name} is on the field` : `Put the ${pr.title} on the field (your cameras and launcher settings are replaced by the profile's)`, onclick: () => { if (!onField) pickProfile(pr.id); } },
-        el("span", { class: "swatch", style: `background:${hex(look.color)}; border-color:${hex(look.accent)}` }),
+        el("span", { class: "swatch", style: `background:${hex(look.color)}; border-color:${hex(look.color)}` }),
         el("b", {}, pr.title), pr.kit ? el("span", { class: "kit" }, "kit") : "",
         el("small", {}, pr.tagline),
         el("span", { class: "chips" }, el("i", {}, p.drivetrain === "mecanum" ? "mecanum" : "6WD tank"), el("i", {}, `${p.intake.side} ${p.intake.kind === "roller" ? "roller" : "brushes"}`), el("i", {}, `${p.launcher.elevationMinDeg === p.launcher.elevationMaxDeg ? "fixed hood" : "adj. hood"}`)),
@@ -771,8 +771,6 @@ export class Panel {
       for (const sw of COLOR_SWATCHES) row.append(el("button", { class: get() === sw.hex ? "sw on" : "sw", style: `background:${hex(sw.hex)}; color:${luminance(sw.hex) > 0.55 ? "#111" : "#fff"}`, title: sw.name, "aria-label": `${label}: ${sw.name}`, "aria-pressed": String(get() === sw.hex), onclick: () => { set(sw.hex); change("robot"); } }, get() === sw.hex ? "✓" : ""));
       return [el("label", {}, label), row];
     };
-    const plate = el("input", { type: "text", maxlength: "8", value: look.plateText, placeholder: "team number" }) as HTMLInputElement;
-    plate.onchange = () => { look.plateText = plate.value.trim(); change("robot"); };
     addSection(section("Robot", open("Robot", false),
       el("div", { class: "sub" }, "Start from a profile"),
       strip,
@@ -796,10 +794,7 @@ export class Panel {
       chk("Field-centric drive", () => st.fieldCentric, (v) => { st.fieldCentric = v; change("sim"); })),
       el("div", { class: "sub" }, "Look"),
       swatches("Chassis colour", () => look.color, (v) => { look.color = v; r.color = v; }),
-      swatches("Accent", () => look.accent, (v) => { look.accent = v; }),
-      sel("Decal", DECALS.map((d) => ({ value: d.id, label: d.label })), () => look.decal, (v) => { look.decal = v as any; change("robot"); }),
-      [labelControl("Number plate", plate), plate],
-      el("div", { class: "note full" }, "The box chassis takes the colour; the goBILDA CAD stays bare aluminium in Aluminium and is tinted otherwise. Decal and number sit on a livery panel on top of the robot, so the cameras of other robots can see it too."),
+      el("div", { class: "note full" }, "The box chassis takes the colour; the goBILDA CAD stays bare aluminium in Aluminium and is tinted otherwise."),
       el("div", { class: "row full" },
         el("button", { onclick: () => { st.pose = { x: -1.2, z: 1.5, heading: 0 }; change("sim"); } }, "Reset pose"),
         el("button", { onclick: () => { st.pose = startPose(st.starts, "you", st.alliance, st.hive); change("sim"); } }, "To start position"),

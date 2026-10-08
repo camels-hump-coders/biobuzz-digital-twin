@@ -208,7 +208,7 @@ function migrate(s: any): AppState {
       if (s.robot?.intake && !s.robot.intake.kind) s.robot.intake.kind = "brushes";
       if (s.robot && !s.robot.massKg) s.robot.massKg = 12;
       // migration: appearance (older saves only carried the chassis colour)
-      if (s.robot && !s.robot.look) s.robot.look = { color: s.robot.color ?? 0xe8e8e8, accent: 0xf2c200, decal: "none", plateText: "36682" };
+      if (s.robot) s.robot.look = { color: s.robot.look?.color ?? s.robot.color ?? 0xe8e8e8 }; // the decal / number plate of 2026-10-08 was dropped the same day
       // migration: the StarterBot shooter camera default pitch was a guess (8 deg up); the team measured 35 deg up
       for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default

@@ -263,3 +263,89 @@ export function splitIntakeRoller(geo: THREE.BufferGeometry, p: IntakeSplitParam
   const roller: IntakePart = { geometry: build(roll, alongZ ? ax : 0, yc, alongZ ? 0 : az), x: alongZ ? ax : 0, y: yc, z: alongZ ? 0 : az, r, vMin, vMax };
   return { body: build(bodyTris, 0, 0, 0), roller, diag: { candidates, vMin, vMax, box: [uc, yc, r] } };
 }
+
+export interface SideWheelPart {
+  geometry: THREE.BufferGeometry;
+  /** vertical axle position, robot-local metres (the mesh is built relative to (x, 0, z)) */
+  x: number; z: number; r: number; yMin: number; yMax: number;
+  /** which side of the mouth centre, along the edge: -1 or +1 */
+  side: number;
+}
+/**
+ * The intake's side wheels: compliant wheels on vertical axles at the two ends of the mouth, outboard of the roller
+ * (`rollerV` is the roller's lateral run; pass [0, 0] when there is none). Each side gets a Hough circle fit in the
+ * (u, v) plane over the geometry near the intake edge; the carve cylinder is that circle grown 2 mm, between the
+ * lowest and highest rim vertices. Returns the parts it found (0, 1 or 2) and the body with them removed.
+ */
+export function splitIntakeSideWheels(geo: THREE.BufferGeometry, p: IntakeSplitParams, rollerV: [number, number]): { body: THREE.BufferGeometry; wheels: SideWheelPart[] } {
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute | undefined;
+  if (!pos) return { body: geo, wheels: [] };
+  const edge = p.side === "front" || p.side === "rear" ? p.lengthM / 2 : p.widthM / 2;
+  const uv = (i: number): [number, number] => {
+    const x = pos.getX(i), z = pos.getZ(i);
+    switch (p.side) { case "front": return [x, z]; case "rear": return [-x, z]; case "right": return [z, x]; default: return [-z, x]; }
+  };
+  const toXZ = (u: number, v: number): [number, number] => { switch (p.side) { case "front": return [u, v]; case "rear": return [-u, v]; case "right": return [v, u]; default: return [v, -u]; } };
+  // the side wheels sit right at the edge (their axle within 8 cm of it) and low (2–12 cm up): looking deeper or
+  // higher picks up the drive wheels' hubs and the frame brackets instead
+  const depth = 0.08, vOuter = p.mouthWidthM / 2 + 0.04, yLo = 0.02, yHi = 0.12;
+  const found: { uc: number; vc: number; r: number; yMin: number; yMax: number; side: number }[] = [];
+  for (const side of [-1, 1]) {
+    const vIn = Math.max(0.03, side > 0 ? rollerV[1] : -rollerV[0]);
+    const pts: { u: number; v: number; y: number }[] = [];
+    for (let i = 0; i < pos.count; i++) {
+      const [u, v] = uv(i); const sv = v * side; const y = pos.getY(i);
+      if (u > edge - depth && u <= edge + 0.02 && sv > vIn && sv < vOuter && y > yLo && y < yHi) pts.push({ u, v: sv, y });
+    }
+    if (pts.length < 300) continue;
+    const sample = pts.length > 3000 ? pts.filter((_, i) => i % Math.ceil(pts.length / 3000) === 0) : pts;
+    let best = { score: 0, uc: 0, vc: 0, r: 0 };
+    const rBins = new Int32Array(36);
+    for (let uc = edge - depth; uc <= edge; uc += 0.002) for (let vc = vIn; vc <= vOuter; vc += 0.002) {
+      rBins.fill(0);
+      for (const q of sample) { const k = Math.round(Math.hypot(q.u - uc, q.v - vc) / 0.002); if (k >= 8 && k < 36) rBins[k]++; }
+      for (let k = 8; k < 36; k++) if (rBins[k] > best.score) best = { score: rBins[k], uc, vc, r: k * 0.002 };
+    }
+    if (best.score < Math.max(40, sample.length * 0.04)) continue;
+    // the rim's height range: vertices within 2 mm of the fitted radius, 2nd–98th percentile
+    const ys = pts.filter((q) => Math.abs(Math.hypot(q.u - best.uc, q.v - best.vc) - best.r) <= 0.002).map((q) => q.y).sort((a, b) => a - b);
+    if (ys.length < 40) continue;
+    const yMin = ys[Math.floor(0.02 * ys.length)], yMax = ys[Math.min(ys.length - 1, Math.floor(0.98 * ys.length))];
+    if (yMax - yMin < 0.02) continue;
+    found.push({ uc: best.uc, vc: best.vc * side, r: best.r + 0.002, yMin, yMax, side });
+  }
+  if (!found.length) return { body: geo, wheels: [] };
+  const index = geo.getIndex();
+  const triCount = index ? index.count / 3 : pos.count / 3;
+  const vi = (t: number, k: number) => (index ? index.getX(t * 3 + k) : t * 3 + k);
+  const inWheel = (i: number, w: typeof found[number]) => { const [u, v] = uv(i); const y = pos.getY(i); return Math.hypot(u - w.uc, v - w.vc) <= w.r && y >= w.yMin - 0.003 && y <= w.yMax + 0.003; };
+  const buckets: number[][] = found.map(() => []), bodyTris: number[] = [];
+  for (let t = 0; t < triCount; t++) {
+    let hit = -1;
+    for (let w = 0; w < found.length && hit < 0; w++) if (inWheel(vi(t, 0), found[w]) && inWheel(vi(t, 1), found[w]) && inWheel(vi(t, 2), found[w])) hit = w;
+    (hit >= 0 ? buckets[hit] : bodyTris).push(t);
+  }
+  const normal = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
+  const build = (tris: number[], ox: number, oy: number, oz: number) => {
+    const P = new Float32Array(tris.length * 9), N = normal ? new Float32Array(tris.length * 9) : undefined;
+    let k = 0;
+    for (const t of tris) for (let q = 0; q < 3; q++) {
+      const i = vi(t, q);
+      P[k] = pos.getX(i) - ox; P[k + 1] = pos.getY(i) - oy; P[k + 2] = pos.getZ(i) - oz;
+      if (N && normal) { N[k] = normal.getX(i); N[k + 1] = normal.getY(i); N[k + 2] = normal.getZ(i); }
+      k += 3;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(P, 3));
+    if (N) g.setAttribute("normal", new THREE.BufferAttribute(N, 3)); else g.computeVertexNormals();
+    return g;
+  };
+  const wheels: SideWheelPart[] = [];
+  found.forEach((w, i) => {
+    if (buckets[i].length < 30) { bodyTris.push(...buckets[i]); return; }
+    const [x, z] = toXZ(w.uc, w.vc);
+    wheels.push({ geometry: build(buckets[i], x, 0, z), x, z, r: w.r, yMin: w.yMin, yMax: w.yMax, side: w.side });
+  });
+  if (!wheels.length) return { body: geo, wheels: [] };
+  return { body: build(bodyTris, 0, 0, 0), wheels };
+}

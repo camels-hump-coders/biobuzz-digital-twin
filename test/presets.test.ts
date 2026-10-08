@@ -8,7 +8,7 @@ describe("robot profiles", () => {
   });
   it("recolouring keeps the profile; changing the build makes it custom", () => {
     const r = clonePreset("starterbotMecanum");
-    r.look = { color: 0xd42a2a, accent: 0x111111, decal: "checker", plateText: "1" }; r.color = 0xd42a2a; r.name = "mine";
+    r.look = { color: 0xd42a2a }; r.color = 0xd42a2a; r.name = "mine";
     expect(matchingProfile(r)).toBe("starterbotMecanum");
     r.wheelRpm = 435;
     expect(matchingProfile(r)).toBeUndefined();

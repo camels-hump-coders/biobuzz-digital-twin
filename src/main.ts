@@ -491,7 +491,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.(color|accent|decal|plateText))|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }

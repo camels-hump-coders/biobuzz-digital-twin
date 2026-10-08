@@ -52,11 +52,9 @@ search, pinning, history and the settings file keep working; no shadow copies).
    above them: top speed (m/s and ft/s from wheel RPM × circumference), footprint, height, mass, intake, launcher
    summary. A validation line turns red when the footprint exceeds 18 × 18 in or height exceeds 18 in (R102 starting
    configuration); it warns, it does not clamp, so older saves are not rewritten silently.
-3. **Look**: chassis colour swatches (12), accent colour, decal (none / stripe / chevron / checker) and a team number
-   plate. The box chassis takes the colour and decal; CAD chassis get a 35 % tint and the plate. The plate and decal
-   are a canvas texture on a thin plane on the robot's top; the camera renders hide them like the other markers.
-   `RobotSpec.look = { color, accent, decal, plateText }`; `RobotSpec.color` stays for compatibility and mirrors
-   `look.color`.
+3. **Look**: chassis colour swatches (12). The box chassis takes the colour; CAD chassis get a 35 % tint unless the
+   colour is aluminium. (A decal and team-number plate on a livery panel were built and removed the same day: the
+   user found them ugly.) `RobotSpec.look = { color }`; `RobotSpec.color` stays for compatibility and mirrors it.
 
 The Practice *Experiment* card keeps its two StarterBot buttons and gains a "More robots →" link into Robot setup.
 

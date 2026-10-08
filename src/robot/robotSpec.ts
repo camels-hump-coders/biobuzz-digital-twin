@@ -29,9 +29,8 @@ export type IntakeKind = "roller" | "brushes";
 /** Where game pieces enter the robot. Balls meeting any other side get pushed, not collected. */
 export interface IntakeConfig { side: IntakeSide; widthM: number; kind: IntakeKind }
 
-export type Decal = "none" | "stripe" | "chevron" | "checker";
-/** Appearance: chassis colour (box fully, CAD tinted), accent for decal and plate, team number plate text. */
-export interface RobotLook { color: number; accent: number; decal: Decal; plateText: string }
+/** Appearance: chassis colour (the box chassis fully, the CAD tinted unless aluminium). */
+export interface RobotLook { color: number }
 
 export type ChassisModel = "box" | "starterbot-6wd" | "starterbot-mecanum";
 

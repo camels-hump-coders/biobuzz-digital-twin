@@ -84,7 +84,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     intake: { side: "front", widthM: 15 * IN, kind: "brushes" },
     massKg: 13,
     color: 0xf2c200,
-    look: { color: 0xf2c200, accent: 0x15181c, decal: "stripe", plateText: "36682" },
+    look: defaultLook(0xf2c200),
   },
   forager: {
     name: "Forager (heavy 6WD pusher)",
@@ -101,7 +101,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     intake: { side: "rear", widthM: 14 * IN, kind: "brushes" },
     massKg: 15.5,
     color: 0x3e8e2f,
-    look: { color: 0x3e8e2f, accent: 0xf2c200, decal: "chevron", plateText: "36682" },
+    look: defaultLook(0x3e8e2f),
   },
   custom18: {
     name: "Custom 18 in mecanum",
