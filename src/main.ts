@@ -34,6 +34,7 @@ import { ReachJob } from "./ballistics/reachability";
 import { perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
 import { drainImpacts, stepBall, type LiveBall } from "./sim/ballPhysics";
 import { MatchAudio, WebAudioSynth } from "./sim/audio";
+import { TIERS } from "./sim/aiTiers";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
@@ -164,7 +165,7 @@ applyScriptedModels();
 
 // ---------- match dynamics (inventories, pickup, flowers, both hives)
 const flying: LiveBall[] = [];
-const match = new Match(scene, field, flying, state.hive, () => state.tipMassG / 1000, () => state.autoTip);
+const match = new Match(scene, field, flying, state.hive, () => state.tipMassG / 1000, () => state.autoTip, () => state.aiTier);
 // competition sounds: synthesised, edge-detected from the world each frame; never created in headless (?ci=1) runs
 const synth = ciMode ? undefined : new WebAudioSynth(() => state.audio);
 const audio = synth ? new MatchAudio(synth, () => state.audio) : undefined;
@@ -491,7 +492,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }
@@ -1092,9 +1093,17 @@ function frame(now: number) {
       const ag = scriptedAgents[i];
       ag.pose = s.pose;
       ag.footprint = s.footprint;
+      const T = TIERS[state.aiTier];
+      s.speed = T.speedMps;
       if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) scriptedShots++; } else ag.intakeActive = false;
-      // the last seconds: head for the LOADING ZONE for TELEOP PARK (5 pts), like a real drive team
-      if ((state.matchClock ?? 0) < 12) {
+      // parking, per tier: Medium and Hard head for the LOADING ZONE when the time left is about the drive time plus a
+      // margin (TELEOP PARK 5 pts); Hard does the same at the end of AUTO (AUTO PARK); Easy never parks
+      const zone = LOADING_ZONE[ag.alliance];
+      const driveS = Math.hypot((zone.xMin + zone.xMax) / 2 - s.pose.x, (zone.zMin + zone.zMax) / 2 - s.pose.z) / (0.8 * T.speedMps) + 0.4;
+      const clock = state.matchClock ?? 0;
+      const parkEnd = T.parksEnd && clock < Math.max(driveS + 1.6, 6);
+      const parkAuto = T.parksAuto && clock > MATCH_SECONDS - AUTO_SECONDS && clock - (MATCH_SECONDS - AUTO_SECONDS) < driveS + 1.6;
+      if (parkEnd || parkAuto) {
         const z = LOADING_ZONE[ag.alliance];
         s.brainDriven = true;
         if (inZone(s.pose, s.footprint, z)) s.target = { x: s.pose.x, z: s.pose.z }; // partially in: hold, do not shove the partner

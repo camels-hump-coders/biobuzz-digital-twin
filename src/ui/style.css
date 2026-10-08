@@ -770,3 +770,6 @@ body.panel-hidden #pips.upper-right, body.panel-hidden #drive-compass, body.pane
 #panel .swatches .sw.on { border-color: var(--fg); }
 #panel .audition { display: flex; flex-wrap: wrap; gap: 4px; }
 #panel .audition button.small { font-size: 10px; padding: 2px 7px; }
+#panel .tier-row { flex-wrap: nowrap; grid-column: 2; }
+#panel .tier-row button.tier { flex: 1 1 0; min-width: 0; padding: 4px 4px; font-size: 11px; }
+#panel .tier-row button.tier.on { background: var(--accent); color: #111923; border-color: var(--accent); font-weight: 600; }

@@ -179,7 +179,8 @@ lists LEAVE / AUTO PARK / PARK per robot, so an autonomous scenario can assert `
 LEAVE and AUTO PARK latch when the clock passes 2:00 left; PARK latches when the match clock expires; pausing does not lock the result.
 When AUTO ends the 2:30 clock holds at 2:00 for the official 8 s transition (`match.transition` counts it down in `/api/state`;
 the scripted robots sit still, your OpMode keeps running). Scenarios that want a continuous clock set
-`{"autoTransition": false}` through `POST /api/settings`. Balls are collected only while the motor with the `intake` role is
+`{"autoTransition": false}` through `POST /api/settings`. The scripted robots' difficulty is `aiTier` (`easy` | `medium` |
+`hard`, default medium) through the same endpoint: Easy is slow and sloppy, Hard parks and counts to the tip. Balls are collected only while the motor with the `intake` role is
 powered (above 0.2), and POLLEN comes out of a FLOWER only when the robot's intake kind is *brushes* (Robot setup; the
 StarterBot presets are) and the intake mouth is lined up on the FLOWER's retrieval opening within about 6 in.
 

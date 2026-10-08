@@ -3,6 +3,7 @@ import type { AppState } from "../state";
 import { PROFILES, ROBOT_PRESETS, clonePreset, defaultCamera, matchingProfile, sizingIssues, topSpeedMps } from "../robot/presets";
 import { COLOR_SWATCHES, hex, lookOf, luminance } from "../robot/look";
 import { CUE_LABELS, EFFECT_LABELS, type CueName, type EffectName } from "../sim/audio";
+import { AI_TIERS, TIER_LABELS } from "../sim/aiTiers";
 import { CAMERA_PRESETS, presetById } from "../camera/cameraPresets";
 import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
@@ -917,6 +918,9 @@ export class Panel {
       adv(chk("Other robots use the CAD chassis", () => st.opponentsCad, (v) => { st.opponentsCad = v; change("sim"); }),
         el("div", { class: "note" }, "Off by default to save frames: three more copies of the goBILDA CAD, tinted red or blue.")),
       chk("They collect and score", () => st.opponentsScore, (v) => { st.opponentsScore = v; change("sim"); }),
+      el("label", {}, "Difficulty"),
+      el("div", { class: "row tier-row", role: "group", "aria-label": "Scripted robot difficulty" }, ...AI_TIERS.map((t) => el("button", { class: st.aiTier === t ? "tier on" : "tier", "aria-pressed": String(st.aiTier === t), title: TIER_LABELS[t].blurb, onclick: () => { st.aiTier = t; change("sim"); } }, TIER_LABELS[t].title))),
+      el("div", { class: "note full" }, `${TIER_LABELS[st.aiTier].title}: ${TIER_LABELS[st.aiTier].blurb} The partner and both opponents play at this level. A tier changes how well they drive, shoot and decide (speed, hesitation, reaction lag, volley size, where they shoot from, aim noise, counting to the tip, parking, defence), never what they can see.`),
       adv(chk("Pause other robots", () => st.pauseOpponents, (v) => { st.pauseOpponents = v; change("sim"); }),
       el("div", { class: "sub" }, "Game pieces"),
       num("Robot capacity", () => st.capacity, (v) => { st.capacity = Math.round(v); change("sim"); }, { min: 1, max: 8, step: 1 }),

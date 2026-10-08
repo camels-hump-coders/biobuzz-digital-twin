@@ -2,7 +2,7 @@
  * and the behaviour of the scripted alliance partner and opponents. */
 import * as THREE from "three";
 import type { FieldObjects } from "../field/buildField";
-import { BALL, FIELD, HIVE, ZONES, m } from "../field/fieldSpec";
+import { BALL, FIELD, ZONES, m } from "../field/fieldSpec";
 import { type Alliance, type CellSide, type CellFrame, aimPoint, cellFrames, hivePivot, upCellFrame } from "../field/hive";
 import { collideBalls, insideCell, type LiveBall } from "./ballPhysics";
 import type { Footprint, Pose } from "./drive";
@@ -14,6 +14,9 @@ import { velocityFrom } from "../ballistics/projectile";
 import { gaussian, rng } from "../ballistics/dispersion";
 import { clamp, wrapAngle } from "../util/units";
 import { type HingeState, loadTorque, remainingSwing, stepHinge } from "./hiveDynamics";
+import { type AiTier, TIERS, type TierKnobs, choiceNoise } from "./aiTiers";
+
+function hashName(s: string): number { let h = 7; for (const c of s) h = (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0; return h % 1000; }
 
 export type BallKind = "pollen" | "nectar";
 export interface Inventory { pollen: number; nectar: number }
@@ -68,8 +71,10 @@ export class Match {
   tipsStarted = 0; tipsDone = 0;
 
   private scene: THREE.Scene; private field: FieldObjects; private flying: LiveBall[]; private hiveState: Record<Alliance, CellSide>; private tipMassKg: () => number; private autoTip: () => boolean;
-  constructor(scene: THREE.Scene, field: FieldObjects, flying: LiveBall[], hiveState: Record<Alliance, CellSide>, tipMassKg: () => number, autoTip: () => boolean) {
-    this.scene = scene; this.field = field; this.flying = flying; this.hiveState = hiveState; this.tipMassKg = tipMassKg; this.autoTip = autoTip;
+  /** difficulty of the scripted robots */
+  tier: () => AiTier;
+  constructor(scene: THREE.Scene, field: FieldObjects, flying: LiveBall[], hiveState: Record<Alliance, CellSide>, tipMassKg: () => number, autoTip: () => boolean, tier: () => AiTier = () => "medium") {
+    this.scene = scene; this.field = field; this.flying = flying; this.hiveState = hiveState; this.tipMassKg = tipMassKg; this.autoTip = autoTip; this.tier = tier;
     this.hives = {
       red: { alliance: "red", upCell: hiveState.red, stagedNectar: 3, tips: 0 },
       blue: { alliance: "blue", upCell: hiveState.blue, stagedNectar: 3, tips: 0 },
@@ -392,53 +397,96 @@ export class Match {
     this.flowerPickCount++;
   }
 
-  // ---------------- scripted robots: pick up, drive to a launch spot, shoot their own hive
+  // ---------------- scripted robots: pick up, drive to a launch spot, shoot their own hive. One policy for every
+  // difficulty tier (src/sim/aiTiers.ts); the tier only changes how well it is executed.
   /** Decide the scripted robot's target and actions. Returns true if it fired this frame (ball spawned). */
   driveScripted(r: ScriptedRobot, ag: Agent, dt: number): boolean {
-    const brain = ((r as any).brain ??= { mode: "seek", timer: 0, shots: 0, launchSpot: undefined as { x: number; z: number } | undefined, spotAlt: 0, progress: undefined as { d: number; t: number } | undefined, avoid: [] as { x: number; z: number; until: number }[] });
+    const T = TIERS[this.tier()];
+    const brain = ((r as any).brain ??= { mode: "seek", timer: 0, shots: 0, launchSpot: undefined as { x: number; z: number } | undefined, spotAlt: 0, progress: undefined as { d: number; t: number } | undefined, avoid: [] as { x: number; z: number; until: number }[], avoidFlowers: [] as { i: number; until: number }[], pending: undefined as { mode: string; at: number } | undefined, nextDecision: 0, frozenUntil: -1, seed: hashName(r.name), sourceSince: undefined as number | undefined, heldAtSource: 0, recentShots: [] as number[] });
     const held = ag.inventory.pollen + ag.inventory.nectar;
+    const cap = ag.caps.capacity;
     brain.timer += dt;
-    // G421: we are about to be called for pinning; back away before continuing
+    // G421: we are about to be called for pinning; back away before continuing (every tier)
     if (r.backoff) { if (this.time < r.backoff.until) { r.target = r.backoff.target; return false; } r.backoff = undefined; brain.progress = undefined; }
-    // watchdog: no progress toward the current target for 3 s means we are wedged against something or someone
-    if (r.target && (brain.mode === "seek" || brain.mode === "travel")) {
+    // reaction lag: a decided mode change takes effect after the tier's delay
+    const setMode = (mode: string) => {
+      if (brain.mode === mode || brain.pending?.mode === mode) return;
+      if (T.reactS <= 0) { brain.mode = mode; brain.timer = 0; brain.pending = undefined; } else brain.pending = { mode, at: this.time + T.reactS };
+    };
+    if (brain.pending && this.time >= brain.pending.at) { brain.mode = brain.pending.mode; brain.timer = 0; brain.pending = undefined; }
+    // decisions every 0.1 s (offset per robot); hesitation freezes the robot for that decision
+    if (this.time >= brain.nextDecision) {
+      brain.nextDecision = this.time + 0.1;
+      if (T.hesitate > 0 && brain.mode !== "fire" && this.rnd() < T.hesitate) brain.frozenUntil = this.time + 0.1;
+    }
+    if (this.time < brain.frozenUntil) { r.target = undefined; return false; }
+    // watchdog (every tier): no progress toward the current target for 3 s means we are wedged against something
+    if (r.target && (brain.mode === "seek" || brain.mode === "travel" || brain.mode === "defend")) {
       const d = Math.hypot(r.target.x - r.pose.x, r.target.z - r.pose.z);
       if (!brain.progress || d < brain.progress.d - 0.05) brain.progress = { d, t: this.time };
       else if (this.time - brain.progress.t > 3) {
         brain.progress = undefined;
         if (brain.mode === "travel") { brain.spotAlt++; brain.launchSpot = undefined; }
-        else brain.avoid.push({ x: r.target.x, z: r.target.z, until: this.time + 10 });
+        else brain.avoid.push({ x: r.target.x, z: r.target.z, until: this.time + 12 });
       }
     } else brain.progress = undefined;
     brain.avoid = brain.avoid.filter((a: { until: number }) => a.until > this.time);
+    brain.avoidFlowers = brain.avoidFlowers.filter((a: { until: number }) => a.until > this.time);
+    brain.recentShots = brain.recentShots.filter((t: number) => this.time - t < 2.5);
+    const volleyAt = Math.min(T.volleyAt, cap);
     if (brain.mode === "seek") {
       ag.intakeActive = true;
-      if (held >= ag.caps.capacity) { brain.mode = "travel"; brain.launchSpot = undefined; return false; }
-      // nearest source: flower with stock, or loose ball
-      let best: { x: number; z: number } | undefined, bestD = Infinity;
-      for (let fi = 0; fi < 4; fi++) if (this.flowerStock[fi] > 0) {
+      if (held >= volleyAt) { setMode("travel"); brain.launchSpot = undefined; return false; }
+      // the cheapest source in seconds of travel, plus the tier's stable choice noise: flowers with stock, loose balls
+      const cost = (x: number, z: number) => Math.hypot(x - r.pose.x, z - r.pose.z) / T.speedMps + T.choiceNoiseS * choiceNoise(x, z, this.time, brain.seed);
+      let best: { x: number; z: number; flower?: number } | undefined, bestC = Infinity, bestD = Infinity;
+      for (let fi = 0; fi < 4; fi++) if (this.flowerStock[fi] > 0 && ag.caps.pollen && !brain.avoidFlowers.some((a: { i: number }) => a.i === fi)) {
         const ax = this.field.flowerAxis(fi);
-        const d = Math.hypot(ax.x - r.pose.x, ax.z - r.pose.z);
-        if (d < bestD) { bestD = d; best = { x: ax.x, z: ax.z }; }
+        const c = cost(ax.x, ax.z);
+        if (c < bestC) { bestC = c; best = { x: ax.x, z: ax.z, flower: fi }; bestD = Math.hypot(ax.x - r.pose.x, ax.z - r.pose.z); }
       }
       for (const b of this.flying) {
         if (b.inCell || b.pos.y > 0.25 || !b.settled) continue;
-        if (b.kind === "nectar" && b.alliance !== ag.alliance) continue;
-        if (brain.avoid.some((a: { x: number; z: number }) => Math.hypot(a.x - b.pos.x, a.z - b.pos.z) < 0.15)) continue; // could not reach it last time
-        const d = Math.hypot(b.pos.x - r.pose.x, b.pos.z - r.pose.z);
-        if (d < bestD) { bestD = d; best = { x: b.pos.x, z: b.pos.z }; }
+        if (b.kind === "nectar" && (b.alliance !== ag.alliance || !ag.caps.nectar)) continue;
+        if (b.kind === "pollen" && !ag.caps.pollen) continue;
+        if (brain.avoid.some((a: { x: number; z: number }) => Math.hypot(a.x - b.pos.x, a.z - b.pos.z) < 0.2)) continue; // could not reach it last time
+        const c = cost(b.pos.x, b.pos.z);
+        if (c < bestC) { bestC = c; best = { x: b.pos.x, z: b.pos.z }; bestD = Math.hypot(b.pos.x - r.pose.x, b.pos.z - r.pose.z); }
       }
-      if (!best) { if (held > 0) { brain.mode = "travel"; return false; } r.target = undefined; return false; }
-      r.target = best;
-      // once near a source, wait while the intake works
-      if (bestD < m(12) && brain.timer > 6) { brain.mode = held > 0 ? "travel" : "seek"; brain.timer = 0; }
+      if (!best) {
+        if (held > 0) { setMode("travel"); return false; }
+        if (T.defends) { setMode("defend"); return false; }
+        r.target = undefined; return false;
+      }
+      r.target = { x: best.x, z: best.z };
+      // at the source: the intake works; give up after the tier's patience if nothing comes in
+      if (bestD < m(12)) {
+        if (brain.sourceSince === undefined || held !== brain.heldAtSource) { brain.sourceSince = this.time; brain.heldAtSource = held; }
+        else if (this.time - brain.sourceSince > T.patienceS) {
+          if (best.flower !== undefined) brain.avoidFlowers.push({ i: best.flower, until: this.time + 12 }); else brain.avoid.push({ x: best.x, z: best.z, until: this.time + 12 });
+          brain.sourceSince = undefined;
+          if (held > 0) setMode("travel");
+        }
+      } else brain.sourceSince = undefined;
+      return false;
+    }
+    if (brain.mode === "defend") {
+      // Hard with nothing to do: stand on the other alliance's shooting spot (a position, never a chase: no pinning)
+      ag.intakeActive = false;
+      const other: Alliance = ag.alliance === "red" ? "blue" : "red";
+      const f = this.upFrame(other);
+      const a = aimPoint(f, 0);
+      const spot = { x: a.x + f.normal.x * m(40), z: a.z + f.normal.z * m(40) };
+      const half = m(FIELD.sizeIn) / 2 - m(12);
+      r.target = { x: clamp(spot.x, -half, half), z: clamp(spot.z, -half, half) };
+      if (brain.timer > 2) { brain.timer = 0; setMode("seek"); } // look for new sources every couple of seconds
       return false;
     }
     if (brain.mode === "travel") {
       ag.intakeActive = false;
-      if (!brain.launchSpot) brain.launchSpot = this.launchSpotFor(ag.alliance, r, brain.spotAlt);
+      if (!brain.launchSpot) brain.launchSpot = this.launchSpotFor(ag.alliance, r, brain.spotAlt, T, brain.seed);
       r.target = brain.launchSpot;
-      if (Math.hypot(brain.launchSpot.x - r.pose.x, brain.launchSpot.z - r.pose.z) < m(8)) { brain.mode = "aim"; brain.timer = 0; }
+      if (Math.hypot(brain.launchSpot.x - r.pose.x, brain.launchSpot.z - r.pose.z) < m(8)) { setMode("aim"); }
       return false;
     }
     if (brain.mode === "aim") {
@@ -454,10 +502,17 @@ export class Match {
     }
     if (brain.mode === "fire") {
       r.target = undefined;
-      if (held === 0 || this.hives[ag.alliance].tipping) { brain.mode = "seek"; brain.timer = 0; return false; }
-      if (brain.timer < 0.8) return false;
+      const h = this.hives[ag.alliance];
+      if (held === 0) { setMode("seek"); return false; }
+      if (T.tipSense) {
+        // count to the tip: stop once what is in the cell plus what is in the air will tip it, and never shoot into a swinging tray
+        if (h.tipping) { brain.mode = "seek"; brain.timer = 0; brain.launchSpot = undefined; return false; }
+        const inflight = brain.recentShots.length * BALL.pollen.massKg;
+        if (this.cellLoad(ag.alliance).massKg + inflight >= this.tipMassKg() - 1e-6) { brain.mode = "seek"; brain.timer = 0; brain.launchSpot = undefined; return false; }
+      } else if (h.tipping && h.tipping.t > 1.5) { brain.mode = "seek"; brain.timer = 0; brain.launchSpot = undefined; return false; } // Easy notices late
+      if (brain.timer < T.fireIntervalS) return false;
       brain.timer = 0;
-      // shot: 55-degree hood, solver speed, modest noise
+      // shot: 55-degree hood, solver speed, the tier's aim noise
       const frame = this.upFrame(ag.alliance);
       const target = aimPoint(frame, 0.05);
       const exit = new THREE.Vector3(r.pose.x + Math.sin(r.pose.heading) * 0.1, 0.33, r.pose.z + Math.cos(r.pose.heading) * 0.1); // 0.1 m behind the centre: the ramp end
@@ -465,27 +520,33 @@ export class Match {
       const props = kind === "pollen" ? BALL.pollen : BALL.nectarRed;
       const ball = { massKg: props.massKg, diameterM: m(props.diaIn), cd: 0.45, cl: 0 };
       const sol = solveSpeedForElevation({ ball, launchPos: exit, target, frame, spin: 0 }, (55 * Math.PI) / 180, 12);
-      if (!sol) { brain.mode = "travel"; brain.launchSpot = undefined; return false; }
-      const speed = sol.speed * (1 + 0.03 * gaussian(this.rnd));
-      const yaw = (1.5 * Math.PI / 180) * gaussian(this.rnd);
+      if (!sol) { setMode("travel"); brain.launchSpot = undefined; brain.spotAlt++; return false; }
+      const speed = sol.speed * (1 + T.speedSigma * gaussian(this.rnd));
+      const yaw = (T.yawSigmaDeg * Math.PI / 180) * gaussian(this.rnd);
       const dir = { x: target.x - exit.x, z: target.z - exit.z };
-      const c = Math.cos(yaw), s = Math.sin(yaw);
-      const vel = velocityFrom(speed, (55 * Math.PI) / 180 + (0.8 * Math.PI / 180) * gaussian(this.rnd), { x: dir.x * c - dir.z * s, z: dir.x * s + dir.z * c });
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      const vel = velocityFrom(speed, (55 * Math.PI) / 180 + (0.8 * Math.PI / 180) * gaussian(this.rnd), { x: dir.x * c - dir.z * sn, z: dir.x * sn + dir.z * c });
       this.launch(ag, kind, exit, new THREE.Vector3(vel.x, vel.y, vel.z), 0);
+      brain.recentShots.push(this.time);
       return true;
     }
     return false;
   }
 
-  /** A spot in front of the alliance's raised cell, about 60 in out, nudged sideways per robot so partners do not stack. */
-  private launchSpotFor(alliance: Alliance, r: ScriptedRobot, alt = 0): { x: number; z: number } {
-    const up = this.hives[alliance].upCell;
-    const sideZ = up === "audience" ? 1 : -1;
-    const hx = (alliance === "red" ? -1 : 1) * m(HIVE.hiveSpacingIn / 2);
-    // alternatives when the usual spot is blocked: swap sides, then step further out
-    const lateral = (r.name.endsWith("2") ? 1 : -1) * (alt % 2 ? -1 : 1) * m(14 + 10 * Math.floor(alt / 2)) * (alliance === "red" ? -1 : 1);
+  /** The tier's shooting spot: a distance from the up cell's opening inside [standMin, standMax] at an angle off the
+   *  mouth normal within ±standAngle (both picked by a stable hash per robot and attempt), nudged sideways per robot so
+   *  partners do not stack. Alternatives (`alt`) step outward and swap sides when a spot is blocked. */
+  private launchSpotFor(alliance: Alliance, r: ScriptedRobot, alt: number, T: TierKnobs, seed: number): { x: number; z: number } {
+    const f = this.upFrame(alliance);
+    const a = aimPoint(f, 0);
+    const u1 = choiceNoise(seed, alt, 0, 1), u2 = choiceNoise(alt, seed, 0, 2);
+    const dist = m(T.standMinIn + (T.standMaxIn - T.standMinIn) * u1 + 6 * Math.floor(alt / 2));
+    const lean = (r.name.endsWith("2") ? 1 : -1) * (alt % 2 ? -1 : 1);
+    const ang = ((T.standAngleDeg * (2 * u2 - 1)) * Math.PI) / 180 + lean * (8 * Math.PI) / 180;
+    const nx = f.normal.x, nz = f.normal.z;
+    const dx = nx * Math.cos(ang) - nz * Math.sin(ang), dz = nx * Math.sin(ang) + nz * Math.cos(ang);
     const half = m(FIELD.sizeIn) / 2 - m(12);
-    return { x: clamp(hx + lateral, -half, half), z: clamp(sideZ * m(62 + 6 * Math.floor(alt / 2)), -half, half) };
+    return { x: clamp(a.x + dx * dist, -half, half), z: clamp(a.z + dz * dist, -half, half) };
   }
 
   /** Visual: carried balls stacked above the chassis. Hidden from camera renders by the caller. */
