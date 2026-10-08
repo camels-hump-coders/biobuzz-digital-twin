@@ -106,7 +106,7 @@ lists endpoints; if it refuses, the host is not running or uses another `--host-
 A=http://127.0.0.1:8766
 curl -s $A/api/status                          # IDLE/INIT/RUNNING/STOPPED/ERROR, current OpMode, error, OpMode list
 curl -s "$A/api/snapshot?seconds=60"           # Markdown: context, events (status, buttons, exceptions, shots, fouls), telemetry
-curl -s $A/api/state                           # pose, match phase/clock, score, inventory, hives, telemetry, scripted robots
+curl -s $A/api/state                           # pose, match phase/clock (+ transition seconds during the 8 s AUTO→TELEOP hold), score, inventory, hives, telemetry, scripted robots
 curl -s $A/api/telemetry; curl -s "$A/api/log?tail=300"      # OpMode prints / RobotLog / stack traces
 curl -s "$A/api/timeline?seconds=60"           # raw 10 Hz samples + events (JSON) when the snapshot is not enough
 curl -s $A/api/knobs; curl -s $A/api/overrides # twin knob values; manual + bound asset overrides
@@ -177,6 +177,11 @@ Snapshots and the `__twin.score()` hook carry the match scoreboard (Competition 
 AUTO PARK 5, TELEOP PARK 5, 2 per ball left in an up cell, 1 per GARDEN ball; FLOWER points not modelled). `score.robots`
 lists LEAVE / AUTO PARK / PARK per robot, so an autonomous scenario can assert `red.auto` or `robots.player.leave`.
 LEAVE and AUTO PARK latch when the clock passes 2:00 left; PARK latches when the match clock expires; pausing does not lock the result.
+When AUTO ends the 2:30 clock holds at 2:00 for the official 8 s transition (`match.transition` counts it down in `/api/state`;
+the scripted robots sit still, your OpMode keeps running). Scenarios that want a continuous clock set
+`{"autoTransition": false}` through `POST /api/settings`. Balls are collected only while the motor with the `intake` role is
+powered (above 0.2), and POLLEN comes out of a FLOWER only when the robot's intake kind is *brushes* (Robot setup; the
+StarterBot presets are) and the intake mouth is lined up on the FLOWER's retrieval opening within about 6 in.
 
 ## 4. Keep robot measurements bound to the twin
 

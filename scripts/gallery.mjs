@@ -21,7 +21,7 @@ const flag = (n, d) => { const i = args.indexOf(n); return i >= 0 && i + 1 < arg
 const port = flag("--port", "5180"), hostPort = flag("--host-port", "8780");
 const demoRuntime = args.includes("--demo-runtime"); // isolated, labelled example; never writes a team repo
 const only = flag("--only"); // comma list of shot names to redo
-const names = ["overview", "camera-view", "top-view", "hit-probability-map", "hive-tipping", "match-score", "runtime-teamcode", "replay-timeline", "settings-editor", "shooter-calibration"];
+const names = ["overview", "robot-setup", "camera-view", "top-view", "hit-probability-map", "hive-tipping", "match-score", "runtime-teamcode", "replay-timeline", "settings-editor", "shooter-calibration"];
 if (only && only.split(",").some(n => !names.includes(n))) throw new Error(`Unknown screenshot in --only ${only}`);
 const want = (name) => !only || only.split(",").includes(name);
 const { chromium } = await import("playwright");
@@ -57,6 +57,17 @@ const shot = async (page, name) => {
     await t(() => { const t = window.__twin; t.orbitCam.position.set(2.9, 2.3, 3.6); t.controls.target.set(-0.8, 0.4, 0.7); t.controls.update(); });
     await page.waitForTimeout(800); await dismissToasts(); await shot(page, "overview");
 
+  }
+  if (want("robot-setup")) {
+    // the customizer: profile cards, build readout and the Look swatches, with the Pollinator (box chassis, livery on top) on the field
+    await t(() => { const t = window.__twin; t.workspace.navigate("setup"); });
+    await page.waitForTimeout(300);
+    await page.locator('.profile-card', { hasText: 'Pollinator' }).click();
+    await t(() => { const t = window.__twin; t.state.robot.look.decal = "chevron"; t.robot.applySpec(t.state.robot); t.state.view = "orbit"; t.orbitCam.position.set(-0.6, 1.3, 3.0); t.controls.target.set(-1.4, 0.2, 1.5); t.controls.update(); const d = document.querySelector('details[data-title="Robot"]'); if (d) { d.open = true; d.scrollIntoView({ block: "start" }); } });
+    await page.waitForTimeout(1200); await dismissToasts(); await shot(page, "robot-setup");
+    await page.locator('.profile-card', { hasText: 'StarterBot Strafer' }).click();
+    await t(() => { window.__twin.workspace.navigate("practice"); window.__twin.state.aimRequest = true; });
+    await page.waitForTimeout(800);
   }
   await setSidebar(false);
   if (want("camera-view")) {

@@ -10,7 +10,7 @@ await page.waitForFunction(()=>!!window.__twin, {timeout:30000});
 await page.screenshot({path:'/tmp/biobuzz-new-practice.png'});
 console.log('Practice workspace loaded.');
 await page.getByRole('button',{name:'Start timed match',exact:true}).click();
-await page.waitForFunction(()=>document.querySelector('.match-clock')?.textContent.includes('MATCH RUNNING'));
+await page.waitForFunction(()=>/^(AUTO|TRANSITION|TELEOP|ENDGAME)/.test(document.querySelector('.match-clock')?.textContent??''));
 const time=await page.locator('.match-clock').innerText();
 await page.waitForFunction(t=>document.querySelector('.match-clock')?.textContent!==t,time);
 await page.getByRole('button',{name:'Stop match',exact:true}).click();
