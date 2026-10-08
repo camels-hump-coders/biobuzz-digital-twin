@@ -194,8 +194,10 @@ Everything in the side panel is also kept in the browser's localStorage, which i
 | Shift | boost to full speed |
 | Space | launch a ball with the current hood angle and RPM |
 | I | switch the intake on or off (K runs it while held; LB / LT on a gamepad) |
+| [ / ] | hood angle down / up (dpad left / right); takes Auto-hood off |
+| − / = | flywheel command down / up, 0 stops it (dpad down / up); takes Auto-RPM off. The wheel spins up at about 4000 RPM/s and coasts down at 1500 RPM/s, so a shot right after a change leaves slow |
 | T | flip which cell of our hive is up (resets that hive) |
-| R | rotate the robot so the launcher points at the target |
+| R | turn the robot toward the target at its own turn rate (any turn key takes over); shift-click teleports still snap |
 | F | toggle field-centric driving |
 | 1 / 2 / 3 / 4 | orbit / top-down / chase / robot-camera view |
 | H | hide or restore the side panel (field focused) |

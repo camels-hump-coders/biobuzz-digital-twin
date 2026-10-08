@@ -20,7 +20,7 @@ import { setupUpdates } from "./pwa";
 import { BALL, FIELD, m } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
-import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
+import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, maxYawRate, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import type { Footprint } from "./sim/drive";
 import type { RobotSpec } from "./robot/robotSpec";
@@ -294,6 +294,12 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (cameraAlliance !== state.alliance) orientToAlliance();
   if (what === "reset") { applyRobotSpec(); if (link.connected) link.sendHardware(hardwareDevices(), hardwareHints()); playerAgent.caps = { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }; }
   if (what === "robot" || what === "cameras" || what === "launcher") applyRobotSpec();
+  if ((what === "launcher" || what === "robot" || what === "reset") && !knobsFlushing) {
+    // the Commanded RPM field or a preset wrote a new speed straight into the launcher: take it as the command and let
+    // the wheel spin there from where it actually is (a preset change starts from rest)
+    const l = state.robot.launcher;
+    if (l.rpm !== lastActualRpm) { rpmCmd = l.rpm; l.rpm = what === "launcher" ? lastActualRpm : 0; }
+  }
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
   if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides));
@@ -706,7 +712,7 @@ function teleportAt(ev: MouseEvent) {
   if (Math.abs(hit.x) > half || Math.abs(hit.z) > half) return;
   state.pose = { ...state.pose, x: hit.x, z: hit.z };
   robot.setPose(state.pose);
-  state.aimRequest = true; // face the target from the new spot
+  aimSnapRequest = true; // face the target from the new spot (a teleport: no need to turn there)
 }
 // ---- camera mount dragging (orbit view): drag the green body to move it on the robot; Alt-drag changes height.
 let dragCam: { id: string; alt: boolean; plane: THREE.Plane } | undefined; // id "__launcher" drags the orange exit marker
@@ -880,6 +886,28 @@ function snapshotContext() {
 }
 setupUpdates();
 let shotCache: { key: string; shot?: ShotResult; scan?: ReturnType<typeof scanElevations>; required?: number } = { key: "" };
+/** flywheel under manual control: the commanded speed (keys - / =, the Commanded RPM field) and, with Auto-RPM, the
+ *  speed the solver asks for; the launcher's rpm is the wheel's actual speed, which spins up at FLYWHEEL_UP and
+ *  coasts down at FLYWHEEL_DOWN (a 6000 RPM goBILDA motor with a flywheel takes about a second to reach 4000). */
+let rpmCmd = state.robot.launcher.rpm;
+let autoRpmTarget: number | undefined;
+const FLYWHEEL_UP = 4000, FLYWHEEL_DOWN = 1500; // RPM/s
+function slewRpm(cur: number, target: number, dt: number): number {
+  const d = target - cur;
+  return d > 0 ? Math.min(target, cur + FLYWHEEL_UP * dt) : Math.max(target, cur - FLYWHEEL_DOWN * dt);
+}
+/** R / Aim: the heading at which the launcher points at the target; the robot turns there at its own yaw rate */
+let aimHeading: number | undefined;
+let knobsDirty = false, knobsFlushing = false;
+/** the wheel's actual speed as of the last frame, so a panel edit of the launcher can be told apart from the slew */
+let lastActualRpm = state.robot.launcher.rpm;
+function aimHeadingFor(): number {
+  const ap = aimPoint(targetFrame(), 0.05);
+  const mid = (state.robot.launcher.turretMinDeg + state.robot.launcher.turretMaxDeg) / 2;
+  const e = robot.exitPoint(); // the exit point moves as the robot turns; re-evaluated every frame while aiming
+  return headingToward({ x: e.x, z: e.z }, ap) - ((mid + state.robot.launcher.yawOffsetDeg) * Math.PI) / 180;
+}
+let aimSnapRequest = false;
 let analysisTick = 0;
 let lastRenderAt = 0;
 let lastSlowNote = 0;
@@ -901,7 +929,8 @@ function computeShot(exit: Vec3, frame: CellFrame): { shot?: ShotResult; scan?: 
   const req = { ball: ballProps(), launchPos: exit, target: adaptive.target, frame, spin: spinRate(l) };
   const fixed = adaptive.result;
   const required = fixed?.speed;
-  if (state.autoRpm && required !== undefined && !link.running) l.rpm = clamp(rpmForExitSpeed(l, required), 0, l.maxRpm);
+  // Auto-RPM: the flywheel is *commanded* to the required speed; the real wheel spins up in the frame loop (slewRpm)
+  if (state.autoRpm && required !== undefined && !link.running) autoRpmTarget = clamp(rpmForExitSpeed(l, required), 0, l.maxRpm);
   const shot = evaluateShot(req, (l.elevationDeg * Math.PI) / 180, exitSpeed(l));
   shotCache = { key, shot, scan, required };
   return shotCache;
@@ -1016,6 +1045,35 @@ function frame(now: number) {
   // input & drive
   perf.begin();
   const { cmd, actions } = input.poll();
+  const manual = !link.running && recorder.cursor === undefined;
+  if (manual) {
+    const l = state.robot.launcher;
+    // hood and flywheel knobs on the keys: touching them takes the knob off automatic
+    if (actions.hoodUp || actions.hoodDown) {
+      const fixed = l.elevationMinDeg === l.elevationMaxDeg;
+      const v = clamp(l.elevationDeg + (actions.hoodUp ? 1 : -1) * 20 * dt, fixed ? 0 : l.elevationMinDeg, fixed ? 89 : l.elevationMaxDeg);
+      l.elevationDeg = v; if (fixed) { l.elevationMinDeg = l.elevationMaxDeg = v; }
+      if (state.autoHood) { state.autoHood = false; }
+      knobsDirty = true;
+    }
+    if (actions.rpmUp || actions.rpmDown || actions.rpmOff) {
+      if (state.autoRpm) { state.autoRpm = false; (state as any).autoRpmUserSet = true; rpmCmd = l.rpm; }
+      rpmCmd = actions.rpmOff ? 0 : clamp(rpmCmd + (actions.rpmUp ? 1 : -1) * 2000 * dt, 0, l.maxRpm);
+      knobsDirty = true;
+    }
+    if (knobsDirty && !(actions.hoodUp || actions.hoodDown || actions.rpmUp || actions.rpmDown)) { knobsDirty = false; knobsFlushing = true; onChange("launcher"); knobsFlushing = false; panel.render(); }
+    // R / Aim: turn toward the target at the drivetrain's own rate instead of snapping; any turn key cancels
+    if (actions.aim || state.aimRequest) { state.aimRequest = false; aimHeading = aimHeadingFor(); }
+    if (aimHeading !== undefined) {
+      if (cmd.turn !== 0) aimHeading = undefined;
+      else {
+        aimHeading = aimHeadingFor();
+        const err = wrapAngle(aimHeading - state.pose.heading);
+        if (Math.abs(err) < (0.3 * Math.PI) / 180) { state.pose = { ...state.pose, heading: aimHeading }; robot.setPose(state.pose); aimHeading = undefined; }
+        else cmd.turn = clamp(err * 2.5 / Math.max(0.5, maxYawRate(driveParams())), -1, 1);
+      }
+    }
+  } else { aimHeading = undefined; state.aimRequest = false; }
   // Replay is explicit: driving cannot silently resume a recorded scene.
   if (replaying) { cmd.forward = cmd.left = cmd.turn = 0; actions.launch = false; actions.aim = false; actions.toggleTarget = false; }
   if (actions.aim) workspace.tutorialAction("aim");
@@ -1071,8 +1129,8 @@ function frame(now: number) {
   perf.mark("drive");
 
   // aim after the collision push-out so a teleport into the frame still ends up pointed at the target
-  if (actions.aim || state.aimRequest) {
-    state.aimRequest = false;
+  if (aimSnapRequest) {
+    aimSnapRequest = false;
     const ex = robot.exitPoint();
     const tfr = targetFrame();
     const ap = aimPoint(tfr, 0.05);
@@ -1203,6 +1261,14 @@ function frame(now: number) {
   const mc = computeMonteCarlo(exit, tf, fireDir);
   // the analysed arc is always toward the target (what the robot would do if aimed); the fired ball goes where the launcher points
   const { shot, scan, required } = computeShot(exit, tf);
+  if (!runtimeActive && !replaying) {
+    const l = state.robot.launcher;
+    const target = state.autoRpm ? (autoRpmTarget ?? l.rpm) : rpmCmd;
+    const next = slewRpm(l.rpm, target, dt);
+    if (next !== l.rpm) { l.rpm = next; shotCache.key = ""; } // the cache key folds the launcher in; a changed rpm must re-evaluate "as fired now"
+    lastActualRpm = l.rpm;
+  } else lastActualRpm = state.robot.launcher.rpm;
+  void required;
   // hit chance from this spot once aimed and spun up (what the hit map shows); equals mc when the robot already is
   const spunUp = required !== undefined && Math.abs(exitSpeed(l) - required) <= 0.02 * required;
   const mcIdeal = required === undefined ? undefined : turretOk && spunUp ? mc : computeMonteCarloIdeal(exit, tf, required);
@@ -1326,6 +1392,9 @@ function frame(now: number) {
     intakeOn: playerAgent.intakeActive,
     intakeManual: !runtimeActive,
     guide: { moved: guide.moved, turned: guide.turned, intakeUsed: guide.intakeUsed },
+    rpmTarget: runtimeActive ? undefined : state.autoRpm ? autoRpmTarget : rpmCmd,
+    aimingDeg: aimHeading === undefined ? undefined : Math.abs(wrapAngle(aimHeading - state.pose.heading)) * 180 / Math.PI,
+    autoRpm: state.autoRpm, autoHood: state.autoHood,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),

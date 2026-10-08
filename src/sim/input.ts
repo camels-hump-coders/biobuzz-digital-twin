@@ -13,6 +13,8 @@ export interface Actions {
   intakeToggle: boolean;
   /** K / LT: run the intake while held */
   intakeHold: boolean;
+  /** [ / ] (dpad left/right): hood angle down / up while held; - / = (dpad down/up): flywheel command down / up; 0: flywheel off */
+  hoodDown: boolean; hoodUp: boolean; rpmDown: boolean; rpmUp: boolean; rpmOff: boolean;
 }
 
 export class Input {
@@ -94,8 +96,11 @@ export class Input {
       boost: k.has("ShiftLeft") || k.has("ShiftRight"),
       intakeToggle: this.edges.has("KeyI"),
       intakeHold: k.has("KeyK"),
+      hoodDown: k.has("BracketLeft"), hoodUp: k.has("BracketRight"),
+      rpmDown: k.has("Minus"), rpmUp: k.has("Equal"), rpmOff: this.edges.has("Digit0"),
     };
     for (let i = 1; i <= 5; i++) if (this.edges.has(`Digit${i}`)) actions.view = i;
+    if (["BracketLeft", "BracketRight", "Minus", "Equal"].some((c) => k.has(c))) { /* held knobs: no default browser action to prevent */ }
     const pad = this.pad();
     if (pad) {
       const dz = (v: number) => (Math.abs(v) < 0.12 ? 0 : v);
@@ -115,6 +120,8 @@ export class Input {
       if (pressed.has(5) || pressed.has(7)) actions.boost = true;
       if (edge(4)) actions.intakeToggle = true; // LB
       if (pressed.has(6)) actions.intakeHold = true; // LT
+      if (pressed.has(12)) actions.rpmUp = true; if (pressed.has(13)) actions.rpmDown = true; // dpad up / down
+      if (pressed.has(14)) actions.hoodDown = true; if (pressed.has(15)) actions.hoodUp = true; // dpad left / right
       this.prevButtons = pressed;
     }
     this.edges.clear();

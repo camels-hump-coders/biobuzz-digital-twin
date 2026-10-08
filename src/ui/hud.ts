@@ -59,6 +59,10 @@ export interface HudData {
   intakeManual: boolean;
   /** what the driver has done this session, for the guide: driven, turned, ever run the intake */
   guide: { moved: boolean; turned: boolean; intakeUsed: boolean };
+  /** manual flywheel: commanded speed (undefined under TeamCode); degrees still to turn while R / Aim is working */
+  rpmTarget?: number;
+  aimingDeg?: number;
+  autoRpm: boolean; autoHood: boolean;
   /** match phase + clock */
   match: string;
   matchClass?: string;
@@ -131,6 +135,11 @@ export class Hud {
     let title = d.launchBlocked ? 'Shot unavailable' : !d.turretOk ? 'Aim toward the target' : unreachable ? 'Try another position' : d.actualHit ? 'Ready to try a shot' : 'Adjust your shot';
     let advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'No arc reaches the cell from here with this hood angle: slide the Hood angle in the Experiment card, or move.' : !d.actualHit ? 'Slide the Hood angle in the Experiment card and watch the hit chance climb.' : 'The predicted arc enters the cell. Shoot to test it.');
     let primary = !live ? '' : !d.turretOk ? '<button data-hud-action="aim">Aim at target</button>' : (!d.actualHit || unreachable) ? '<button data-hud-action="hood">Adjust hood angle →</button>' : '<button data-hud-action="shoot">Shoot · Space</button>';
+    const spinning = live && d.rpmTarget !== undefined && Math.abs(d.rpmTarget - d.currentRpm) > Math.max(60, 0.03 * d.rpmTarget);
+    if (live && d.aimingDeg !== undefined) { title = 'Turning to the target…'; advice = `${d.aimingDeg.toFixed(0)}° to go at the drivetrain's turn rate. Any turn key takes over.`; primary = ''; }
+    else if (!d.turretOk && !next) { advice += ` R turns the robot there; Q / E turn it by hand.`; }
+    else if (spinning && !next) { title = d.rpmTarget! > d.currentRpm ? 'Flywheel spinning up…' : 'Flywheel coasting down…'; advice = `${d.currentRpm} of ${Math.round(d.rpmTarget!)} RPM${d.autoRpm ? ' (Auto-RPM commands the speed the shot needs)' : ''}. Shoot now and the ball leaves slow. − / = change the flywheel command, 0 stops it.`; }
+    else if ((!d.actualHit || unreachable) && !next && d.turretOk) { advice += ` Keys: [ / ] hood angle, − / = flywheel (0 stops; takes Auto-RPM off).`; }
     if (next === 'move') { title = 'Now drive'; advice = 'Click the field, then hold W or S to drive forward or back (A / D strafe on mecanum). Watch the hit chance change as you move.'; primary = '<button data-hud-action="focus">Focus field · W S A D</button>'; }
     else if (next === 'turn') { title = 'Now turn'; advice = 'Hold Q or E (or ← / →) to rotate. The aim line shows where the launcher points; R snaps it back onto the target.'; primary = '<button data-hud-action="focus">Focus field · Q E</button>'; }
     else if (next === 'intake') { title = 'Collect a ball'; advice = `Press I to switch the intake feeder on (K runs it while held). Then drive the intake side (green bar) onto a loose ball or under a FLOWER: the side wheels pull it in. You carry ${d.carrying}.`; primary = '<button data-hud-action="intake">Intake on · I</button>'; }
@@ -146,7 +155,7 @@ export class Hud {
         <div class="as-fired"><strong class="${nowClass}">${d.pHit === undefined ? '—' : `${(d.pHit * 100).toFixed(0)}%`}</strong> as fired now${d.nowReason && d.pHit !== undefined && p !== undefined && Math.abs(d.pHit - p) > 0.1 ? ` <span class="why">· ${d.nowReason}</span>` : ''}</div>
         <div>Required: <b>${f(d.requiredRpm, 0)} RPM</b> · hood <b>${f(d.hoodDeg, 1)}°</b></div>
         <div title="Estimated motor power = RPM / configured free RPM">Power need / now: ${f(d.requiredPower, 2)} / ${f(d.currentPower, 2)}</div>
-        <div>Current: ${f(d.currentRpm, 0)} RPM · aim error ${f(d.bearingErrDeg, 1)}°</div>
+        <div>Current: ${f(d.currentRpm, 0)} RPM${d.rpmTarget !== undefined && Math.abs(d.rpmTarget - d.currentRpm) > 60 ? ` → ${f(d.rpmTarget, 0)}` : ''} · aim error ${f(d.bearingErrDeg, 1)}°</div>
         <div>Lowest-energy shot: ${f(d.bestAngleDeg, 1)}° · ${f(d.bestRpm, 0)} RPM</div>
       </section>
       <details data-k="prediction" ${this.open.has('prediction') ? 'open' : ''}><summary>Scoring estimate · ${p === undefined ? 'calculating' : `${(p * 100).toFixed(0)}%`} after aiming</summary><div class="hero">

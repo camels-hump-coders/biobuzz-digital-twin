@@ -93,7 +93,7 @@ export class Workspace {
     this.markers.append(this.robotMarker, this.targetMarker);
     document.getElementById('app')!.append(this.header, this.compass, this.quick, this.dock, this.timeline, this.legend, this.markers, this.notice);
     this.canvas.tabIndex = 0;
-    this.canvas.setAttribute('aria-label', 'Simulation field. Click or focus here to drive. WASD moves, Q and E turn. R aims and Space shoots in manual control. Tab leaves the field.');
+    this.canvas.setAttribute('aria-label', 'Simulation field. Click or focus here to drive. WASD moves, Q and E turn. R turns to the target, [ and ] set the hood angle, minus and equals the flywheel, Space shoots in manual control. Tab leaves the field.');
     this.canvas.addEventListener('pointerdown', () => this.canvas.focus({ preventScroll: true }));
     document.addEventListener('panel-visibility', () => this.updateLayout());
     // Capture the values before an explicit user edit, including edits in the settings dialog.
@@ -344,7 +344,7 @@ export class Workspace {
     const aim = button('Aim at target · R', () => { posthog.capture('manual_aim_requested'); this.state.aimRequest = true; if (this.tutorial) { this.tutorial = 3; this.panel.render(); } this.canvas.focus(); }, 'primary');
     const shoot = button('Shoot · Space', () => { posthog.capture('manual_shot_requested'); this.state.shootRequest = true; if (this.tutorial) { this.tutorial = 4; this.panel.render(); } this.canvas.focus(); });
     aim.disabled = disabled; shoot.disabled = disabled;
-    box.append(el('div', { class: 'practice-actions' }, aim, shoot), el('p', { class: 'note' }, disabled ? 'Manual actions are unavailable during TeamCode control or replay.' : this.state.robot.drivetrain === 'tank' ? 'W / S drive · A / D or Q / E turn (tank drive cannot strafe) · Shift for more speed' : 'WASD move · Q / E turn · Shift for more speed'),
+    box.append(el('div', { class: 'practice-actions' }, aim, shoot), el('p', { class: 'note' }, disabled ? 'Manual actions are unavailable during TeamCode control or replay.' : this.state.robot.drivetrain === 'tank' ? 'W / S drive · A / D or Q / E turn (tank drive cannot strafe) · Shift for more speed · [ ] hood · − = flywheel (0 stops)' : 'WASD move · Q / E turn · Shift for more speed · [ ] hood · − = flywheel (0 stops)'),
       el('div', { class: 'row' }, button('Focus field to drive', () => this.focusField()), button('Reset position', () => { if (this.link.running || this.recorder?.cursor !== undefined) return; this.state.placeAtStartRequest = true; this.change('sim'); this.canvas.focus(); })));
     box.querySelectorAll<HTMLButtonElement>('button').forEach(b => { if (b.textContent === 'Reset position') b.disabled = disabled; });
     box.append(this.startControls());
@@ -648,7 +648,7 @@ export class Workspace {
     if (force || status !== this.lastStatus) {
       this.lastStatus = status;
       const ownership = replay ? 'REPLAY · simulation paused' : runtime ? `TEAMCODE · ${this.link.currentOpMode || this.panel.selectedOpMode}` : this.task === 'teamcode' && this.link.connected ? 'HOST CONNECTED · ready to initialize' : document.activeElement === this.canvas ? 'FIELD FOCUSED · keyboard driving' : 'MANUAL · click the field to drive';
-      const statusText = el('div', { class: 'control-status' }, el('span', { class: 'status-dot' }), el('div', {}, el('strong', {}, ownership), el('small', {}, runtime ? this.link.status === 'INIT' ? 'Initialized · press Start to run your program' : `Running · Keyboard → Gamepad ${this.input.keyboardPad} · Stop ends the run` : replay ? 'Choose Return to live to resume driving.' : this.task === 'teamcode' ? this.link.connected ? 'Host connected · choose a program, then Initialize' : 'Waiting for local host' : 'WASD move · Q/E turn · R aim · Space shoot')));
+      const statusText = el('div', { class: 'control-status' }, el('span', { class: 'status-dot' }), el('div', {}, el('strong', {}, ownership), el('small', {}, runtime ? this.link.status === 'INIT' ? 'Initialized · press Start to run your program' : `Running · Keyboard → Gamepad ${this.input.keyboardPad} · Stop ends the run` : replay ? 'Choose Return to live to resume driving.' : this.task === 'teamcode' ? this.link.connected ? 'Host connected · choose a program, then Initialize' : 'Waiting for local host' : 'WASD move · Q/E turn · R aim · [ ] hood · − = flywheel · Space shoot')));
       const actions = el('div', { class: 'dock-actions' });
       if (replay) actions.append(button('Return to live', () => this.returnLive(), 'primary'));
       if (this.task === 'teamcode' || runtime) {
