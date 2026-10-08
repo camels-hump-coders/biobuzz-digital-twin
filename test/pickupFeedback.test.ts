@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Match, type Agent } from '../src/sim/match';
 
 function fixture() {
-  const ag = { id: 'player', alliance: 'red', pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: 0, nectar: 0 }, caps: { capacity: 4, pollen: true, nectar: true }, intakeActive: false, footprint: { lengthM: .44, widthM: .44 }, intakeGeom: { side: 'front', widthM: .33 } } as Agent;
+  const ag = { id: 'player', alliance: 'red', pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: 0, nectar: 0 }, caps: { capacity: 4, pollen: true, nectar: true }, intakeActive: false, footprint: { lengthM: .44, widthM: .44 }, intakeGeom: { side: 'front', widthM: .33 }, lastPick: -10, lastFlowerGrip: -10 } as Agent;
   const ball = { kind: 'pollen', alliance: 'red', pos: new THREE.Vector3(0, .04, -.3), vel: new THREE.Vector3(), radius: .036, settled: true, inCell: false, carried: false, launchedBy: '', launchedAt: 0 };
   const match = Object.assign(Object.create(Match.prototype), { flying: [ball], time: 0, flowerStock: [0, 0, 0, 0], field: { flowerAxis: () => new THREE.Vector3(9, 0, 9) } }) as Match;
   return { ag, ball, blocked: () => match.pickupBlockedByIntake(ag) };

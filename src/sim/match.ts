@@ -2,11 +2,11 @@
  * and the behaviour of the scripted alliance partner and opponents. */
 import * as THREE from "three";
 import type { FieldObjects } from "../field/buildField";
-import { BALL, FIELD, ZONES, m } from "../field/fieldSpec";
+import { BALL, FIELD, FLOWER, ZONES, m } from "../field/fieldSpec";
 import { type Alliance, type CellSide, type CellFrame, aimPoint, cellFrames, hivePivot, upCellFrame } from "../field/hive";
 import { collideBalls, insideCell, type LiveBall } from "./ballPhysics";
 import type { Footprint, Pose } from "./drive";
-import { chassisPush, flowerInMouth, inIntakeMouth, intakePoint, type IntakeGeom } from "./intake";
+import { FEEDER, chassisPush, feederContact, flowerInMouth, inCorridor, inIntakeMouth, intakePoint, mouthAxes, mouthFrame, type IntakeGeom } from "./intake";
 import { headingToward } from "./drive";
 import type { ScriptedRobot } from "./opponents";
 import { solveSpeedForElevation } from "../ballistics/solver";
@@ -35,8 +35,8 @@ export interface HiveSim {
 export const TIP_DEG = 30;
 const INTAKE_RANGE_M = m(7); // ball centre within this of the intake edge gets pulled in
 const PUSH_SPEED_MIN = 0.25; // m/s a nudged ball leaves the chassis with, even when the robot is barely moving
-const PICK_INTERVAL = 0.45; // s per ball through an intake
-const FLOWER_PICK_INTERVAL = 0.3; // s per POLLEN pulled out of a FLOWER's retrieval opening (bottom first, the stack drops)
+const PICK_INTERVAL = 0.35; // s per ball through the feeder once it reaches the seat
+const FLOWER_PICK_INTERVAL = 0.3; // s between POLLEN leaving a FLOWER's stack (bottom first, the rest drop)
 
 export interface Agent {
   id: string;
@@ -54,6 +54,8 @@ export interface Agent {
   /** previous pose for the chassis velocity used when pushing balls */
   prevPose?: Pose;
   lastPick: number;
+  /** sim time the feeder last pulled a POLLEN out of a FLOWER */
+  lastFlowerGrip: number;
   carryGroup: THREE.Group;
 }
 
@@ -266,7 +268,7 @@ export class Match {
       this.pushBalls(ag, vx, vz);
     }
     this.separateBalls();
-    for (const ag of agents) this.pickup(ag);
+    for (const ag of agents) this.pickup(ag, dt);
   }
 
   /** Balls do not overlap, anywhere: on the floor, stacked in a cell, in flight. Sphere–sphere separation and an impulse
@@ -305,23 +307,27 @@ export class Match {
     }
   }
 
-  /** Could this agent swallow this ball right now (ignoring position)? */
-  private canCollect(ag: Agent, b: LiveBall): boolean {
-    if (!ag.intakeActive) return false;
-    if (ag.inventory.pollen + ag.inventory.nectar >= ag.caps.capacity) return false;
-    if (b.kind === "pollen" && !ag.caps.pollen) return false;
-    if (b.kind === "nectar" && (!ag.caps.nectar || b.alliance !== ag.alliance)) return false;
-    return true;
-  }
-
   /** Move floor balls out of the chassis rectangle and give them the chassis velocity, except balls the intake is about to take. */
   private pushBalls(ag: Agent, vx: number, vz: number) {
     for (const b of this.flying) {
       if (b.inCell || b.carried || b.pos.y > 0.25) continue;
       if ((b as any).launchedBy === ag.id && this.time - ((b as any).launchedAt ?? -Infinity) < 2) continue; // our own shot leaving
+      if ((b as any).gripBy === ag.id) continue; // the feeder has it
+      const mf = mouthFrame(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z });
+      if (inCorridor(ag.intakeGeom, mf.u, mf.v, b.radius)) {
+        // the mouth is open: the ball is not pushed by the chassis edge, it stops against the roller line
+        const line = FEEDER.rollerU + FEEDER.rollerR + b.radius;
+        if (mf.u >= line) continue;
+        const ax = mouthAxes(ag.pose, ag.intakeGeom);
+        const pen = line - mf.u;
+        b.pos.x += ax.u.x * pen; b.pos.z += ax.u.z * pen;
+        const vn = Math.max(vx * ax.u.x + vz * ax.u.z, 0);
+        b.vel.x = ax.u.x * Math.max(vn + 0.05, 0.1) + vx * 0.3; b.vel.z = ax.u.z * Math.max(vn + 0.05, 0.1) + vz * 0.3;
+        b.settled = false; b.restFor = 0; b.contactAge = 1; b.mesh.position.copy(b.pos);
+        continue;
+      }
       const push = chassisPush(ag.pose, ag.footprint, { x: b.pos.x, z: b.pos.z }, b.radius);
       if (!push) continue;
-      if (this.canCollect(ag, b) && inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M)) continue;
       b.pos.x += push.dx; b.pos.z += push.dz;
       const lim = m(FIELD.sizeIn) / 2 - b.radius; // the wall is solid: a ball squeezed between chassis and wall stays inside
       b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim);
@@ -371,35 +377,68 @@ export class Match {
     return inIntakeMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z }, b.radius, INTAKE_RANGE_M);
   }
 
-  private pickup(ag: Agent) {
-    if (!ag.intakeActive) return;
+  /** The feeder: balls are collected by contact, not by proximity. A ball the side wheels or the roller touch while
+   *  the intake runs (and there is room) is pulled toward the seat inside the mouth; once it reaches the seat it is
+   *  swallowed, one per PICK_INTERVAL. Balls in the mouth corridor are not pushed by the chassis (the mouth is open),
+   *  but with the intake off they stop against the roller line instead of entering. */
+  private pickup(ag: Agent, dt: number) {
     const held = ag.inventory.pollen + ag.inventory.nectar;
-    if (held >= ag.caps.capacity) return;
-    const since = this.time - ag.lastPick;
-    // loose balls on the floor
-    if (since >= PICK_INTERVAL) for (let i = 0; i < this.flying.length; i++) {
+    const room = held < ag.caps.capacity;
+    const axes = mouthAxes(ag.pose, ag.intakeGeom);
+    const edge = intakePoint(ag.pose, ag.footprint, ag.intakeGeom.side);
+    for (let i = this.flying.length - 1; i >= 0; i--) {
       const b = this.flying[i];
-      if (!this.atCollectibleBall(ag, b)) continue;
-      b.mesh.removeFromParent();
-      this.flying.splice(i, 1);
-      ag.inventory[b.kind]++;
-      ag.lastPick = this.time;
-      this.intakeCount++;
+      if (b.inCell || b.carried || b.pos.y > 0.2) continue;
+      const { u, v } = mouthFrame(ag.pose, ag.footprint, ag.intakeGeom, { x: b.pos.x, z: b.pos.z });
+      if (!inCorridor(ag.intakeGeom, u, v, b.radius) && Math.abs(v) > ag.intakeGeom.widthM / 2 + b.radius) continue;
+      const kindOk = (b.kind === "pollen" && ag.caps.pollen) || (b.kind === "nectar" && ag.caps.nectar && b.alliance === ag.alliance);
+      const touching = feederContact(ag.intakeGeom, u, v, b.radius);
+      const gripping = ag.intakeActive && room && kindOk && (!!touching || (b as any).gripBy === ag.id);
+      if (!gripping) { if ((b as any).gripBy === ag.id) (b as any).gripBy = undefined; continue; }
+      (b as any).gripBy = ag.id;
+      // at the seat: swallow (paced), otherwise hold it there
+      if (u <= FEEDER.seatU && Math.abs(v) <= 0.08) {
+        if (this.time - ag.lastPick >= PICK_INTERVAL) {
+          b.mesh.removeFromParent(); this.flying.splice(i, 1);
+          ag.inventory[b.kind]++; ag.lastPick = this.time; this.intakeCount++;
+          if ((b as any).fromFlower !== undefined) this.flowerPickCount++;
+        } else { b.vel.set(0, 0, 0); b.settled = false; b.restFor = 0; }
+        continue;
+      }
+      // pull toward the seat (a point FEEDER.seatU inside the edge on the mouth centre line), centring as it goes
+      const sx = edge.x + axes.u.x * FEEDER.seatU, sz = edge.z + axes.u.z * FEEDER.seatU;
+      const dx = sx - b.pos.x, dz = sz - b.pos.z, d = Math.hypot(dx, dz) || 1e-6;
+      const tx = (dx / d) * FEEDER.pullMps, tz = (dz / d) * FEEDER.pullMps;
+      const k = Math.min(1, FEEDER.pullAccel * dt / Math.max(0.05, Math.hypot(tx - b.vel.x, tz - b.vel.z)));
+      b.vel.x += (tx - b.vel.x) * k; b.vel.z += (tz - b.vel.z) * k;
+      b.settled = false; b.restFor = 0; b.contactAge = 1;
+      // the ball is entering the chassis volume: the sweep must not collide with the chassis's own faces
+      const group = ag.carryGroup.parent as THREE.Object3D | null;
+      if (group) { b.launcher = group; b.launcherIgnoreUntil = b.age + 0.2; }
+    }
+    // FLOWER: the bottom POLLEN leaves the stack only when a feeder part actually touches it (G418.B, bottom only);
+    // from then on it is a live ball the feeder pulls in like any other
+    if (!ag.intakeActive || !room || !ag.caps.pollen || !Match.reachesFlower(ag.intakeGeom)) return;
+    if (this.time - ag.lastFlowerGrip < FLOWER_PICK_INTERVAL) return;
+    for (let fi = 0; fi < 4; fi++) {
+      if (this.flowerStock[fi] <= 0) continue;
+      const ax = this.field.flowerAxis(fi);
+      const { u, v } = mouthFrame(ag.pose, ag.footprint, ag.intakeGeom, { x: ax.x, z: ax.z });
+      const r = m(BALL.pollen.diaIn) / 2;
+      if (!feederContact(ag.intakeGeom, u, v, r)) continue;
+      // a live ball that is already being pulled from this FLOWER blocks the next one until it is in
+      if (this.flying.some((b) => (b as any).fromFlower === fi)) continue;
+      this.flowerStock[fi]--;
+      const stack = this.field.flowerPollen[fi];
+      const bottom = stack.shift();
+      bottom?.removeFromParent();
+      for (const b of stack) b.position.y -= m(BALL.pollen.diaIn) * 0.92;
+      const ball = this.spawnBall("pollen", undefined, new THREE.Vector3(ax.x, m(FLOWER.bottomRingThickIn) + r, ax.z), new THREE.Vector3(), false);
+      (ball as any).fromFlower = fi; (ball as any).gripBy = ag.id;
+      ball.contactAge = 1;
+      ag.lastFlowerGrip = this.time;
       return;
     }
-    // FLOWER retrieval opening: the brushes must overlap the opening (axis inside the mouth frame), G418.B bottom only
-    if (since < FLOWER_PICK_INTERVAL) return;
-    const fi = this.atStockedFlower(ag);
-    if (fi === undefined) return;
-    this.flowerStock[fi]--;
-    const stack = this.field.flowerPollen[fi];
-    const top = stack.shift(); // bottom one leaves, the rest drop
-    top?.removeFromParent();
-    for (const b of stack) b.position.y -= m(BALL.pollen.diaIn) * 0.92;
-    ag.inventory.pollen++;
-    ag.lastPick = this.time;
-    this.intakeCount++;
-    this.flowerPickCount++;
   }
 
   // ---------------- scripted robots: pick up, drive to a launch spot, shoot their own hive. One policy for every

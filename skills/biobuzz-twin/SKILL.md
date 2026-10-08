@@ -181,9 +181,11 @@ When AUTO ends the 2:30 clock holds at 2:00 for the official 8 s transition (`ma
 the scripted robots sit still, your OpMode keeps running). Scenarios that want a continuous clock set
 `{"autoTransition": false}` through `POST /api/settings`. The scripted robots' difficulty is `aiTier` (`easy` | `medium` |
 `hard`, default medium) through the same endpoint: Easy is slow and sloppy, Hard parks and counts to the tip. Balls are collected only while the motor with the `intake` role is
-powered (above 0.2), and POLLEN comes out of a FLOWER only when the robot's intake kind is *brushes* (Robot setup; the
-StarterBot presets are) and the intake end has been driven into the cage so the FLOWER axis sits between the side wheels
-(within 1.6 in outside to 1.3 in inside the intake edge; the low intake deck passes under the mid ring, the tall body does not).
+powered (above 0.2) and a feeder part (side wheel at a mouth end, or the roller 2 in inside the edge) actually touches
+the ball; the ball is then pulled to a seat 3.3 in inside the edge before it counts. POLLEN comes out of a FLOWER only
+when the robot's intake kind is *brushes* (Robot setup; the StarterBot presets are) and the intake end has been driven
+into the cage far enough for a wheel to touch the bottom ball (the low intake deck passes under the mid ring, the tall
+body does not; the StarterBot gets its edge about half an inch past the axis).
 
 ## 4. Keep robot measurements bound to the twin
 

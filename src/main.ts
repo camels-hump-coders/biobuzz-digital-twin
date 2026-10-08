@@ -175,7 +175,7 @@ function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Age
   const carryGroup = new THREE.Group();
   carryGroup.name = "carry";
   group.add(carryGroup);
-  return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, footprint: { ...footprint }, intakeGeom: { ...intakeGeom }, intake: { x: 0, z: 0 }, lastPick: 0, carryGroup };
+  return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, footprint: { ...footprint }, intakeGeom: { ...intakeGeom }, intake: { x: 0, z: 0 }, lastPick: 0, lastFlowerGrip: -10, carryGroup };
 }
 /** the chassis outline for driving and pushing: the intake end is a low deck that slides under a FLOWER's mid ring */
 function footprintOf(r: RobotSpec): Footprint { return { lengthM: r.lengthM, widthM: r.widthM, notch: { side: r.intake.side, depthM: r.intake.deckDepthM ?? 0.07 } }; }

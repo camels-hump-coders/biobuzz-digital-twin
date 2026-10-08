@@ -194,7 +194,7 @@ export class RobotObject {
       const rollerR = 0.028, rollerLen = spec.intake.widthM * 0.9;
       const roller = new THREE.Mesh(new THREE.CylinderGeometry(rollerR, rollerR, rollerLen, 14, 1), dark);
       for (let k = 0; k < 4; k++) { const fin = new THREE.Mesh(new THREE.BoxGeometry(rollerR * 2.3, rollerLen * 0.95, 0.005), new THREE.MeshStandardMaterial({ color: 0x3e8e2f, roughness: 0.9 })); fin.rotation.y = (k * Math.PI) / 4; roller.add(fin); }
-      const rollerIn = sgn * ((alongX ? spec.lengthM : spec.widthM) / 2 - 0.045);
+      const rollerIn = sgn * ((alongX ? spec.lengthM : spec.widthM) / 2 - 0.05); // FEEDER.rollerU
       roller.position.set(alongX ? rollerIn : 0, deckH + 0.02 + rollerR + 0.01, alongX ? 0 : rollerIn);
       if (alongX) roller.rotation.x = Math.PI / 2; else roller.rotation.z = Math.PI / 2; // axle along the edge
       this.chassis.add(roller);

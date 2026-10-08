@@ -83,3 +83,54 @@ export function flowerInMouth(pose: Pose, fp: Footprint, geom: IntakeGeom, axis:
   }
   return Math.abs(along) <= geom.widthM / 2 + FLOWER_MOUTH_SLOP_M && out <= FLOWER_MOUTH_REACH_M && out >= -FLOWER_MOUTH_INSIDE_M;
 }
+
+/** Feeder geometry in the mouth frame (u: out through the intake edge, positive outside; v: along the edge, metres).
+ *  Two side wheels on vertical axles at the mouth ends, a roller across the mouth a little inside the edge, and the
+ *  seat the feeder delivers to. The StarterBot CAD measures: side wheels 36 mm radius at the corners, roller 27 mm
+ *  radius 74 mm inside the edge; the box robot draws the same parts. */
+export const FEEDER = {
+  sideWheelR: 0.038, sideWheelU: -0.02,
+  rollerR: 0.028, rollerU: -0.05,
+  /** the ball is swallowed once its centre is this far inside the edge (and near the mouth centre line) */
+  seatU: -0.085,
+  /** compliant wheels: contact counts a little before the geometry touches */
+  gripTolM: 0.012,
+  /** feeder pull, m/s toward the seat, and how fast the ball gets up to it, m/s² */
+  pullMps: 0.9, pullAccel: 10,
+} as const;
+
+/** Ball position in the mouth frame. */
+export function mouthFrame(pose: Pose, fp: Footprint, geom: IntakeGeom, p: { x: number; z: number }): { u: number; v: number } {
+  const r = toRobotFrame(pose, p);
+  switch (geom.side) {
+    case "front": return { u: r.fwd - fp.lengthM / 2, v: r.left };
+    case "rear": return { u: -r.fwd - fp.lengthM / 2, v: r.left };
+    case "left": return { u: r.left - fp.widthM / 2, v: r.fwd };
+    case "right": return { u: -r.left - fp.widthM / 2, v: r.fwd };
+  }
+}
+/** Mouth-frame (u, v) back to a world offset direction: unit vectors of +u and +v. */
+export function mouthAxes(pose: Pose, geom: IntakeGeom): { u: { x: number; z: number }; v: { x: number; z: number } } {
+  const f = forwardVector(pose.heading), l = leftVector(pose.heading);
+  switch (geom.side) {
+    case "front": return { u: f, v: l };
+    case "rear": return { u: { x: -f.x, z: -f.z }, v: l };
+    case "left": return { u: l, v: f };
+    case "right": return { u: { x: -l.x, z: -l.z }, v: f };
+  }
+}
+/** Which feeder part touches a ball at (u, v) with this radius, or undefined: "side" (a side wheel), "roller". */
+export function feederContact(geom: IntakeGeom, u: number, v: number, ballR: number): "side" | "roller" | undefined {
+  const half = geom.widthM / 2;
+  for (const sv of [-(half - FEEDER.sideWheelR), half - FEEDER.sideWheelR]) {
+    if (Math.hypot(u - FEEDER.sideWheelU, v - sv) <= FEEDER.sideWheelR + ballR + FEEDER.gripTolM) return "side";
+  }
+  // the roller spans the mouth between the side wheels; a ball on the floor reaches up to it
+  if (Math.abs(v) <= half - FEEDER.sideWheelR * 0.5 && Math.abs(u - FEEDER.rollerU) <= FEEDER.rollerR + ballR + FEEDER.gripTolM) return "roller";
+  return undefined;
+}
+/** Is the ball in the mouth corridor: laterally within the mouth and at or inside the intake edge? The corridor runs
+ *  the whole depth of the chassis so a fast robot (or a slow frame) cannot carry a ball past the roller line in one step. */
+export function inCorridor(geom: IntakeGeom, u: number, v: number, ballR: number): boolean {
+  return Math.abs(v) <= geom.widthM / 2 - ballR * 0.3 && u <= ballR && u >= -1.0;
+}
