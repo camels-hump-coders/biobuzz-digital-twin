@@ -926,6 +926,7 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
 let roleWarning: string | undefined;
 let lastFoulLogged = -1;
 let intakeBlockedUntil = 0;
+let fullBlockedUntil = 0;
 /** manual intake toggle (I / LB); K / LT runs it while held */
 let intakeOn = false;
 let launchBlockedUntil = 0;
@@ -1158,6 +1159,8 @@ function frame(now: number) {
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
   perf.mark("robots");
   if (!replaying && match.pickupBlockedByIntake(playerAgent)) intakeBlockedUntil = performance.now() + 4000;
+  if (!replaying && match.pickupBlockedByCapacity(playerAgent)) fullBlockedUntil = performance.now() + 4000;
+  if (replaying || playerAgent.inventory.pollen + playerAgent.inventory.nectar < playerAgent.caps.capacity) fullBlockedUntil = 0;
   if (replaying || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   robot.spinIntake(dt, playerAgent.intakeActive);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
@@ -1305,6 +1308,7 @@ function frame(now: number) {
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: state.infiniteAmmo ? `∞ ${state.ballKind} (practice: infinite ammo)` : `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
     pickupBlocked: performance.now() < intakeBlockedUntil,
+    pickupFull: performance.now() < fullBlockedUntil ? `${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity}` : undefined,
     intake: playerAgent.intakeActive ? (runtimeActive ? "running (TeamCode)" : state.autoIntake ? "running (auto)" : "running") : runtimeActive ? "off · power the intake motor" : "off · I toggles, K runs",
     intakeOn: playerAgent.intakeActive,
     intakeManual: !runtimeActive,

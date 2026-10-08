@@ -342,6 +342,11 @@ export class Match {
     return !ag.intakeActive && ag.inventory.pollen + ag.inventory.nectar < ag.caps.capacity
       && (this.flying.some(b => this.atCollectibleBall(ag, b)) || this.atStockedFlower(ag) !== undefined);
   }
+  /** The intake is at a ball or a stocked FLOWER but the robot already carries its capacity (e.g. the 4 preloads). */
+  pickupBlockedByCapacity(ag: Agent): boolean {
+    return ag.inventory.pollen + ag.inventory.nectar >= ag.caps.capacity
+      && (this.flying.some(b => this.atCollectibleBall(ag, b)) || this.atStockedFlower(ag) !== undefined);
+  }
 
   /** Can this intake pull POLLEN out of FLOWERs at all? Only brushes reach past the lower ring plate into the opening. */
   static reachesFlower(geom: IntakeGeom): boolean { return (geom.kind ?? "brushes") === "brushes"; }

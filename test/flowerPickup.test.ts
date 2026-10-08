@@ -20,6 +20,7 @@ it("pulls POLLEN out of a FLOWER only while the intake runs, bottom first, paced
   pick(); expect(ag.inventory.pollen).toBe(1); expect(match.flowerStockOf(0)).toBe(3); expect(match.flowerPickCount).toBe(1);
   pick(); expect(ag.inventory.pollen).toBe(1); // 0.3 s pacing
   (match as any).time = 0.31; pick(); expect(ag.inventory.pollen).toBe(2);
+  ag.inventory.pollen = 4; expect(match.pickupBlockedByCapacity(ag)).toBe(true); expect(match.pickupBlockedByIntake(ag)).toBe(false);
 });
 it("a plain roller cannot retrieve from a FLOWER, and the mouth must face it", () => {
   const roller = fixture("roller");
