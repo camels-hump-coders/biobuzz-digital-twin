@@ -6,6 +6,7 @@ import { clonePreset } from "./robot/presets";
 import { DEFAULT_NOISE, type NoiseConfig } from "./ballistics/dispersion";
 import { defaultHardwareConfig, type HardwareConfig } from "./runtime/hardwareConfig";
 import { defaultCalibration, type CalibrationSession } from "./ballistics/calibration";
+import { DEFAULT_AUDIO, type AudioSettings } from "./sim/audio";
 
 export type ViewMode = "orbit" | "top" | "chase" | "robot";
 
@@ -47,6 +48,12 @@ export interface AppState {
   matchPhase?: "setup" | "running" | "stopped";
   /** transient: seconds left on the 2:30 match clock */
   matchClock?: number;
+  /** transient: seconds left in the 8 s AUTO→TELEOP transition (the 2:30 clock holds at 2:00 meanwhile) */
+  matchTransition?: number;
+  /** hold the clock for the official 8 s AUTO→TELEOP transition (Competition Manual §10.4); off = continuous 2:30 */
+  autoTransition: boolean;
+  /** competition sounds and effects, 0-1 per bus */
+  audio: AudioSettings;
   /** transient: start or stop the match on the next frame */
   matchRequest?: "start" | "stop";
   /** panel shows every setting (true) or only the everyday ones with per-section "more" expanders (false) */
@@ -124,12 +131,14 @@ export function defaultState(): AppState {
     settingsAutoLoad: true,
     infiniteAmmo: false,
     autoIntake: false,
+    autoTransition: true,
+    audio: { ...DEFAULT_AUDIO },
   };
 }
 
 const KEY = "biobuzz-twin";
 /** Fields that describe the moment, not the setup: never saved to the settings file, never restored from it. */
-export const TRANSIENT_KEYS = ["pose", "aimRequest", "shootRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchRequest"] as const;
+export const TRANSIENT_KEYS = ["pose", "aimRequest", "shootRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchTransition", "matchRequest"] as const;
 /** Deterministic JSON of the settings (sorted keys, transient fields dropped) so a committed file diffs cleanly. */
 /** The settings as they go into the file: transient fields and values the simulation itself writes every frame removed. */
 export function settingsForFile(s: AppState): Record<string, unknown> {
@@ -204,7 +213,7 @@ function migrate(s: any): AppState {
       for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
-      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), matchPhase: undefined, matchClock: undefined, matchRequest: undefined };
+      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
     }
   }
 }

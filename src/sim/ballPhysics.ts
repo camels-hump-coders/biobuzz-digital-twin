@@ -45,6 +45,10 @@ const REST_SPEED = 0.7; // below this normal speed a contact is treated as resti
 const FLOOR_RESTITUTION = 0.5; // foam tiles
 const FRICTION = 0.25; // tangential speed lost per bounce
 
+/** normal impact speeds (m/s) of bounces since the last drain, for audio */
+export const recentImpacts: number[] = [];
+export function drainImpacts(): number[] { const out = recentImpacts.slice(); recentImpacts.length = 0; return out; }
+
 const raycaster = new THREE.Raycaster();
 const tmpN = new THREE.Vector3();
 const tmpD = new THREE.Vector3();
@@ -102,6 +106,7 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
           b.vel.copy(tangent.multiplyScalar(1 - FRICTION)).addScaledVector(tmpN, -vn * RESTITUTION);
           b.spin *= 0.3;
           b.bounces++;
+          if (recentImpacts.length < 32) recentImpacts.push(-vn);
         }
       }
     }
@@ -124,6 +129,7 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
       b.vel.z *= 1 - FRICTION;
       if (Math.abs(b.vel.y) < 0.4) b.vel.y = 0;
       b.bounces++;
+      if (recentImpacts.length < 32 && b.vel.y > 0.3) recentImpacts.push(b.vel.y / FLOOR_RESTITUTION);
     }
     // rolling friction
     const f = Math.max(0, 1 - 1.5 * dt);

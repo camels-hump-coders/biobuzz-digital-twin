@@ -2,6 +2,7 @@
 import type { AppState } from "../state";
 import { PROFILES, ROBOT_PRESETS, clonePreset, defaultCamera, matchingProfile, sizingIssues, topSpeedMps } from "../robot/presets";
 import { COLOR_SWATCHES, DECALS, hex, lookOf, luminance } from "../robot/look";
+import { CUE_LABELS, EFFECT_LABELS, type CueName, type EffectName } from "../sim/audio";
 import { CAMERA_PRESETS, presetById } from "../camera/cameraPresets";
 import { LAUNCHER_PRESETS } from "../ballistics/launcher";
 import { diagonalDeg } from "../camera/cameraMath";
@@ -117,6 +118,8 @@ export class Panel {
   }
 
   decorate?: () => void;
+  /** play one cue or effect (set by main; undefined in headless runs) */
+  audition?: (kind: "cue" | "effect", name: string) => void;
   toggle() { this.root.classList.toggle("hidden"); document.dispatchEvent(new Event("panel-visibility")); }
   openSection(title: string) { this.openState.set(title, true); this.render(); }
 
@@ -306,7 +309,7 @@ export class Panel {
     if (ms > 120) this.recorder?.event(Date.now(), "note", `slow panel render ${ms.toFixed(0)} ms`);
   }
   /** panel sections in display order: everyday controls first, housekeeping last */
-  private static readonly ORDER = ["Runtime — run your TeamCode", "Field & target", "Timeline & logs", "Robot", "Launcher", "Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "View & overlays", "Settings & session"];
+  private static readonly ORDER = ["Runtime — run your TeamCode", "Field & target", "Timeline & logs", "Robot", "Launcher", "Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "View & overlays", "Sound", "Settings & session"];
   private renderInner() {
     // remember open/closed
     this.root.querySelectorAll("details").forEach((d) => this.openState.set((d as HTMLElement).dataset.title ?? d.querySelector("summary")!.textContent!, d.open));
@@ -932,7 +935,9 @@ export class Panel {
         el("button", { ...(st.matchPhase !== "running" ? { disabled: "" } : {}), onclick: () => { st.matchRequest = "stop"; change("sim"); } }, "■ Stop"),
         el("button", { onclick: () => { st.resetMatchRequest = true; change("sim"); } }, "Reset to start"),
       ),
-      adv(el("div", { class: "note" }, "Reset parks every robot on its starting mark with the field at match start; Start releases the 2:30 clock and the other robots. With TeamCode connected, INIT resets and START/STOP do the same for the whole field.")),
+      adv(el("div", { class: "note" }, "Reset parks every robot on its starting mark with the field at match start; Start releases the 2:30 clock and the other robots. With TeamCode connected, INIT resets and START/STOP do the same for the whole field."),
+      chk("8 s AUTO→TELEOP transition", () => st.autoTransition, (v) => { st.autoTransition = v; change("sim"); }),
+      el("div", { class: "note" }, "On: when AUTO ends the 2:30 clock holds at 2:00 for the official 8-second transition (buzzer, \"Drivers, pick up your controllers, 3-2-1\", bells); the other robots sit still and manual driving is ignored (G403: no powered movement). Your TeamCode keeps running: a real team would be switching OpModes. Off: a continuous 2:30.")),
       adv(el("div", { class: "sub" }, "Starting positions (red frame, inches; mirrored when you play blue)"),
         chk("Start on our raised cell's side", () => st.starts.followUpCell ?? true, (v) => { st.starts.followUpCell = v; change("sim"); }),
         el("div", { class: "note" }, "On: you start on the half of the field our hive's raised cell faces (the z values below are used as distances from the centre line), the partner takes the other half, and the opponents do the same for theirs. Off: the z values are used as given."),
@@ -943,6 +948,26 @@ export class Panel {
         ]),
         el("div", { class: "row full" }, el("button", { onclick: () => { st.starts = defaultStarts(); change("sim"); } }, "Default positions")),
         el("div", { class: "note" }, "x is toward the blue alliance, z toward the audience; heading 0 faces the scoring side, −90° faces +x. Defaults put each robot against its alliance wall facing the field.")),
+    ));
+
+    // --- Sound
+    const vol = (label: string, key: keyof AppState["audio"], note?: string) => {
+      const input = el("input", { type: "range", min: "0", max: "1", step: "0.05", value: String(st.audio[key]), title: note }) as HTMLInputElement;
+      input.oninput = () => { st.audio[key] = parseFloat(input.value); };
+      input.onchange = () => change("view");
+      return [labelControl(label, input), input];
+    };
+    const audition = (items: [string, string, () => void][]) => el("div", { class: "audition full" }, ...items.map(([k, label, play]) => el("button", { class: "small", title: `Play: ${label}`, "data-audition": k, onclick: play }, label)));
+    const cueNames = Object.keys(CUE_LABELS) as CueName[], effectNames = Object.keys(EFFECT_LABELS) as EffectName[];
+    addSection(section("Sound", open("Sound", false),
+      vol("Master volume", "master", "0 mutes everything"),
+      vol("Match cues", "cues", "Cavalry Charge, buzzers, bells, whistle, foghorn"),
+      vol("Effects", "effects", "shots, intake, hive, bounces, flywheel hum"),
+      vol("Announcer voice", "voice", "\"Drivers, pick up your controllers, 3, 2, 1\" (browser speech; beeps when unavailable)"),
+      el("div", { class: "note full" }, "Synthesised in the browser, after the official field audio (Competition Manual Table 9-1): Cavalry Charge at match start, buzzer × 3 when AUTO ends, the announcer in the 8 s transition, three bells as TELEOP begins, a train whistle at 0:20, a 3-second buzzer at the end, a foghorn when a match is stopped. Sound starts after your first click or key press on the page."),
+      el("div", { class: "sub" }, "Audition"),
+      audition(cueNames.map((k) => [k, CUE_LABELS[k], () => this.audition?.("cue", k)] as [string, string, () => void])),
+      audition(effectNames.map((k) => [k, EFFECT_LABELS[k], () => this.audition?.("effect", k)] as [string, string, () => void])),
     ));
 
     // --- View / overlays

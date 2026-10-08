@@ -32,7 +32,8 @@ import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveS
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { ReachJob } from "./ballistics/reachability";
 import { perturb, rng, type MonteCarlo } from "./ballistics/dispersion";
-import { stepBall, type LiveBall } from "./sim/ballPhysics";
+import { drainImpacts, stepBall, type LiveBall } from "./sim/ballPhysics";
+import { MatchAudio, WebAudioSynth } from "./sim/audio";
 import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors, feederFires } from "./runtime/actuators";
@@ -164,6 +165,9 @@ applyScriptedModels();
 // ---------- match dynamics (inventories, pickup, flowers, both hives)
 const flying: LiveBall[] = [];
 const match = new Match(scene, field, flying, state.hive, () => state.tipMassG / 1000, () => state.autoTip);
+// competition sounds: synthesised, edge-detected from the world each frame; never created in headless (?ci=1) runs
+const synth = ciMode ? undefined : new WebAudioSynth(() => state.audio);
+const audio = synth ? new MatchAudio(synth, () => state.audio) : undefined;
 function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Agent["caps"], footprint: Agent["footprint"], intakeGeom: Agent["intakeGeom"]): Agent {
   const carryGroup = new THREE.Group();
   carryGroup.name = "carry";
@@ -207,6 +211,8 @@ assignAlliances();
 
 // ---------- match flow: setup (parked at start) -> running (clock, scripted robots act) -> stopped
 const MATCH_SECONDS = 150; // 0:30 auto + 2:00 teleop
+const AUTO_SECONDS = 30;
+const TRANSITION_SECONDS = 8; // AUTO→TELEOP transition, its own countdown (does not consume the 2:30)
 state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
 function startKeyOf(s: ScriptedRobot): "partner" | "opp1" | "opp2" { return s.name === "Partner" ? "partner" : s.name === "Opponent 1" ? "opp1" : "opp2"; }
 function parkScripted() {
@@ -226,7 +232,7 @@ function resetBoard() {
   state.pose = startPose(state.starts, "you", state.alliance, state.hive);
   robot.setPose(state.pose);
   parkScripted();
-  state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS;
+  state.matchPhase = "setup"; state.matchClock = MATCH_SECONDS; state.matchTransition = undefined;
 }
 function startMatch() { if (recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } if (state.matchPhase === "setup" || state.matchPhase === "stopped") { if (state.matchPhase === "stopped" && (state.matchClock ?? 0) <= 0) resetBoard(); state.matchPhase = "running"; } }
 function stopMatch() { if (state.matchPhase === "running") state.matchPhase = "stopped"; }
@@ -394,7 +400,7 @@ link.onAgent = async (action, params) => {
     case "state": return { result: {
       ...snapshotContext(),
       pose: { xIn: +(state.pose.x / IN).toFixed(2), zIn: +(state.pose.z / IN).toFixed(2), headingDeg: +((state.pose.heading * 180) / Math.PI).toFixed(1) },
-      match: { phase: state.matchPhase, clock: +(state.matchClock ?? 0).toFixed(1) },
+      match: { phase: state.matchPhase, clock: +(state.matchClock ?? 0).toFixed(1), transition: state.matchTransition === undefined ? undefined : +state.matchTransition.toFixed(1) },
       score: { red: allianceScore("red"), blue: allianceScore("blue") },
       inventory: playerAgent.inventory, shots: { fired: shotsFired, hit: shotsHit }, shot: lastShotInfo, cellLoad: { red: match.cellLoad("red"), blue: match.cellLoad("blue") },
       hives: { red: { upCell: match.hives.red.upCell, tips: match.hives.red.tips }, blue: { upCell: match.hives.blue.upCell, tips: match.hives.blue.tips } },
@@ -485,7 +491,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.(color|accent|decal|plateText))|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.(color|accent|decal|plateText))|robot\.launcher\.\w+|hardware\.mirroredSide)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }
@@ -629,6 +635,7 @@ panel.settingsFile = { save: saveSettingsToFile, load: loadSettingsFromFile, dif
   unsavedPaths: () => settingsDiffPaths(localStorage.getItem(SYNC_KEY), serializeSettings(state)),
   filePaths: () => settingsDiffPaths(link.settings?.text, serializeSettings(state)) };
 panel.link = link;
+panel.audition = (kind, name) => { if (!synth) return; if (kind === "cue") synth.cue(name as any); else synth.effect(name as any, 1); };
 syncRuntime();
 Object.assign(overlays.show, state.overlays);
 const workspace = new Workspace(state, panel, link, input, onChange);
@@ -1010,6 +1017,7 @@ function frame(now: number) {
   const dp = driveParams();
   const runtimeActive = link.running;
   // tank drive cannot strafe: let A/D turn like Q/E so the usual hand position still works (no turn key held)
+  if (state.matchTransition !== undefined) { cmd.forward = cmd.left = cmd.turn = 0; actions.launch = false; } // G403: no powered movement in the transition
   const driveCmd = state.robot.drivetrain === "tank" && cmd.turn === 0 && cmd.left !== 0 ? { ...cmd, turn: cmd.left, left: 0 } : cmd;
   let vel = commandToVelocity(runtimeActive ? { forward: 0, left: 0, turn: 0 } : driveCmd, state.pose, dp);
   if (runtimeActive) {
@@ -1063,16 +1071,28 @@ function frame(now: number) {
   }
 
   // match clock
-  if (state.matchPhase === "running") { state.matchClock = Math.max(0, (state.matchClock ?? MATCH_SECONDS) - dt); if (state.matchClock <= 0) state.matchPhase = "stopped"; }
-  // scripted robots (only while the match runs)
-  if (state.opponents && !state.pauseOpponents && state.matchPhase === "running") {
+  if (state.matchPhase === "running") {
+    if (state.matchTransition !== undefined) {
+      // the 8 s AUTO→TELEOP transition: the 2:30 clock holds at 2:00 (§10.4), robots sit still, drivers pick up controllers
+      state.matchTransition -= dt;
+      if (state.matchTransition <= 0) state.matchTransition = undefined;
+    } else {
+      const before = state.matchClock ?? MATCH_SECONDS;
+      state.matchClock = Math.max(0, before - dt);
+      if (state.autoTransition && before > MATCH_SECONDS - AUTO_SECONDS && state.matchClock <= MATCH_SECONDS - AUTO_SECONDS) { state.matchClock = MATCH_SECONDS - AUTO_SECONDS; state.matchTransition = TRANSITION_SECONDS; }
+      if (state.matchClock <= 0) state.matchPhase = "stopped";
+    }
+  } else state.matchTransition = undefined;
+  const inTransition = state.matchTransition !== undefined;
+  // scripted robots (only while the match runs, and not during the transition)
+  if (state.opponents && !state.pauseOpponents && state.matchPhase === "running" && !inTransition) {
     const me: Obstacle = { xMin: state.pose.x - state.robot.widthM / 2, xMax: state.pose.x + state.robot.widthM / 2, zMin: state.pose.z - state.robot.lengthM / 2, zMax: state.pose.z + state.robot.lengthM / 2 };
     scripted.forEach((s, i) => {
       s.brainDriven = state.opponentsScore;
       const ag = scriptedAgents[i];
       ag.pose = s.pose;
       ag.footprint = s.footprint;
-      if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) { /* fired */ } } else ag.intakeActive = false;
+      if (state.opponentsScore) { if (match.driveScripted(s, ag, dt)) scriptedShots++; } else ag.intakeActive = false;
       // the last seconds: head for the LOADING ZONE for TELEOP PARK (5 pts), like a real drive team
       if ((state.matchClock ?? 0) < 12) {
         const z = LOADING_ZONE[ag.alliance];
@@ -1128,6 +1148,7 @@ function frame(now: number) {
   if (replaying || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   robot.spinIntake(dt, playerAgent.intakeActive);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
+  audio?.update({ phase: state.matchPhase ?? "setup", clock: state.matchClock ?? MATCH_SECONDS, transition: state.matchTransition, shots: shotsFired + scriptedShots, intakes: match.intakeCount, tipsStarted: match.tipsStarted, tipsDone: match.tipsDone, bounces: drainImpacts(), rpm: state.robot.launcher.rpm, maxRpm: state.robot.launcher.maxRpm, replaying }, dt);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
     scoreRobots().filter(r => r.alliance === state.alliance).length, replaying, state.infiniteAmmo, { massKg: match.cellLoad(state.alliance).massKg, thresholdKg: state.tipMassG / 1000, tipping: !!match.hives[state.alliance].tipping, autoTip: state.autoTip });
@@ -1277,7 +1298,7 @@ function frame(now: number) {
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),
-    match: replayBanner ?? (state.matchPhase === "running" ? `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left` : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`),
+    match: replayBanner ?? (state.matchPhase === "running" ? (state.matchTransition !== undefined ? `TRANSITION · drivers pick up your controllers · TELEOP in ${Math.ceil(state.matchTransition)} s` : `RUNNING · ${Math.floor((state.matchClock ?? 0) / 60)}:${String(Math.floor((state.matchClock ?? 0) % 60)).padStart(2, "0")} left`) : state.matchPhase === "stopped" ? `STOPPED${(state.matchClock ?? 1) <= 0 ? " · time" : ""} · Reset to start, or START again` : `SETUP · robots on their marks · Start match (or INIT → START your OpMode)`),
     matchClass: replayBanner ? "warn" : (state.matchPhase === "running" ? "ok" : state.matchPhase === "stopped" ? "bad" : "warn"),
     contact: contactText, contactBad,
     tags: lastTags,
@@ -1367,6 +1388,7 @@ Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit }), predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
+let scriptedShots = 0;
 let lastFireDir = { x: 0, z: -1 };
 let lastExit: Vec3 = { x: 0, y: 0, z: 0 };
 

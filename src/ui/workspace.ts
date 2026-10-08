@@ -672,14 +672,15 @@ export class Workspace {
     if (clock) {
       const mmss = (t: number) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
       const running = this.state.matchPhase === 'running';
+      const transition = running ? this.state.matchTransition : undefined;
       const inAuto = running && remaining > 120;
       // what the driver has to watch: in AUTO the seconds left before TELEOP, afterwards the time left in the match
       const shown = inAuto ? remaining - 120 : remaining;
       const urgency = !running ? 'idle' : shown <= 5 ? 'now' : shown <= (inAuto ? 10 : 30) ? 'soon' : 'calm';
-      const phase = replay ? 'LIVE MATCH' : !running ? (this.state.matchPhase === 'stopped' ? (remaining === 0 ? 'MATCH ENDED' : 'MATCH STOPPED') : 'MATCH READY') : inAuto ? 'AUTO' : remaining <= 30 ? 'ENDGAME' : 'TELEOP';
-      const sub = inAuto ? `teleop in ${shown} s · ${mmss(remaining)} left` : running ? (remaining <= 30 ? 'match ends' : 'time left') : '2:30 match';
-      clock.replaceChildren(el('span', { class: 'phase' }, phase), el('span', { class: 'time' }, inAuto ? `0:${String(shown).padStart(2, '0')}` : mmss(remaining)), el('span', { class: 'sub' }, sub));
-      clock.dataset.running = String(running); clock.dataset.urgency = urgency; clock.dataset.auto = String(inAuto);
+      const phase = replay ? 'LIVE MATCH' : !running ? (this.state.matchPhase === 'stopped' ? (remaining === 0 ? 'MATCH ENDED' : 'MATCH STOPPED') : 'MATCH READY') : transition !== undefined ? 'TRANSITION' : inAuto ? 'AUTO' : remaining <= 30 ? 'ENDGAME' : 'TELEOP';
+      const sub = transition !== undefined ? 'pick up your controllers · 2:00 left' : inAuto ? `teleop in ${shown} s · ${mmss(remaining)} left` : running ? (remaining <= 30 ? 'match ends' : 'time left') : '2:30 match';
+      clock.replaceChildren(el('span', { class: 'phase' }, phase), el('span', { class: 'time' }, transition !== undefined ? `0:0${Math.min(8, Math.ceil(transition))}` : inAuto ? `0:${String(shown).padStart(2, '0')}` : mmss(remaining)), el('span', { class: 'sub' }, sub));
+      clock.dataset.running = String(running); clock.dataset.urgency = transition !== undefined ? (transition <= 3 ? 'now' : 'soon') : urgency; clock.dataset.auto = String(inAuto || transition !== undefined);
     }
     const connected = this.link.connected;
     let title = !this.state.runtimeEnabled ? 'Runtime disabled' : !connected ? 'Waiting for runtime host' : this.link.status === 'RUNNING' ? 'Program running' : this.link.status === 'INIT' ? 'Initialized · ready to start' : this.link.status === 'ERROR' ? 'Runtime error' : 'Runtime connected';

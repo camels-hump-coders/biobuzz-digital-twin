@@ -768,3 +768,5 @@ body.panel-hidden #pips.upper-right, body.panel-hidden #drive-compass, body.pane
 #panel .swatches { display: flex; flex-wrap: wrap; gap: 4px; }
 #panel .swatches .sw { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid transparent; font-size: 11px; line-height: 16px; cursor: pointer; }
 #panel .swatches .sw.on { border-color: var(--fg); }
+#panel .audition { display: flex; flex-wrap: wrap; gap: 4px; }
+#panel .audition button.small { font-size: 10px; padding: 2px 7px; }

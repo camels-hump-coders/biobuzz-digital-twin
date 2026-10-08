@@ -61,6 +61,8 @@ export class Match {
   intakeCount = 0;
   /** POLLEN pulled out of FLOWERs since construction */
   flowerPickCount = 0;
+  /** tips started / swings finished (both hives), for audio */
+  tipsStarted = 0; tipsDone = 0;
 
   private scene: THREE.Scene; private field: FieldObjects; private flying: LiveBall[]; private hiveState: Record<Alliance, CellSide>; private tipMassKg: () => number; private autoTip: () => boolean;
   constructor(scene: THREE.Scene, field: FieldObjects, flying: LiveBall[], hiveState: Record<Alliance, CellSide>, tipMassKg: () => number, autoTip: () => boolean) {
@@ -165,7 +167,7 @@ export class Match {
     this.field.setStagedNectar(alliance, false);
     // the scored balls stay "in the cell" for the swing so the carry logic moves them, then roll out under gravity
     for (const f of this.flying) if (f.inCell && (f as any).cellOf === alliance) { f.settled = false; f.restFor = 0; f.contacts = []; f.contactAge = 1; }
-    h.tips++;
+    h.tips++; this.tipsStarted++;
     // a tip unlocks a NECTAR: the human player drops one into the LOADING ZONE
     if (this.nectarSupply[alliance] > 0) {
       this.nectarSupply[alliance]--;
@@ -203,7 +205,7 @@ export class Match {
         this.field.setHiveTilt(a, angle);
         this.carryBalls(a, dAngle, dt);
         if (k >= 1) {
-          h.tipping = undefined;
+          h.tipping = undefined; this.tipsDone++;
           h.upCell = h.upCell === "audience" ? "scoring" : "audience";
           this.hiveState[a] = h.upCell;
           this.field.setHiveState({ alliance: a, upCell: h.upCell });

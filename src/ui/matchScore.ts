@@ -69,7 +69,7 @@ export class MatchScoreView {
         <dt>Flowers</dt><dd>Not simulated</dd></dl>
         <p>LEAVE and AUTO PARK lock at 0:30 elapsed. End park, cell and garden points are previews until the match ends and pieces settle.</p>
         <p>SWARM: 16 combined leave + AUTO park + end park points. POLLINATOR 1/2: 4/7 tips. Each earns 1 RP; win/tie RP excluded.</p>
-        <p>${robots === 1 ? 'Solo practice: SWARM requires an alliance partner. ' : 'Includes your simulated alliance partner. '}${infinite ? 'Infinite ammo enabled. ' : ''}Flower points and penalties are not simulated. The clock skips the official 8-second AUTO transition.</p>
+        <p>${robots === 1 ? 'Solo practice: SWARM requires an alliance partner. ' : 'Includes your simulated alliance partner. '}${infinite ? 'Infinite ammo enabled. ' : ''}Flower points and penalties are not simulated. The 2:30 clock holds for the official 8-second AUTO→TELEOP transition (All settings → Field & target).</p>
         <a href="https://ftc-resources.firstinspires.org/ftc/archive/2027/game/manual-10" target="_blank" rel="noopener noreferrer">TU03 scoring · All Other Events thresholds ↗</a>
       </div>`;
   }
