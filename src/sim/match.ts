@@ -4,7 +4,7 @@ import * as THREE from "three";
 import type { FieldObjects } from "../field/buildField";
 import { BALL, FIELD, HIVE, ZONES, m } from "../field/fieldSpec";
 import { type Alliance, type CellSide, type CellFrame, aimPoint, cellFrames, hivePivot, upCellFrame } from "../field/hive";
-import { insideCell, type LiveBall } from "./ballPhysics";
+import { collideBalls, insideCell, type LiveBall } from "./ballPhysics";
 import type { Footprint, Pose } from "./drive";
 import { chassisPush, flowerInMouth, inIntakeMouth, intakePoint, type IntakeGeom } from "./intake";
 import { headingToward } from "./drive";
@@ -13,6 +13,7 @@ import { solveSpeedForElevation } from "../ballistics/solver";
 import { velocityFrom } from "../ballistics/projectile";
 import { gaussian, rng } from "../ballistics/dispersion";
 import { clamp, wrapAngle } from "../util/units";
+import { type HingeState, loadTorque, remainingSwing, stepHinge } from "./hiveDynamics";
 
 export type BallKind = "pollen" | "nectar";
 export interface Inventory { pollen: number; nectar: number }
@@ -23,7 +24,9 @@ export interface HiveSim {
   upCell: CellSide;
   stagedNectar: number;
   tips: number;
-  tipping?: { from: number; to: number; t: number; duration: number; last: number };
+  /** a swing in progress: the hinge state plus `from`, the angle the tray was last drawn at (`last`) and a running
+   *  estimate of the whole swing's length (`duration`, for the HUD); `load` is Σ m·rz of the balls riding last frame */
+  tipping?: HingeState & { from: number; duration: number; last: number; load: { massKg: number; rz: number }[] };
 }
 
 export const TIP_DEG = 30;
@@ -153,11 +156,9 @@ export class Match {
 
   private startTip(alliance: Alliance) {
     const h = this.hives[alliance];
-    const load = this.cellLoad(alliance);
-    const excess = load.massKg / this.tipMassKg();
-    const duration = clamp(2.6 / Math.sqrt(Math.max(1, excess)), 0.9, 2.6);
-    const from = h.upCell === "audience" ? TIP_DEG : -TIP_DEG;
-    h.tipping = { from: (from * Math.PI) / 180, to: (-from * Math.PI) / 180, t: 0, duration, last: (from * Math.PI) / 180 };
+    const from = ((h.upCell === "audience" ? TIP_DEG : -TIP_DEG) * Math.PI) / 180;
+    // the detent lets go: from here the swing is physical (hiveDynamics), driven by the balls riding in the cell
+    h.tipping = { from, to: -from, angle: from, omega: 0, t: 0, duration: 3, last: from, load: [] };
     // the staged NECTAR become live balls riding in the cell
     for (const p of this.field.stagedNectar(alliance)) {
       const b = this.spawnBall("nectar", alliance, p, new THREE.Vector3(), true);
@@ -196,15 +197,19 @@ export class Match {
     for (const a of ["red", "blue"] as Alliance[]) {
       const h = this.hives[a];
       if (h.tipping) {
-        h.tipping.t += dt;
-        const k = Math.min(1, h.tipping.t / h.tipping.duration);
-        const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-        const angle = h.tipping.from + (h.tipping.to - h.tipping.from) * e;
-        const dAngle = angle - h.tipping.last;
-        h.tipping.last = angle;
+        const tip = h.tipping;
+        // balls riding in the cells drive the hinge; their inertia at the cell radius adds to the tray's
+        const extraI = tip.load.reduce((acc, b) => acc + b.massKg * b.rz * b.rz, 0);
+        let done = false;
+        const n = Math.max(1, Math.ceil(dt / 0.01));
+        for (let i = 0; i < n && !done; i++) done = stepHinge(tip, loadTorque(tip.load), dt / n, extraI);
+        tip.duration = tip.t + remainingSwing(tip);
+        const angle = tip.angle;
+        const dAngle = angle - tip.last;
+        tip.last = angle;
         this.field.setHiveTilt(a, angle);
         this.carryBalls(a, dAngle, dt);
-        if (k >= 1) {
+        if (done) {
           h.tipping = undefined; this.tipsDone++;
           h.upCell = h.upCell === "audience" ? "scoring" : "audience";
           this.hiveState[a] = h.upCell;
@@ -259,25 +264,10 @@ export class Match {
     for (const ag of agents) this.pickup(ag);
   }
 
-  /** Loose balls on the floor do not overlap: push pairs apart and trade the velocity along the contact normal. */
-  private separateBalls() {
-    const floor = this.flying.filter((b) => !b.inCell && !b.carried && b.pos.y < 0.12);
-    const lim = m(FIELD.sizeIn) / 2;
-    for (let i = 0; i < floor.length; i++) for (let j = i + 1; j < floor.length; j++) {
-      const a = floor[i], b = floor[j];
-      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
-      const d = Math.hypot(dx, dz), min = a.radius + b.radius;
-      if (d >= min || d < 1e-6) continue;
-      const nx = dx / d, nz = dz / d, pen = min - d;
-      a.pos.x -= nx * pen / 2; a.pos.z -= nz * pen / 2; b.pos.x += nx * pen / 2; b.pos.z += nz * pen / 2;
-      for (const k of [a, b]) { k.pos.x = clamp(k.pos.x, -lim + k.radius, lim - k.radius); k.pos.z = clamp(k.pos.z, -lim + k.radius, lim - k.radius); k.mesh.position.copy(k.pos); }
-      // relative speed along the normal: exchange it (equal masses, restitution 0.5)
-      const rel = (a.vel.x - b.vel.x) * nx + (a.vel.z - b.vel.z) * nz;
-      if (rel > 0) { const imp = rel * 0.75; a.vel.x -= imp * nx; a.vel.z -= imp * nz; b.vel.x += imp * nx; b.vel.z += imp * nz; }
-      if (a.settled && (Math.hypot(a.vel.x, a.vel.z) > 0.05 || pen > 0.005)) { a.settled = false; a.restFor = 0; }
-      if (b.settled && (Math.hypot(b.vel.x, b.vel.z) > 0.05 || pen > 0.005)) { b.settled = false; b.restFor = 0; }
-    }
-  }
+  /** Balls do not overlap, anywhere: on the floor, stacked in a cell, in flight. Sphere–sphere separation and an impulse
+   *  exchange along the contact normal (restitution 0.55, by mass). A settled ball hit by a moving one is woken only
+   *  by a real knock, so a stack in the cell is not jittered apart by a ball settling against it. */
+  private separateBalls() { collideBalls(this.flying, m(FIELD.sizeIn) / 2); }
 
   /** Balls riding in a swinging cell: rotate them with the hive about the pivot so they slide out as the floor steepens. */
   private carryBalls(alliance: Alliance, dAngle: number, dt: number) {
@@ -293,10 +283,12 @@ export class Match {
     const restCells = cellFrames({ alliance, upCell: h.upCell }); // upCell flips only when the swing completes
     const toRest = new THREE.Quaternion().setFromAxisAngle(X, tip.last - tip.from);
     const probe = new THREE.Vector3();
+    tip.load = [];
     for (const f of this.flying) {
       probe.copy(f.pos).sub(pv).applyQuaternion(toRest).add(pv);
       const inside = restCells.some((c) => insideCell(c, probe, 0.03));
       if (!inside) { if (f.carried && (f as any).cellOf === alliance) { (f as any).cellOf = undefined; f.inCell = false; } continue; } // rolled out: it is a free ball now
+      tip.load.push({ massKg: f.massKg, rz: f.pos.z - pv.z });
       const rel = f.pos.clone().sub(pv);
       const moved = rel.clone().applyQuaternion(q).add(pv);
       const carryVel = moved.clone().sub(f.pos).divideScalar(Math.max(dt, 1e-3));

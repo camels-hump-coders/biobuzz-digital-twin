@@ -44,6 +44,10 @@ const RESTITUTION = 0.45; // polyethylene ball on polycarbonate / aluminium
 const REST_SPEED = 0.7; // below this normal speed a contact is treated as resting, not a bounce
 const FLOOR_RESTITUTION = 0.5; // foam tiles
 const FRICTION = 0.25; // tangential speed lost per bounce
+const ROLL_DECEL = 0.5; // m/s², rolling resistance of a polyethylene ball on foam tile
+const ROLL_VISCOUS = 0.4; // 1/s, extra loss that grows with speed (tile seams, air)
+const ROLL_SNAP = 0.05; // m/s, below this a rolling ball is stopped outright
+const BALL_RESTITUTION = 0.55; // ball on ball
 
 /** normal impact speeds (m/s) of bounces since the last drain, for audio */
 export const recentImpacts: number[] = [];
@@ -124,16 +128,22 @@ export function stepBall(b: LiveBall, dt: number, ball: BallProps, colliders: TH
   if (b.pos.y < b.radius) {
     b.pos.y = b.radius;
     if (b.vel.y < 0) {
-      b.vel.y = -b.vel.y * FLOOR_RESTITUTION;
-      b.vel.x *= 1 - FRICTION;
-      b.vel.z *= 1 - FRICTION;
-      if (Math.abs(b.vel.y) < 0.4) b.vel.y = 0;
-      b.bounces++;
-      if (recentImpacts.length < 32 && b.vel.y > 0.3) recentImpacts.push(b.vel.y / FLOOR_RESTITUTION);
+      const impact = -b.vel.y;
+      if (impact > 0.4) {
+        // a real bounce: rebound and scrub tangential speed
+        b.vel.y = impact * FLOOR_RESTITUTION;
+        b.vel.x *= 1 - FRICTION;
+        b.vel.z *= 1 - FRICTION;
+        b.bounces++;
+        if (recentImpacts.length < 32) recentImpacts.push(impact);
+      } else b.vel.y = 0; // rolling contact: the floor just carries it (the old per-frame scrub killed every roll in a few frames)
     }
-    // rolling friction
-    const f = Math.max(0, 1 - 1.5 * dt);
-    b.vel.x *= f; b.vel.z *= f;
+    // rolling resistance on the foam tiles: a constant (Coulomb) deceleration plus a little speed-proportional loss,
+    // and a hard snap to rest below 5 cm/s so slow balls stop instead of creeping
+    const speed = Math.hypot(b.vel.x, b.vel.z);
+    const dec = ROLL_DECEL * dt + speed * ROLL_VISCOUS * dt;
+    if (speed <= dec + ROLL_SNAP) { b.vel.x = 0; b.vel.z = 0; }
+    else { const k = (speed - dec) / speed; b.vel.x *= k; b.vel.z *= k; }
   }
   // while in resting contact, cancel the velocity component pushing into the surface (gravity on a slope)
   if (b.contactAge < 0.1) {
@@ -176,4 +186,46 @@ export function insideCell(frame: CellFrame, p: { x: number; y: number; z: numbe
     if (a.u > u !== b.u > u && r < ((b.r - a.r) * (u - a.u)) / (b.u - a.u) + a.r) inside = !inside;
   }
   return inside;
+}
+
+/** Sphere–sphere contact for every pair that is not both at rest. Positions are corrected (a settled ball holds
+ *  its ground unless knocked), velocities exchange an impulse along the normal with BALL_RESTITUTION, and balls on
+ *  the floor stay inside the perimeter (`halfField`). */
+export function collideBalls(balls: LiveBall[], halfField: number): void {
+  for (let i = 0; i < balls.length; i++) {
+    const a = balls[i];
+    for (let j = i + 1; j < balls.length; j++) {
+      const b = balls[j];
+      if (a.settled && b.settled) continue;
+      const dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y, dz = b.pos.z - a.pos.z;
+      const min = a.radius + b.radius;
+      if (Math.abs(dx) >= min || Math.abs(dz) >= min || Math.abs(dy) >= min) continue;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (d >= min || d < 1e-6) continue;
+      const nx = dx / d, ny = dy / d, nz = dz / d, pen = min - d;
+      const rel = (a.vel.x - b.vel.x) * nx + (a.vel.y - b.vel.y) * ny + (a.vel.z - b.vel.z) * nz; // closing speed
+      // a resting ball is only woken by a real knock; otherwise the moving ball is pushed off it
+      const knock = rel > 0.5;
+      const aFixed = a.settled && !knock, bFixed = b.settled && !knock;
+      const wa = aFixed ? 0 : bFixed ? 1 : 0.5, wb = 1 - wa;
+      if (aFixed && bFixed) continue;
+      a.pos.x -= nx * pen * wa; a.pos.y -= ny * pen * wa; a.pos.z -= nz * pen * wa;
+      b.pos.x += nx * pen * wb; b.pos.y += ny * pen * wb; b.pos.z += nz * pen * wb;
+      for (const k of [a, b]) {
+        if (k.pos.y < k.radius) k.pos.y = k.radius;
+        if (k.pos.y < 0.3) { k.pos.x = Math.min(halfField - k.radius, Math.max(-halfField + k.radius, k.pos.x)); k.pos.z = Math.min(halfField - k.radius, Math.max(-halfField + k.radius, k.pos.z)); }
+        k.mesh.position.copy(k.pos);
+      }
+      if (rel > 0) {
+        const ma = aFixed ? Infinity : a.massKg, mb = bFixed ? Infinity : b.massKg;
+        const inv = (ma === Infinity ? 0 : 1 / ma) + (mb === Infinity ? 0 : 1 / mb);
+        if (inv > 0) {
+          const jImp = ((1 + BALL_RESTITUTION) * rel) / inv;
+          if (ma !== Infinity) { a.vel.x -= (jImp / ma) * nx; a.vel.y -= (jImp / ma) * ny; a.vel.z -= (jImp / ma) * nz; }
+          if (mb !== Infinity) { b.vel.x += (jImp / mb) * nx; b.vel.y += (jImp / mb) * ny; b.vel.z += (jImp / mb) * nz; }
+        }
+      }
+      if (knock) { for (const k of [a, b]) if (k.settled) { k.settled = false; k.restFor = 0; k.age = Math.min(k.age, 1); } }
+    }
+  }
 }
