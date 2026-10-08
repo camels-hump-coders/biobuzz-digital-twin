@@ -126,7 +126,7 @@ export class Hud {
     const advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'No arc reaches the cell from here with this hood angle: slide the Hood angle in the Experiment card, or move.' : !d.actualHit ? 'Slide the Hood angle in the Experiment card and watch the hit chance climb.' : 'The predicted arc enters the cell. Shoot to test it.');
     const live = !d.runtime.startsWith('RUNNING') && !d.runtime.startsWith('INIT') && !document.body.classList.contains('is-replaying');
     const primary = !live ? '' : !d.turretOk ? '<button data-hud-action="aim">Aim at target</button>' : (!d.actualHit || unreachable) ? '<button data-hud-action="hood">Adjust hood angle →</button>' : '<button data-hud-action="shoot">Shoot · Space</button>';
-    this.root.innerHTML = `
+    const html = `
       ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
       ${d.pickupFull ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · carrying ${d.pickupFull}</strong><p>The robot is full (it starts with 4 POLLEN preloaded). Shoot to make room, then collect.</p></section>` : ''}
       ${d.pickupBlocked ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · intake off</strong><p>You have room for a ball. ${d.intakeManual ? 'Press <b>I</b> to switch the intake on (or hold <b>K</b>), then drive the intake side onto the ball or FLOWER opening.' : 'Turn on the intake motor using your TeamCode controls, then drive the intake over the ball or FLOWER opening.'}</p></section>` : ''}
@@ -181,7 +181,43 @@ export class Hud {
       </table>`)}
       ${fold("tags", `AprilTags · ${d.cameraName} · ${d.tags.filter((t) => t.visible).length} visible`, `<div class="tags">${tags || '<span class="tag">no camera</span>'}</div>`)}
     `;
-    if (focusAction) this.root.querySelector<HTMLElement>(`[data-hud-action="${focusAction}"]`)?.focus({ preventScroll: true });
-    else if (focusSection) this.root.querySelector<HTMLElement>(`[data-k="${focusSection}"] > summary`)?.focus({ preventScroll: true });
+    if (html === this.lastHtml) return;
+    this.lastHtml = html;
+    // patch the existing DOM in place instead of replacing it: hover, focus and open/closed folds survive, and the
+    // browser only re-lays-out what changed
+    morph(this.root, html);
+    if (focusAction && document.activeElement !== focused) this.root.querySelector<HTMLElement>(`[data-hud-action="${focusAction}"]`)?.focus({ preventScroll: true });
+    else if (focusSection && document.activeElement !== focused) this.root.querySelector<HTMLElement>(`[data-k="${focusSection}"] > summary`)?.focus({ preventScroll: true });
   }
+  private lastHtml = "";
+}
+
+const scratch = typeof document !== "undefined" ? document.createElement("template") : undefined;
+/** Reconcile `target`'s children with the markup in `html`: matching elements (same tag, same data-k / data-hud-action)
+ *  are kept and patched, text is updated in place, anything else is replaced. */
+export function morph(target: Element, html: string) {
+  if (!scratch) { target.innerHTML = html; return; }
+  scratch.innerHTML = html;
+  morphChildren(target, scratch.content);
+}
+function keyOf(n: Node): string {
+  if (n.nodeType !== Node.ELEMENT_NODE) return n.nodeType === Node.TEXT_NODE ? "#text" : "#other";
+  const e = n as HTMLElement;
+  return `${e.tagName}|${e.dataset.k ?? ""}|${e.dataset.hudAction ?? ""}`;
+}
+function morphChildren(oldParent: Node, newParent: Node) {
+  const olds = [...oldParent.childNodes], news = [...newParent.childNodes];
+  let i = 0;
+  for (; i < news.length; i++) {
+    const n = news[i], o = olds[i];
+    if (!o) { oldParent.appendChild(n.cloneNode(true)); continue; }
+    if (keyOf(o) !== keyOf(n)) { oldParent.replaceChild(n.cloneNode(true), o); continue; }
+    if (n.nodeType === Node.TEXT_NODE) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; continue; }
+    if (n.nodeType !== Node.ELEMENT_NODE) continue;
+    const oe = o as Element, ne = n as Element;
+    for (const a of [...oe.attributes]) if (!ne.hasAttribute(a.name)) oe.removeAttribute(a.name);
+    for (const a of [...ne.attributes]) if (oe.getAttribute(a.name) !== a.value) oe.setAttribute(a.name, a.value);
+    morphChildren(oe, ne);
+  }
+  for (let j = olds.length - 1; j >= i; j--) oldParent.removeChild(olds[j]);
 }
