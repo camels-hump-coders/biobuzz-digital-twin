@@ -765,6 +765,7 @@ export class Panel {
       el("b", {}, basedOn ? ROBOT_PRESETS[basedOn].name : `Custom · based on ${ROBOT_PRESETS[st.robotPresetId]?.name ?? "a profile"}`),
       el("span", {}, `${(topSpeedMps(r) * 3.281).toFixed(1)} ft/s (${topSpeedMps(r).toFixed(2)} m/s) free · ${r.massKg} kg · ${(r.lengthM / IN).toFixed(1)} × ${(r.widthM / IN).toFixed(1)} × ${(r.heightM / IN).toFixed(1)} in`),
       el("span", {}, `${r.drivetrain === "mecanum" ? "Mecanum" : "Tank"} · ${r.intake.side} ${r.intake.kind === "roller" ? "roller (floor only)" : "brushes (floor + FLOWER)"} ${(r.intake.widthM / IN).toFixed(0)} in · ${r.launcher.name}`),
+      el("span", {}, `Collects ${st.canPollen && st.canNectar ? "POLLEN and NECTAR" : st.canPollen ? "POLLEN only" : st.canNectar ? "NECTAR only" : "nothing"} · carries ${st.capacity} (Field & target → Game pieces)`),
       issues.length ? el("span", { class: "bad" }, `⚠ Over the 18 in starting configuration (R102): ${issues.join(", ")}`) : el("span", { class: "ok" }, "✓ fits the 18 × 18 × 18 in starting configuration"));
     const look = lookOf(r); r.look = look;
     const swatches = (label: string, get: () => number, set: (v: number) => void) => {

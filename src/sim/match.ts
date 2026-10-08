@@ -58,6 +58,8 @@ export interface Agent {
   lastFlowerGrip: number;
   /** balls this robot's feeder has swallowed (audio cues only follow the player's) */
   picks?: number;
+  /** the feeder touched a ball it may not take (wrong kind or the other alliance's NECTAR): what and when */
+  rejected?: { kind: BallKind; alliance?: Alliance; at: number };
   carryGroup: THREE.Group;
 }
 
@@ -73,6 +75,8 @@ export class Match {
   flowerPickCount = 0;
   /** tips started / swings finished (both hives), for audio */
   tipsStarted = 0; tipsDone = 0;
+  /** the last reserve NECTAR the human player entered after a tip (so the HUD can say where that ball came from) */
+  lastNectarRelease?: { alliance: Alliance; at: number };
 
   private scene: THREE.Scene; private field: FieldObjects; private flying: LiveBall[]; private hiveState: Record<Alliance, CellSide>; private tipMassKg: () => number; private autoTip: () => boolean;
   /** difficulty of the scripted robots */
@@ -180,6 +184,7 @@ export class Match {
     h.tips++; this.tipsStarted++;
     // a tip unlocks a NECTAR: the human player drops one into the LOADING ZONE
     if (this.nectarSupply[alliance] > 0) {
+      this.lastNectarRelease = { alliance, at: this.time };
       this.nectarSupply[alliance]--;
       const z = alliance === "red" ? ZONES.loadingRed : ZONES.loadingBlue;
       const pos = new THREE.Vector3(m((z.xMin + z.xMax) / 2), m(BALL.nectarRed.diaIn) / 2 + 0.3, m((z.zMin + z.zMax) / 2));
@@ -395,6 +400,7 @@ export class Match {
       if (!inCorridor(ag.intakeGeom, u, v, b.radius) && Math.abs(v) > ag.intakeGeom.widthM / 2 + b.radius) continue;
       const kindOk = (b.kind === "pollen" && ag.caps.pollen) || (b.kind === "nectar" && ag.caps.nectar && b.alliance === ag.alliance);
       const touching = feederContact(ag.intakeGeom, u, v, b.radius);
+      if (touching && ag.intakeActive && room && !kindOk) ag.rejected = { kind: b.kind, alliance: b.alliance, at: this.time }; // the wheels spin against a ball this robot may not take: it gets pushed, not pulled
       const gripping = ag.intakeActive && room && kindOk && (!!touching || (b as any).gripBy === ag.id);
       if (!gripping) { if ((b as any).gripBy === ag.id) (b as any).gripBy = undefined; continue; }
       (b as any).gripBy = ag.id;

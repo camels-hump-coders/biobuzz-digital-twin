@@ -133,6 +133,7 @@ export function twinKnobs(state: AppState): Knobs {
   k["hive.aimInsideIn"] = cal2 ? cal2.aimInsideIn : 2;
   k["noise.speedPct"] = state.noise.speedFrac * 100; k["noise.elevationDeg"] = state.noise.elevationDeg; k["noise.yawDeg"] = state.noise.yawDeg;
   k["field.tipMassG"] = state.tipMassG; k["match.capacity"] = state.capacity;
+  k["match.canPollen"] = state.canPollen; k["match.canNectar"] = state.canNectar;
   const cam = (prefix: string, c: typeof r.cameras[number]) => {
     const i = intrinsicsFor(c);
     k[`${prefix}.name`] = c.name; k[`${prefix}.preset`] = c.presetId;

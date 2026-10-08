@@ -63,6 +63,10 @@ export interface HudData {
   rpmTarget?: number;
   aimingDeg?: number;
   autoRpm: boolean; autoHood: boolean;
+  /** the feeder is spinning against a ball this robot may not take, and why */
+  rejected?: string;
+  /** a reserve NECTAR just dropped into our LOADING ZONE (the human player's reward for a tip) */
+  nectarReleased?: boolean;
   /** match phase + clock */
   match: string;
   matchClass?: string;
@@ -145,6 +149,8 @@ export class Hud {
     else if (next === 'intake') { title = 'Collect a ball'; advice = `Press I to switch the intake feeder on (K runs it while held). Then drive the intake side (green bar) onto a loose ball or under a FLOWER: the side wheels pull it in. You carry ${d.carrying}.`; primary = '<button data-hud-action="intake">Intake on · I</button>'; }
     const html = `
       ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
+      ${d.rejected ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · ${d.rejected.split(' (')[0]}</strong><p>This robot does not take ${d.rejected}. The wheels push it away instead.</p></section>` : ''}
+      ${d.nectarReleased ? `<section class="robot-alert" role="status"><strong>NECTAR entered</strong><p>Your hive tipped, so the human player dropped one reserve NECTAR into your LOADING ZONE (one per tip, five per match).</p></section>` : ''}
       ${d.pickupFull ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · carrying ${d.pickupFull}</strong><p>The robot is full (it starts with 4 POLLEN preloaded). Shoot to make room, then collect.</p></section>` : ''}
       ${d.pickupBlocked ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · intake off</strong><p>You have room for a ball. ${d.intakeManual ? 'Press <b>I</b> to switch the intake feeder on (or hold <b>K</b>), then drive the intake side onto the ball or FLOWER opening so the side wheels touch it.' : 'Turn on the intake motor using your TeamCode controls, then drive the intake over the ball or FLOWER opening.'}</p>${d.intakeManual ? '<div class="hud-actions"><button data-hud-action="intake">Turn intake on · I</button></div>' : ''}</section>` : ''}
       <div class="readiness ${ready ? 'ready' : ''}"><span class="eyebrow">${document.body.classList.contains('is-replaying') ? 'RECORDED FIELD · LIVE SHOT ANALYSIS' : 'SHOT READINESS'}</span><h2>${title}</h2><p>${advice}</p>

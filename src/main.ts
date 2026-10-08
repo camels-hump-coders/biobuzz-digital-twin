@@ -1393,6 +1393,8 @@ function frame(now: number) {
     intakeManual: !runtimeActive,
     guide: { moved: guide.moved, turned: guide.turned, intakeUsed: guide.intakeUsed },
     rpmTarget: runtimeActive ? undefined : state.autoRpm ? autoRpmTarget : rpmCmd,
+    rejected: playerAgent.rejected && match.now() - playerAgent.rejected.at < 3 ? (playerAgent.rejected.kind === "nectar" ? (playerAgent.rejected.alliance !== playerAgent.alliance ? `the other alliance's NECTAR (G408: never yours to take)` : `NECTAR (Can intake NECTAR is off in Field & target)`) : `POLLEN (Can intake POLLEN is off in Field & target)`) : undefined,
+    nectarReleased: match.lastNectarRelease && match.lastNectarRelease.alliance === state.alliance && match.now() - match.lastNectarRelease.at < 6,
     aimingDeg: aimHeading === undefined ? undefined : Math.abs(wrapAngle(aimHeading - state.pose.heading)) * 180 / Math.PI,
     autoRpm: state.autoRpm, autoHood: state.autoHood,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
