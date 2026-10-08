@@ -273,7 +273,8 @@ export class RobotObject {
       this.chassis.add(wrapper);
       this.wheels = [];
       this.brushes = this.brushes.filter((b) => b.mesh.parent?.name === "intakeBrushes"); // box discs only; carved parts belong to the old chassis
-      if (this.wheelSpin) this.carveWheels(wrapper, spec);
+      // the intake parts are always carved so the feeder is seen working; the drive wheels only with wheelSpin on
+      this.carveWheels(wrapper, spec, this.wheelSpin);
       this.modelStatus = "loaded";
       const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.08, 12), new THREE.MeshBasicMaterial({ color: 0x00ff88 }));
       arrow.rotation.z = -Math.PI / 2;
@@ -297,7 +298,7 @@ export class RobotObject {
   }
 
   /** Carve the wheels out of the welded CAD mesh into separate meshes positioned on their axles (robot-local frame). */
-  private carveWheels(wrapper: THREE.Group, spec: RobotSpec) {
+  private carveWheels(wrapper: THREE.Group, spec: RobotSpec, driveWheels = true) {
     wrapper.updateMatrixWorld(true);
     this.chassis.updateMatrixWorld(true);
     const toLocal = new THREE.Matrix4().copy(this.chassis.matrixWorld).invert();
@@ -305,10 +306,11 @@ export class RobotObject {
     wrapper.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
     for (const mesh of meshes) {
       const local = mesh.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld));
-      const split = splitWheelGeometry(local, { widthM: spec.widthM, wheelDiameterM: spec.wheelDiameterM });
-      if (split) this.wheelClusters = split.clusters;
-      if (!split || !split.wheels.length) { local.dispose(); continue; }
+      const split = driveWheels ? splitWheelGeometry(local, { widthM: spec.widthM, wheelDiameterM: spec.wheelDiameterM }) : { body: local, wheels: [], clusters: [] };
+      if (split && driveWheels) this.wheelClusters = split.clusters;
+      if (!split) { local.dispose(); continue; }
       let bodyGeo = split.body;
+      let carvedSomething = split.wheels.length > 0;
       // the kit intake: a roller of flaps just inside the intake edge; carve it so it spins while the intake runs
       if ((spec.intake.kind ?? "brushes") === "brushes") {
         const ip = { lengthM: spec.lengthM, widthM: spec.widthM, side: spec.intake.side, mouthWidthM: spec.intake.widthM };
@@ -318,7 +320,7 @@ export class RobotObject {
         const sw = splitIntakeSideWheels(ir.roller ? ir.body : bodyGeo, ip, ir.roller ? [ir.roller.vMin, ir.roller.vMax] : [0, 0]);
         if (sw.wheels.length) {
           if (ir.roller) ir.body = sw.body; else bodyGeo = sw.body;
-          this.intakeCarve.sideWheels = sw.wheels.length;
+          this.intakeCarve.sideWheels = sw.wheels.length; carvedSomething = true;
           const s = spec.intake.side;
           const [ox, oz] = s === "front" ? [1, 0] : s === "rear" ? [-1, 0] : s === "right" ? [0, 1] : [0, -1]; // outward
           const [vx, vz] = s === "front" || s === "rear" ? [0, 1] : [1, 0]; // +v along the edge
@@ -334,7 +336,7 @@ export class RobotObject {
           }
         }
         if (ir.roller) {
-          bodyGeo = ir.body;
+          bodyGeo = ir.body; carvedSomething = true;
           const rm = new THREE.Mesh(ir.roller.geometry, mesh.material); rm.castShadow = true;
           rm.position.set(ir.roller.x, ir.roller.y, ir.roller.z);
           this.chassis.add(rm);
@@ -345,6 +347,7 @@ export class RobotObject {
           this.brushes.push({ mesh: rm, sign, axis: s === "front" || s === "rear" ? "z" : "x" });
         }
       }
+      if (!carvedSomething) { local.dispose(); continue; } // nothing to split out of this mesh: leave the original as it is
       const body = new THREE.Mesh(bodyGeo, mesh.material); body.castShadow = true;
       this.chassis.add(body);
       for (const w of split.wheels) {
