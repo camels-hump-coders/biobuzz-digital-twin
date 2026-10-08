@@ -1148,7 +1148,7 @@ function frame(now: number) {
   if (replaying || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   robot.spinIntake(dt, playerAgent.intakeActive);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
-  audio?.update({ phase: state.matchPhase ?? "setup", clock: state.matchClock ?? MATCH_SECONDS, transition: state.matchTransition, shots: shotsFired + scriptedShots, intakes: match.intakeCount, tipsStarted: match.tipsStarted, tipsDone: match.tipsDone, bounces: drainImpacts(), rpm: state.robot.launcher.rpm, maxRpm: state.robot.launcher.maxRpm, replaying }, dt);
+  audio?.update({ phase: state.matchPhase ?? "setup", clock: state.matchClock ?? MATCH_SECONDS, transition: state.matchTransition, shots: shotsFired + scriptedShots, intakes: match.intakeCount, tipsStarted: match.tipsStarted, tipsDone: match.tipsDone, bounces: drainImpacts() }, dt);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
     scoreRobots().filter(r => r.alliance === state.alliance).length, replaying, state.infiniteAmmo, { massKg: match.cellLoad(state.alliance).massKg, thresholdKg: state.tipMassG / 1000, tipping: !!match.hives[state.alliance].tipping, autoTip: state.autoTip });

@@ -962,7 +962,7 @@ export class Panel {
     addSection(section("Sound", open("Sound", false),
       vol("Master volume", "master", "0 mutes everything"),
       vol("Match cues", "cues", "Cavalry Charge, buzzers, bells, whistle, foghorn"),
-      vol("Effects", "effects", "shots, intake, hive, bounces, flywheel hum"),
+      vol("Effects", "effects", "shots, intake, hive, bounces"),
       vol("Announcer voice", "voice", "\"Drivers, pick up your controllers, 3, 2, 1\" (browser speech; beeps when unavailable)"),
       el("div", { class: "note full" }, "Synthesised in the browser, after the official field audio (Competition Manual Table 9-1): Cavalry Charge at match start, buzzer × 3 when AUTO ends, the announcer in the 8 s transition, three bells as TELEOP begins, a train whistle at 0:20, a 3-second buzzer at the end, a foghorn when a match is stopped. Sound starts after your first click or key press on the page."),
       el("div", { class: "sub" }, "Audition"),

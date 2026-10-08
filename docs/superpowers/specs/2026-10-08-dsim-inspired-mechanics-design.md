@@ -83,10 +83,9 @@ transition* (on by default) can turn the hold off for scripts that want a contin
 | ball swallowed | rising sine blip |
 | hive breaks away / lands | low clunk, then a rattle as balls spill |
 | ball bounce | rate-limited click, volume by impact speed |
-| flywheel | quiet hum whose pitch follows RPM (manual and TeamCode), off at 0 RPM |
 
 **Design.** `src/sim/audio.ts` exports `MatchAudio` with `update(snapshot)` that edge-detects from world state
-(phase, clock, transition, shot count, intake count, tip count, bounce events, RPM). No sim code calls audio
+(phase, clock, transition, shot count, intake count, tip count, bounce events). No sim code calls audio
 directly. The `AudioContext` is created on the first pointer/key gesture and resumed on every gesture while
 suspended; volume is enforced at the gain stage so a muted context still warms up. Settings: master, cues, effects,
 voice (0–1), stored in `AppState.audio`; a *Sound* section in All settings with an audition button per cue.

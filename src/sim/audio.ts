@@ -3,8 +3,8 @@
  * snapshot of the world each frame, so no simulation code calls audio directly and a replayed frame cannot
  * double-fire a sound. Cue set follows Competition Manual Table 9-1: Cavalry Charge at MATCH start, buzzer x 3 at
  * the end of AUTO, "Drivers, pick up your controllers, 3-2-1" in the transition, three bells at TELEOP, train whistle
- * at 0:20, a 3-second buzzer at the end, foghorn when a MATCH is stopped. Effects: shot, swallow, hive tip, bounces,
- * and a flywheel hum whose pitch follows RPM.
+ * at 0:20, a 3-second buzzer at the end, foghorn when a MATCH is stopped. Effects: shot, swallow, hive tip, bounces.
+ * No continuous motor or flywheel sounds: they were tried and found annoying.
  */
 
 export interface AudioSettings { master: number; cues: number; effects: number; voice: number }
@@ -23,11 +23,6 @@ export interface AudioSnapshot {
   tipsDone: number;
   /** impact speeds (m/s) of bounces since the last frame */
   bounces: number[];
-  /** our flywheel speed */
-  rpm: number;
-  maxRpm: number;
-  /** the simulation is paused for replay: hold every continuous sound */
-  replaying: boolean;
 }
 
 /** The synthesiser behind MatchAudio; swapped for a recorder in tests. */
@@ -35,7 +30,6 @@ export interface Synth {
   cue(name: CueName): void;
   effect(name: EffectName, strength?: number): void;
   say(text: string): void;
-  hum(level: number, pitch: number): void;
 }
 export type CueName = "charge" | "buzzer3" | "bells" | "whistle" | "endBuzzer" | "foghorn" | "beep";
 export type EffectName = "shot" | "swallow" | "tipStart" | "tipLand" | "bounce";
@@ -59,7 +53,7 @@ export class MatchAudio {
     this.prev = { ...s, bounces: [] };
     const st = this.settings();
     const on = st.master > 0;
-    if (!on) { this.synth.hum(0, 0); return; }
+    if (!on) return;
     if (p) {
       // --- match lifecycle
       const started = p.phase !== "running" && s.phase === "running" && s.clock > 120 && p.clock >= 149;
@@ -93,9 +87,6 @@ export class MatchAudio {
       const v = Math.max(...s.bounces);
       if (v > 0.6) { this.lastBounceAt = this.t; this.synth.effect("bounce", Math.min(1, (v - 0.6) / 6)); }
     }
-    // flywheel hum
-    const f = s.maxRpm > 0 ? s.rpm / s.maxRpm : 0;
-    this.synth.hum(s.replaying || f < 0.02 ? 0 : 0.25 + 0.75 * f, f);
   }
 }
 
@@ -104,7 +95,6 @@ export class MatchAudio {
 export class WebAudioSynth implements Synth {
   private ctx?: AudioContext;
   private master?: GainNode;
-  private humOsc?: OscillatorNode; private humGain?: GainNode; private humOsc2?: OscillatorNode;
   private noiseBuf?: AudioBuffer;
   private settings: () => AudioSettings;
   constructor(settings: () => AudioSettings) {
@@ -192,23 +182,5 @@ export class WebAudioSynth implements Synth {
       u.voice = voices.find((v) => /Google US English/i.test(v.name)) ?? voices.find((v) => /en/i.test(v.lang) && /Natural|Online/i.test(v.name)) ?? voices.find((v) => /^en/i.test(v.lang)) ?? null;
       synth.speak(u);
     } catch { this.cue("beep"); }
-  }
-  hum(level: number, pitch: number) {
-    if (!this.ctx || !this.master) return; // never create a context for a hum alone
-    const s = this.settings();
-    const want = level * s.master * s.effects * 0.06;
-    if (want <= 0 && !this.humOsc) return;
-    if (!this.humOsc) {
-      this.humOsc = this.ctx.createOscillator(); this.humOsc.type = "sawtooth";
-      this.humOsc2 = this.ctx.createOscillator(); this.humOsc2.type = "sine";
-      const f = this.ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 900;
-      this.humGain = this.ctx.createGain(); this.humGain.gain.value = 0;
-      this.humOsc.connect(f); this.humOsc2.connect(f); f.connect(this.humGain); this.humGain.connect(this.master);
-      this.humOsc.start(); this.humOsc2.start();
-    }
-    const t = this.ctx.currentTime;
-    const hz = 60 + 340 * pitch; // a flywheel at full speed whines around 400 Hz
-    this.humOsc.frequency.setTargetAtTime(hz, t, 0.15); this.humOsc2!.frequency.setTargetAtTime(hz * 2, t, 0.15);
-    this.humGain!.gain.setTargetAtTime(want, t, 0.1);
   }
 }

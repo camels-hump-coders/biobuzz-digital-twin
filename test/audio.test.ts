@@ -3,9 +3,9 @@ import { DEFAULT_AUDIO, MatchAudio, type AudioSnapshot, type Synth } from "../sr
 
 function rig() {
   const log: string[] = [];
-  const synth: Synth = { cue: (n) => log.push(`cue:${n}`), effect: (n) => log.push(`fx:${n}`), say: (t) => log.push(`say:${t}`), hum: () => {} };
+  const synth: Synth = { cue: (n) => log.push(`cue:${n}`), effect: (n) => log.push(`fx:${n}`), say: (t) => log.push(`say:${t}`) };
   const a = new MatchAudio(synth, () => ({ ...DEFAULT_AUDIO }));
-  const base: AudioSnapshot = { phase: "setup", clock: 150, shots: 0, intakes: 0, tipsStarted: 0, tipsDone: 0, bounces: [], rpm: 0, maxRpm: 6000, replaying: false };
+  const base: AudioSnapshot = { phase: "setup", clock: 150, shots: 0, intakes: 0, tipsStarted: 0, tipsDone: 0, bounces: [] };
   return { log, a, base, step: (o: Partial<AudioSnapshot>) => a.update({ ...base, ...o }, 0.1) };
 }
 
@@ -41,8 +41,8 @@ describe("competition audio cues (Table 9-1)", () => {
   });
   it("is silent when the master volume is 0", () => {
     const log: string[] = [];
-    const a = new MatchAudio({ cue: (n) => log.push(n), effect: (n) => log.push(n), say: (t) => log.push(t), hum: () => {} }, () => ({ ...DEFAULT_AUDIO, master: 0 }));
-    const base: AudioSnapshot = { phase: "setup", clock: 150, shots: 0, intakes: 0, tipsStarted: 0, tipsDone: 0, bounces: [], rpm: 0, maxRpm: 6000, replaying: false };
+    const a = new MatchAudio({ cue: (n) => log.push(n), effect: (n) => log.push(n), say: (t) => log.push(t) }, () => ({ ...DEFAULT_AUDIO, master: 0 }));
+    const base: AudioSnapshot = { phase: "setup", clock: 150, shots: 0, intakes: 0, tipsStarted: 0, tipsDone: 0, bounces: [] };
     a.update(base, 0.1); a.update({ ...base, phase: "running", clock: 149.9, shots: 3 }, 0.1);
     expect(log).toEqual([]);
   });
