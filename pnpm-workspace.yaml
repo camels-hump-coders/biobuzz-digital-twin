@@ -1,2 +1,3 @@
 allowBuilds:
+  '@posthog/cli': true
   core-js: true

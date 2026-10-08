@@ -6,3 +6,4 @@ runtime/.gradle
 runtime/**/build
 .biobuzz.local.json
 runtime/runs
+.env
