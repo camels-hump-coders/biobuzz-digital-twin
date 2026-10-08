@@ -46,11 +46,11 @@ describe("FLOWER retrieval opening", () => {
   it("accepts a FLOWER axis just outside the mouth and rejects one beside or far from it", async () => {
     const { flowerInMouth } = await import("../src/sim/intake");
     const pose = { x: 0, z: 0, heading: 0 }; // front edge at z = -0.225
-    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.30 })).toBe(true); // 3 in outside the edge
-    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.22 })).toBe(true); // axis a hair inside the edge (chassis stopped at the ring plate)
-    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.45 })).toBe(false); // 9 in out: too far
-    expect(flowerInMouth(pose, fp2, mouth, { x: 0.25, z: -0.30 })).toBe(false); // beside the mouth
-    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: 0.30 })).toBe(false); // behind the robot
-    expect(flowerInMouth({ ...pose, heading: Math.PI }, fp2, mouth, { x: 0, z: 0.30 })).toBe(true); // turned round
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.25 })).toBe(true); // 1 in outside the edge: between the side wheels
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.20 })).toBe(true); // axis 1 in inside the edge: the deck slid under the ring
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.30 })).toBe(false); // 3 in out: the wheels spin in air
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0.25, z: -0.25 })).toBe(false); // beside the mouth
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: 0.25 })).toBe(false); // behind the robot
+    expect(flowerInMouth({ ...pose, heading: Math.PI }, fp2, mouth, { x: 0, z: 0.25 })).toBe(true); // turned round
   });
 });

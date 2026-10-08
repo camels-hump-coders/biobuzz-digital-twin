@@ -27,7 +27,12 @@ export type IntakeSide = "front" | "rear" | "left" | "right";
  *  wheels at the mouth ends that also reach into a FLOWER's retrieval opening and pull POLLEN out (the kit intake). */
 export type IntakeKind = "roller" | "brushes";
 /** Where game pieces enter the robot. Balls meeting any other side get pushed, not collected. */
-export interface IntakeConfig { side: IntakeSide; widthM: number; kind: IntakeKind }
+export interface IntakeConfig {
+  side: IntakeSide; widthM: number; kind: IntakeKind;
+  /** depth of the low intake deck in from the intake edge, metres: that much of the chassis is below a FLOWER's mid
+   *  ring and slides into the cage (StarterBot: about 2.75 in up to its channel) */
+  deckDepthM?: number;
+}
 
 /** Appearance: chassis colour (the box chassis fully, the CAD tinted unless aluminium). */
 export interface RobotLook { color: number }

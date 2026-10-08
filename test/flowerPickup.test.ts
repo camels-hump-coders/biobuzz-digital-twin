@@ -4,7 +4,7 @@ import { Match, type Agent } from "../src/sim/match";
 
 /** A Match with only the FLOWER model: one stocked FLOWER at (0, -0.5) on the floor. */
 function fixture(kind: "brushes" | "roller" = "brushes") {
-  const ag = { id: "player", alliance: "red", pose: { x: 0, z: -0.2, heading: 0 }, inventory: { pollen: 0, nectar: 0 }, caps: { capacity: 4, pollen: true, nectar: true }, intakeActive: false, footprint: { lengthM: 0.45, widthM: 0.45 }, intakeGeom: { side: "front", widthM: 0.33, kind }, intake: { x: 0, z: 0 }, lastPick: -10 } as Agent;
+  const ag = { id: "player", alliance: "red", pose: { x: 0, z: -0.26, heading: 0 }, inventory: { pollen: 0, nectar: 0 }, caps: { capacity: 4, pollen: true, nectar: true }, intakeActive: false, footprint: { lengthM: 0.45, widthM: 0.45 }, intakeGeom: { side: "front", widthM: 0.33, kind }, intake: { x: 0, z: 0 }, lastPick: -10 } as Agent;
   const stacks = [[mesh(), mesh(), mesh(), mesh()], [], [], []];
   const field = { flowerAxis: (i: number) => new THREE.Vector3(i === 0 ? 0 : 5, 0, -0.5), flowerPollen: stacks };
   const match = Object.assign(Object.create(Match.prototype), { flying: [], time: 0, field, flowerStock: [4, 0, 0, 0], intakeCount: 0, flowerPickCount: 0 }) as Match;
@@ -26,6 +26,6 @@ it("a plain roller cannot retrieve from a FLOWER, and the mouth must face it", (
   roller.ag.intakeActive = true; roller.pick(); expect(roller.ag.inventory.pollen).toBe(0);
   expect(roller.match.pickupBlockedByIntake(roller.ag)).toBe(false);
   const side = fixture();
-  side.ag.intakeActive = true; side.ag.pose = { x: 0, z: -0.2, heading: Math.PI / 2 }; // mouth points -X
+  side.ag.intakeActive = true; side.ag.pose = { x: 0, z: -0.26, heading: Math.PI / 2 }; // mouth points -X
   side.pick(); expect(side.ag.inventory.pollen).toBe(0);
 });

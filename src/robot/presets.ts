@@ -46,7 +46,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     modelYawDeg: -90, // CAD faces +Z; hood side forward
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "rear", widthM: 13 * IN, kind: "brushes" }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
+    intake: { side: "rear", widthM: 13 * IN, kind: "brushes", deckDepthM: 2.75 * IN }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
     look: defaultLook(0xe8e8e8),
@@ -64,7 +64,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     modelYawDeg: -90, // CAD faces +Z; hood side forward
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "rear", widthM: 13 * IN, kind: "brushes" }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
+    intake: { side: "rear", widthM: 13 * IN, kind: "brushes", deckDepthM: 2.75 * IN }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
     look: defaultLook(0xe8e8e8),
@@ -81,7 +81,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     model: "box",
     cameras: [{ ...defaultCamera(), heightM: 14 * IN, pitchDeg: -20 }],
     launcher: { ...LAUNCHER_PRESETS.dualFlywheel },
-    intake: { side: "front", widthM: 15 * IN, kind: "brushes" },
+    intake: { side: "front", widthM: 15 * IN, kind: "brushes", deckDepthM: 4 * IN },
     massKg: 13,
     color: 0xf2c200,
     look: defaultLook(0xf2c200),
@@ -98,7 +98,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     model: "box",
     cameras: [defaultCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "rear", widthM: 14 * IN, kind: "brushes" },
+    intake: { side: "rear", widthM: 14 * IN, kind: "brushes", deckDepthM: 4 * IN },
     massKg: 15.5,
     color: 0x3e8e2f,
     look: defaultLook(0x3e8e2f),
@@ -114,7 +114,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     model: "box",
     cameras: [defaultCamera()],
     launcher: { ...LAUNCHER_PRESETS.dualFlywheel },
-    intake: { side: "front", widthM: 14 * IN, kind: "brushes" },
+    intake: { side: "front", widthM: 14 * IN, kind: "brushes", deckDepthM: 4 * IN },
     massKg: 13,
     color: 0x3aa0c8,
     look: defaultLook(0x3aa0c8),

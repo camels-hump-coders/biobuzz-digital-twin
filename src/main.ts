@@ -22,6 +22,8 @@ import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
 import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
+import type { Footprint } from "./sim/drive";
+import type { RobotSpec } from "./robot/robotSpec";
 import { Overlays } from "./ui/overlays";
 import { Panel } from "./ui/panel";
 import { MatchScoreView } from "./ui/matchScore";
@@ -175,7 +177,9 @@ function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Age
   group.add(carryGroup);
   return { id, alliance, pose: { x: 0, z: 0, heading: 0 }, inventory: { pollen: Math.min(4, caps.capacity), nectar: 0 }, caps, intakeActive: false, footprint: { ...footprint }, intakeGeom: { ...intakeGeom }, intake: { x: 0, z: 0 }, lastPick: 0, carryGroup };
 }
-const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }, state.robot, state.robot.intake);
+/** the chassis outline for driving and pushing: the intake end is a low deck that slides under a FLOWER's mid ring */
+function footprintOf(r: RobotSpec): Footprint { return { lengthM: r.lengthM, widthM: r.widthM, notch: { side: r.intake.side, depthM: r.intake.deckDepthM ?? 0.07 } }; }
+const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }, footprintOf(state.robot), state.robot.intake);
 // scripted robots collect through a front mouth about two thirds of their width
 const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }, s.footprint, { side: "front", widthM: s.footprint.widthM * 0.65, kind: "brushes" }));
 const allAgents = [playerAgent, ...scriptedAgents];
@@ -1044,7 +1048,7 @@ function frame(now: number) {
   // other robots are not static obstacles: contact with them is a pushing contest, resolved below
   const others: Obstacle[] = [];
   const prevPose = state.pose;
-  state.pose = stepPose(state.pose, vel, dt, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, fieldObstacles(), WALL_MU[state.robot.drivetrain]);
+  state.pose = stepPose(state.pose, vel, dt, footprintOf(state.robot), fieldObstacles(), WALL_MU[state.robot.drivetrain]);
   robot.setPose(state.pose);
   if (state.wheelSpin) { // world velocity -> robot frame (+X forward, +left)
     const h = state.pose.heading;
@@ -1065,7 +1069,7 @@ function frame(now: number) {
       const e = robot.exitPoint();
       state.pose = { ...state.pose, heading: headingToward({ x: e.x, z: e.z }, ap) - ((mid + state.robot.launcher.yawOffsetDeg) * Math.PI) / 180 };
       // the rotated footprint may now overlap a frame leg; push out and aim again
-      state.pose = stepPose(state.pose, { vx: 0, vz: 0, yawRate: 0 }, 0.001, { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, [...fieldObstacles(), ...others]);
+      state.pose = stepPose(state.pose, { vx: 0, vz: 0, yawRate: 0 }, 0.001, footprintOf(state.robot), [...fieldObstacles(), ...others]);
       robot.setPose(state.pose);
     }
     void ex;
@@ -1124,7 +1128,7 @@ function frame(now: number) {
   // robot-vs-robot pushing (player vs each scripted robot) and the G421 pin count
   let contactText: string | undefined, contactBad = false;
   if (state.opponents) {
-    const meBody: ContactBody = { pose: state.pose, fp: { lengthM: state.robot.lengthM, widthM: state.robot.widthM }, drivetrain: state.robot.drivetrain, massKg: state.robot.massKg ?? 12, vx: vel.vx, vz: vel.vz };
+    const meBody: ContactBody = { pose: state.pose, fp: footprintOf(state.robot), drivetrain: state.robot.drivetrain, massKg: state.robot.massKg ?? 12, vx: vel.vx, vz: vel.vz };
     for (const s of scripted) {
       const sBody: ContactBody = { pose: s.pose, fp: s.footprint, drivetrain: "tank", massKg: 12, vx: s.cmdVel?.vx ?? 0, vz: s.cmdVel?.vz ?? 0 };
       const res = resolveContact(meBody, sBody, prevPose, s.prevPose ?? s.pose, dt);
@@ -1148,7 +1152,7 @@ function frame(now: number) {
   scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); if (state.wheelSpin) o.spinFromPose(dt); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, 0.3); });
   // our agent
   playerAgent.pose = state.pose;
-  playerAgent.footprint = { lengthM: state.robot.lengthM, widthM: state.robot.widthM };
+  playerAgent.footprint = footprintOf(state.robot);
   playerAgent.intakeGeom = state.robot.intake;
   robot.setIntakeActive(playerAgent.intakeActive);
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);

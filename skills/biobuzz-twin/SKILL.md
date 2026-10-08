@@ -182,7 +182,8 @@ the scripted robots sit still, your OpMode keeps running). Scenarios that want a
 `{"autoTransition": false}` through `POST /api/settings`. The scripted robots' difficulty is `aiTier` (`easy` | `medium` |
 `hard`, default medium) through the same endpoint: Easy is slow and sloppy, Hard parks and counts to the tip. Balls are collected only while the motor with the `intake` role is
 powered (above 0.2), and POLLEN comes out of a FLOWER only when the robot's intake kind is *brushes* (Robot setup; the
-StarterBot presets are) and the intake mouth is lined up on the FLOWER's retrieval opening within about 6 in.
+StarterBot presets are) and the intake end has been driven into the cage so the FLOWER axis sits between the side wheels
+(within 1.6 in outside to 1.3 in inside the intake edge; the low intake deck passes under the mid ring, the tall body does not).
 
 ## 4. Keep robot measurements bound to the twin
 

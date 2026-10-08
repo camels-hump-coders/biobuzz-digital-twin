@@ -210,6 +210,7 @@ function migrate(s: any): AppState {
       if (s.robot && !s.robot.intake) s.robot.intake = { side: "front", widthM: 13 * 0.0254, kind: "brushes" };
       // migration: intake kind (older saves pulled from FLOWERs with any intake; the kit intake has brushes)
       if (s.robot?.intake && !s.robot.intake.kind) s.robot.intake.kind = "brushes";
+      if (s.robot?.intake && s.robot.intake.deckDepthM === undefined) s.robot.intake.deckDepthM = s.robot.model === "box" ? 4 * 0.0254 : 2.75 * 0.0254;
       if (s.robot && !s.robot.massKg) s.robot.massKg = 12;
       // migration: appearance (older saves only carried the chassis colour)
       if (s.robot) s.robot.look = { color: s.robot.look?.color ?? s.robot.color ?? 0xe8e8e8 }; // the decal / number plate of 2026-10-08 was dropped the same day

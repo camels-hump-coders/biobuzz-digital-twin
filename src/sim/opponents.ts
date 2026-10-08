@@ -29,7 +29,7 @@ export interface ScriptedRobot {
 const IN = 0.0254;
 
 export function defaultScriptedRobots(): ScriptedRobot[] {
-  const fp = { lengthM: 17 * IN, widthM: 17 * IN };
+  const fp: Footprint = { lengthM: 17 * IN, widthM: 17 * IN, notch: { side: "front", depthM: 3 * IN } };
   const mk = (name: string, color: number, wps: [number, number][], start: Pose): ScriptedRobot => ({
     name, color, pose: start, waypoints: wps.map(([x, z]) => ({ x: m(x), z: m(z) })), index: 0, speed: 0.9, footprint: fp, dwell: 1.5, dwellLeft: 0,
   });

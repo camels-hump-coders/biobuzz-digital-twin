@@ -40,7 +40,7 @@ describe("drive", () => {
     // west-wall flower at z = +24 in, axis 3.6 in off the wall
     let pose = { x: -1.2, z: m(24), heading: Math.PI / 2 };
     for (let i = 0; i < 60; i++) pose = stepPose(pose, { vx: -1.5, vz: 0, yawRate: 0 }, 0.02, { lengthM: m(18), widthM: m(18) }, flowerObstacles());
-    expect(pose.x).toBeGreaterThan(m(-72 + 3.6 + 2.75 + 9) - 1e-9);
+    expect(pose.x).toBeGreaterThan(m(-72 + 3.6 + 2.2 + 9) - 1e-9);
   });
   it("headingToward points forward at the target", () => {
     const h = headingToward({ x: 0, z: 0 }, { x: -1, z: 0 });
@@ -118,4 +118,29 @@ describe('alliance-relative mecanum', () => {
       expect(left.vz * (alliance==='red' ? -1 : 1)).toBeGreaterThan(0);
     });
   }
+});
+
+describe("intake deck under the FLOWER", () => {
+  // the W FLOWER: axis at x = -72 + 3.6 in, post toward the wall (-X)
+  const axisX = m(-72 + 3.6);
+  it("a notched robot slides its intake end into the cage until the post; a plain one stops at the cage", () => {
+    const run = (fp: { lengthM: number; widthM: number; notch?: { side: "front"; depthM: number } }) => {
+      let pose = { x: m(-40), z: m(24), heading: Math.PI / 2 }; // forward = -X, toward the wall
+      for (let i = 0; i < 80; i++) pose = stepPose(pose, { vx: -1.2, vz: 0, yawRate: 0 }, 0.02, fp, flowerObstacles());
+      return pose.x - m(9); // the front edge
+    };
+    const plain = run({ lengthM: m(18), widthM: m(18) });
+    expect(plain).toBeCloseTo(axisX + m(2.2), 3); // cage face
+    const deep = run({ lengthM: m(18), widthM: m(18), notch: { side: "front", depthM: m(4) } });
+    expect(deep).toBeCloseTo(axisX - m(1.2), 3); // the post face, 1.2 in past the axis
+    const shallow = run({ lengthM: m(18), widthM: m(18), notch: { side: "front", depthM: m(3) } });
+    expect(shallow).toBeCloseTo(axisX - m(0.8), 3); // a 3 in deck: the tall body meets the field-side pipes first
+    expect(shallow).toBeLessThan(plain);
+  });
+  it("the tall body still stops at the cage when the deck is on another side", () => {
+    let pose = { x: m(-40), z: m(24), heading: Math.PI / 2 };
+    const fp = { lengthM: m(18), widthM: m(18), notch: { side: "rear" as const, depthM: m(3) } };
+    for (let i = 0; i < 80; i++) pose = stepPose(pose, { vx: -1.2, vz: 0, yawRate: 0 }, 0.02, fp, flowerObstacles());
+    expect(pose.x - m(9)).toBeCloseTo(axisX + m(2.2), 3);
+  });
 });

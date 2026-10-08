@@ -113,13 +113,16 @@ export class RobotObject {
     this.group.add(brushGroup);
   }
   /** spinning intake parts: the box robot's brush discs (about Y) or the CAD's carved roller (about its axle) */
-  brushes: { mesh: THREE.Mesh; sign: number; axis: "x" | "y" | "z" }[] = [];
+  brushes: { mesh: THREE.Mesh; sign: number; axis: "x" | "y" | "z"; localAxle?: THREE.Vector3 }[] = [];
   /** Spin the intake parts while the intake runs (about 4 rev/s), slow to a stop when it is off. */
   spinIntake(dt: number, active: boolean) {
     if (!this.brushes.length) return;
     this.brushSpeed = active ? Math.min(4 * Math.PI * 2, this.brushSpeed + 30 * dt) : Math.max(0, this.brushSpeed - 20 * dt);
     if (this.brushSpeed === 0) return;
-    for (const b of this.brushes) b.mesh.rotation[b.axis] += b.sign * this.brushSpeed * dt;
+    for (const b of this.brushes) {
+      if (b.localAxle) b.mesh.rotateOnAxis(b.localAxle, b.sign * this.brushSpeed * dt); // a pre-rotated cylinder: spin about its own axle
+      else b.mesh.rotation[b.axis] += b.sign * this.brushSpeed * dt;
+    }
   }
   private brushSpeed = 0;
   /** diagnostics for the CAD intake carve (window.__twin.robot.intakeCarve) */
@@ -169,15 +172,38 @@ export class RobotObject {
       this.chassis.clear();
       this.modelKey = "box";
       if (this.modelStatus !== "failed") this.modelStatus = "box";
-      const geo = new THREE.BoxGeometry(spec.lengthM, spec.heightM * 0.5, spec.widthM);
       const mat = new THREE.MeshStandardMaterial({ color: lookOf(spec).color, roughness: 0.6, metalness: 0.2 });
-      const box = new THREE.Mesh(geo, mat);
-      box.position.y = spec.heightM * 0.25 + 0.02;
+      const dark = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
+      // the intake end is a low deck (it slides under a FLOWER's mid ring); the tall body and the shooter tower sit behind it
+      const side = spec.intake.side, deck = Math.min(spec.intake.deckDepthM ?? 0.1, spec.lengthM * 0.4);
+      const alongX = side === "front" || side === "rear";
+      const sgn = side === "front" || side === "right" ? 1 : -1; // +1: the intake is at +X (front) or +Z (right)
+      const bodyL = alongX ? spec.lengthM - deck : spec.lengthM, bodyW = alongX ? spec.widthM : spec.widthM - deck;
+      const bodyOff = -sgn * deck / 2;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(bodyL, spec.heightM * 0.5, bodyW), mat);
+      box.position.set(alongX ? bodyOff : 0, spec.heightM * 0.25 + 0.02, alongX ? 0 : bodyOff);
       box.castShadow = true; box.userData.painted = true;
       this.chassis.add(box);
-      // upper structure
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(spec.lengthM * 0.5, spec.heightM * 0.5, spec.widthM * 0.6), mat);
-      tower.position.set(-spec.lengthM * 0.1, spec.heightM * 0.75, 0);
+      // low deck: a slab 2 in high with a roller across the mouth (horizontal axle along the edge) just above it
+      const deckH = 0.05;
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(alongX ? deck : spec.lengthM * 0.9, deckH, alongX ? spec.widthM * 0.9 : deck), mat);
+      const edgeC = sgn * ((alongX ? spec.lengthM : spec.widthM) / 2 - deck / 2);
+      slab.position.set(alongX ? edgeC : 0, deckH / 2 + 0.02, alongX ? 0 : edgeC);
+      slab.userData.painted = true; slab.castShadow = true;
+      this.chassis.add(slab);
+      const rollerR = 0.028, rollerLen = spec.intake.widthM * 0.9;
+      const roller = new THREE.Mesh(new THREE.CylinderGeometry(rollerR, rollerR, rollerLen, 14, 1), dark);
+      for (let k = 0; k < 4; k++) { const fin = new THREE.Mesh(new THREE.BoxGeometry(rollerR * 2.3, rollerLen * 0.95, 0.005), new THREE.MeshStandardMaterial({ color: 0x3e8e2f, roughness: 0.9 })); fin.rotation.y = (k * Math.PI) / 4; roller.add(fin); }
+      const rollerIn = sgn * ((alongX ? spec.lengthM : spec.widthM) / 2 - 0.045);
+      roller.position.set(alongX ? rollerIn : 0, deckH + 0.02 + rollerR + 0.01, alongX ? 0 : rollerIn);
+      if (alongX) roller.rotation.x = Math.PI / 2; else roller.rotation.z = Math.PI / 2; // axle along the edge
+      this.chassis.add(roller);
+      // the roller pulls inward: its underside moves into the robot
+      this.brushes = this.brushes.filter((b) => b.mesh.parent?.name === "intakeBrushes");
+      this.brushes.push({ mesh: roller, sign: side === "rear" ? 1 : side === "front" ? -1 : side === "left" ? -1 : 1, axis: alongX ? "z" : "x", localAxle: new THREE.Vector3(0, 1, 0) });
+      // shooter tower at the far end
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(spec.lengthM * 0.45, spec.heightM * 0.5, spec.widthM * 0.6), mat);
+      tower.position.set(alongX ? -sgn * spec.lengthM * 0.15 : 0, spec.heightM * 0.75, alongX ? 0 : -sgn * spec.widthM * 0.15);
       tower.userData.painted = true;
       this.chassis.add(tower);
       // wheels

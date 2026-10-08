@@ -91,6 +91,21 @@ export function commandToVelocity(cmd: DriveCommand, pose: Pose, p: DriveParams)
 export interface Footprint {
   lengthM: number; // along forward
   widthM: number; // across
+  /** the intake deck: the chassis is low (under a FLOWER's mid ring) for `depthM` in from the `side` edge, across the
+   *  whole width, so that end can slide into the cage up to the wall-side post; the rest is the tall body */
+  notch?: { side: "front" | "rear" | "left" | "right"; depthM: number };
+}
+/** The tall part of a notched footprint: the rectangle minus the intake deck, as centre offset + size. */
+export function tallBody(x: number, z: number, heading: number, fp: Footprint): { x: number; z: number; fp: Footprint } {
+  if (!fp.notch || fp.notch.depthM <= 0) return { x, z, fp };
+  const d = Math.min(fp.notch.depthM, (fp.notch.side === "front" || fp.notch.side === "rear" ? fp.lengthM : fp.widthM) * 0.6);
+  const f = forwardVector(heading), l = leftVector(heading);
+  switch (fp.notch.side) {
+    case "front": return { x: x - f.x * d / 2, z: z - f.z * d / 2, fp: { lengthM: fp.lengthM - d, widthM: fp.widthM } };
+    case "rear": return { x: x + f.x * d / 2, z: z + f.z * d / 2, fp: { lengthM: fp.lengthM - d, widthM: fp.widthM } };
+    case "left": return { x: x - l.x * d / 2, z: z - l.z * d / 2, fp: { lengthM: fp.lengthM, widthM: fp.widthM - d } };
+    default: return { x: x + l.x * d / 2, z: z + l.z * d / 2, fp: { lengthM: fp.lengthM, widthM: fp.widthM - d } };
+  }
 }
 
 /** Half extents of the rotated footprint along the world X and Z axes. */
@@ -102,6 +117,9 @@ export function worldHalfExtents(fp: Footprint, heading: number): { hx: number; 
 
 export interface Obstacle {
   xMin: number; xMax: number; zMin: number; zMax: number;
+  /** the part even a low intake deck cannot enter (a FLOWER's wall-side post); the box itself then only blocks the
+   *  tall body of a notched footprint */
+  low?: { xMin: number; xMax: number; zMin: number; zMax: number };
 }
 
 /** The frame is two triangular legs at x = +-frameWidth/2 running along Z; the space under
@@ -114,13 +132,20 @@ export function hiveFrameObstacles(): Obstacle[] {
     { xMin: hx - legHalfThick, xMax: hx + legHalfThick, zMin: -hz, zMax: hz },
   ];
 }
-/** Each FLOWER's post cage, about 5.5 in square centred on its axis against the wall. */
+/** Each FLOWER's pipe cage, about 4.4 in square centred on its axis against the wall, for the tall body of a robot;
+ *  under the mid ring only the wall-side post (`low`, its field face 1.2 in behind the axis) stops a low intake deck. */
 export function flowerObstacles(): Obstacle[] {
-  const half = m(2.75), off = m(FLOWER.axisFromWallIn);
+  const half = m(2.2), off = m(FLOWER.axisFromWallIn), postFace = m(1.2), postBack = m(3.5);
   return FLOWER.positions.map((f) => {
     let x = m(f.x), z = m(f.z);
-    switch (f.wall) { case "N": z += off; break; case "S": z -= off; break; case "E": x -= off; break; case "W": x += off; break; }
-    return { xMin: x - half, xMax: x + half, zMin: z - half, zMax: z + half };
+    let low: Obstacle["low"];
+    switch (f.wall) {
+      case "N": z += off; low = { xMin: x - half, xMax: x + half, zMin: z - postBack, zMax: z - postFace }; break;
+      case "S": z -= off; low = { xMin: x - half, xMax: x + half, zMin: z + postFace, zMax: z + postBack }; break;
+      case "E": x -= off; low = { xMin: x + postFace, xMax: x + postBack, zMin: z - half, zMax: z + half }; break;
+      case "W": x += off; low = { xMin: x - postBack, xMax: x - postFace, zMin: z - half, zMax: z + half }; break;
+    }
+    return { xMin: x - half, xMax: x + half, zMin: z - half, zMax: z + half, low };
   });
 }
 /** Hive legs plus flowers: what a chassis can never overlap. */
@@ -155,6 +180,15 @@ export function stepPose(pose: Pose, v: Velocity, dt: number, fp: Footprint, obs
   // perimeter by another robot, never through it)
   for (let pass = 0; pass < 2; pass++) {
     for (const o of obstacles) {
+      if (fp.notch && o.low) {
+        // a notched robot: its tall body stops at the cage, its low intake deck only at the post
+        const tb = tallBody(x, z, heading, fp);
+        const push = separateFromBox(tb.x, tb.z, heading, tb.fp, o);
+        if (push) { x += push.x; z += push.z; }
+        const pushLow = separateFromBox(x, z, heading, fp, o.low);
+        if (pushLow) { x += pushLow.x; z += pushLow.z; }
+        continue;
+      }
       const push = separateFromBox(x, z, heading, fp, o);
       if (push) { x += push.x; z += push.z; }
     }

@@ -62,15 +62,16 @@ export function chassisPush(pose: Pose, fp: Footprint, ball: { x: number; z: num
   return { dx: nx * depth, dz: nz * depth, nx, nz };
 }
 
-/** How far outside the mouth edge a FLOWER axis may sit for the brushes to reach its retrieval opening (metres).
- *  The opening is 3.57 in deep and the lower ring 2.79 in across; the brushes must overlap the opening. */
-export const FLOWER_MOUTH_REACH_M = 6.5 * 0.0254;
-/** A FLOWER axis slightly behind the mouth edge still counts: the chassis stops at the ring plate, not the axis. */
-const FLOWER_MOUTH_INSIDE_M = 1.0 * 0.0254;
+/** How far outside the intake edge a FLOWER axis may sit for the side wheels to grip the bottom POLLEN (metres): the
+ *  wheels sit at the edge and a 1.4 in ball centred 1.6 in out still touches them. Further out they spin in air. */
+export const FLOWER_MOUTH_REACH_M = 1.6 * 0.0254;
+/** The low intake deck slides into the cage until the wall-side post, so the axis can be this far inside the edge. */
+export const FLOWER_MOUTH_INSIDE_M = 1.3 * 0.0254;
 const FLOWER_MOUTH_SLOP_M = 1.0 * 0.0254;
 
-/** True when the FLOWER axis is inside the intake mouth frame: within the mouth width (plus 1 in) along the edge and
- *  between 1 in inside and `FLOWER_MOUTH_REACH_M` outside it. Only `brushes` intakes can retrieve; callers check the kind. */
+/** True when the FLOWER axis sits between the intake's side wheels: within the mouth width (plus 1 in) along the edge
+ *  and between `FLOWER_MOUTH_INSIDE_M` inside and `FLOWER_MOUTH_REACH_M` outside it. Only `brushes` intakes can
+ *  retrieve; callers check the kind. Getting there means driving the low intake deck under the FLOWER's mid ring. */
 export function flowerInMouth(pose: Pose, fp: Footprint, geom: IntakeGeom, axis: { x: number; z: number }): boolean {
   const r = toRobotFrame(pose, axis);
   let out: number, along: number;
