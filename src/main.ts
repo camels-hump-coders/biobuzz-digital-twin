@@ -646,6 +646,8 @@ Object.assign(overlays.show, state.overlays);
 const workspace = new Workspace(state, panel, link, input, onChange);
 hud.onAction = (action) => {
   if (action === "aim" && !link.running && recorder.cursor === undefined) { state.aimRequest = true; workspace.focusKeyboard(); }
+  if (action === "intake" && !link.running && recorder.cursor === undefined) { intakeOn = true; workspace.focusKeyboard(); }
+  if (action === "focus") workspace.focusKeyboard();
   if (action === "analyze") workspace.navigate("analyze", "shots");
   if (action === "hood") workspace.focusExperiment("hood");
   if (action === "shoot" && !link.running && recorder.cursor === undefined) { state.shootRequest = true; workspace.focusKeyboard(); }
@@ -929,6 +931,8 @@ let intakeBlockedUntil = 0;
 let fullBlockedUntil = 0;
 /** manual intake toggle (I / LB); K / LT runs it while held */
 let intakeOn = false;
+/** what the driver has done this session (the HUD guide moves on from shooting to these) */
+const guide = { moved: false, turned: false, intakeUsed: false, startPose: undefined as Pose | undefined, travelled: 0, rotated: 0 };
 let launchBlockedUntil = 0;
 let launchBlockedMsg = "";
 
@@ -1026,6 +1030,7 @@ function frame(now: number) {
   if (state.matchTransition !== undefined) { cmd.forward = cmd.left = cmd.turn = 0; actions.launch = false; } // G403: no powered movement in the transition
   const driveCmd = state.robot.drivetrain === "tank" && cmd.turn === 0 && cmd.left !== 0 ? { ...cmd, turn: cmd.left, left: 0 } : cmd;
   let vel = commandToVelocity(runtimeActive ? { forward: 0, left: 0, turn: 0 } : driveCmd, state.pose, dp);
+  const vel0 = vel;
   if (runtimeActive) {
     const act = stepActuators(actuatorModel, state.hardware, link.actuators, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
     vel = act.vel;
@@ -1042,6 +1047,14 @@ function frame(now: number) {
     // manual driving: the intake runs while K / LT is held, after I / LB switched it on, or with the Auto intake assist
     if (actions.intakeToggle && !replaying) intakeOn = !intakeOn;
     playerAgent.intakeActive = !replaying && (state.autoIntake || intakeOn || actions.intakeHold);
+    if (playerAgent.intakeActive && (intakeOn || actions.intakeHold)) guide.intakeUsed = true;
+    if (!replaying) {
+      // what the keys have done so far: 30 cm of travel or 25° of turning count as "done"
+      if (cmd.forward || cmd.left) guide.travelled += Math.hypot(vel0.vx, vel0.vz) * dt;
+      if (cmd.turn) guide.rotated += Math.abs(vel0.yawRate) * dt;
+      if (guide.travelled > 0.3) guide.moved = true;
+      if (guide.rotated > 0.44) guide.turned = true;
+    }
     link.takeServoTransitions();
     // keep encoders moving sensibly when the keyboard drives, so init_loop telemetry is not frozen
     stepActuators(actuatorModel, state.hardware, {}, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
@@ -1312,6 +1325,7 @@ function frame(now: number) {
     intake: playerAgent.intakeActive ? (runtimeActive ? "running (TeamCode)" : state.autoIntake ? "running (auto)" : "running") : runtimeActive ? "off · power the intake motor" : "off · I toggles, K runs",
     intakeOn: playerAgent.intakeActive,
     intakeManual: !runtimeActive,
+    guide: { moved: guide.moved, turned: guide.turned, intakeUsed: guide.intakeUsed },
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),

@@ -57,6 +57,8 @@ export interface HudData {
   intake: string;
   intakeOn: boolean;
   intakeManual: boolean;
+  /** what the driver has done this session, for the guide: driven, turned, ever run the intake */
+  guide: { moved: boolean; turned: boolean; intakeUsed: boolean };
   /** match phase + clock */
   match: string;
   matchClass?: string;
@@ -120,16 +122,22 @@ export class Hud {
     const bearing = `${f(d.bearingErrDeg, 1)}° ${d.turretOk ? "in turret range" : "turn robot"}`;
 
     const ready = !d.launchBlocked && d.turretOk && d.rpmOk && !!d.actualHit;
-    const title = d.launchBlocked ? 'Shot unavailable' : !d.turretOk ? 'Aim toward the target' : unreachable ? 'Try another position' : d.actualHit ? 'Ready to try a shot' : 'Adjust your shot';
-    // guidance order: aim first, then the hood slider in Practice (the one knob a newcomer should touch), then shoot;
-    // "Tune shot" with every knob and lever is where the guide ends, so it stays a quiet secondary link
-    const advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'No arc reaches the cell from here with this hood angle: slide the Hood angle in the Experiment card, or move.' : !d.actualHit ? 'Slide the Hood angle in the Experiment card and watch the hit chance climb.' : 'The predicted arc enters the cell. Shoot to test it.');
     const live = !d.runtime.startsWith('RUNNING') && !d.runtime.startsWith('INIT') && !document.body.classList.contains('is-replaying');
-    const primary = !live ? '' : !d.turretOk ? '<button data-hud-action="aim">Aim at target</button>' : (!d.actualHit || unreachable) ? '<button data-hud-action="hood">Adjust hood angle →</button>' : '<button data-hud-action="shoot">Shoot · Space</button>';
+    // guidance order: aim first, then the hood slider in Practice (the one knob a newcomer should touch), then shoot;
+    // after the first shot the guide moves on to driving, turning and the intake, the three things a new driver has
+    // not touched yet. "Tune shot" with every knob and lever stays a quiet secondary link.
+    const afterShot = live && d.shotsFired > 0 && !d.launchBlocked; // turning away from the target is part of the lesson, so aim is not required here
+    const next = afterShot && !d.guide.moved ? 'move' : afterShot && !d.guide.turned ? 'turn' : afterShot && !d.guide.intakeUsed && d.intakeManual ? 'intake' : undefined;
+    let title = d.launchBlocked ? 'Shot unavailable' : !d.turretOk ? 'Aim toward the target' : unreachable ? 'Try another position' : d.actualHit ? 'Ready to try a shot' : 'Adjust your shot';
+    let advice = d.launchBlocked ?? (!d.turretOk ? `Turn ${Math.abs(d.bearingErrDeg).toFixed(0)}° toward the highlighted cell.` : unreachable ? 'No arc reaches the cell from here with this hood angle: slide the Hood angle in the Experiment card, or move.' : !d.actualHit ? 'Slide the Hood angle in the Experiment card and watch the hit chance climb.' : 'The predicted arc enters the cell. Shoot to test it.');
+    let primary = !live ? '' : !d.turretOk ? '<button data-hud-action="aim">Aim at target</button>' : (!d.actualHit || unreachable) ? '<button data-hud-action="hood">Adjust hood angle →</button>' : '<button data-hud-action="shoot">Shoot · Space</button>';
+    if (next === 'move') { title = 'Now drive'; advice = 'Click the field, then hold W or S to drive forward or back (A / D strafe on mecanum). Watch the hit chance change as you move.'; primary = '<button data-hud-action="focus">Focus field · W S A D</button>'; }
+    else if (next === 'turn') { title = 'Now turn'; advice = 'Hold Q or E (or ← / →) to rotate. The aim line shows where the launcher points; R snaps it back onto the target.'; primary = '<button data-hud-action="focus">Focus field · Q E</button>'; }
+    else if (next === 'intake') { title = 'Collect a ball'; advice = `Press I to switch the intake feeder on (K runs it while held). Then drive the intake side (green bar) onto a loose ball or under a FLOWER: the side wheels pull it in. You carry ${d.carrying}.`; primary = '<button data-hud-action="intake">Intake on · I</button>'; }
     const html = `
       ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
       ${d.pickupFull ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · carrying ${d.pickupFull}</strong><p>The robot is full (it starts with 4 POLLEN preloaded). Shoot to make room, then collect.</p></section>` : ''}
-      ${d.pickupBlocked ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · intake off</strong><p>You have room for a ball. ${d.intakeManual ? 'Press <b>I</b> to switch the intake on (or hold <b>K</b>), then drive the intake side onto the ball or FLOWER opening.' : 'Turn on the intake motor using your TeamCode controls, then drive the intake over the ball or FLOWER opening.'}</p></section>` : ''}
+      ${d.pickupBlocked ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · intake off</strong><p>You have room for a ball. ${d.intakeManual ? 'Press <b>I</b> to switch the intake feeder on (or hold <b>K</b>), then drive the intake side onto the ball or FLOWER opening so the side wheels touch it.' : 'Turn on the intake motor using your TeamCode controls, then drive the intake over the ball or FLOWER opening.'}</p>${d.intakeManual ? '<div class="hud-actions"><button data-hud-action="intake">Turn intake on · I</button></div>' : ''}</section>` : ''}
       <div class="readiness ${ready ? 'ready' : ''}"><span class="eyebrow">${document.body.classList.contains('is-replaying') ? 'RECORDED FIELD · LIVE SHOT ANALYSIS' : 'SHOT READINESS'}</span><h2>${title}</h2><p>${advice}</p>
       <div class="hud-actions">${primary}<button class="secondary" data-hud-action="analyze" title="Every knob and lever: arc, speed, target, variability">All knobs: Tune shot →</button></div>
       <div class="shot-summary"><span>${d.carrying}</span><span class="intake-state ${d.intakeOn ? 'ok' : ''}" title="${escape(d.intake)}">intake ${d.intakeOn ? '● on' : '○ off'}</span><span>${d.shotsFired} fired · ${d.shotsHit} settled in target</span></div></div>
