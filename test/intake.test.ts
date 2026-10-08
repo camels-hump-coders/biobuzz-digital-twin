@@ -39,3 +39,18 @@ describe("chassis push", () => {
     expect(chassisPush({ x: 0, z: 0, heading: 0 }, fp, { x: 0.5, z: 0.5 }, r)).toBeUndefined();
   });
 });
+
+describe("FLOWER retrieval opening", () => {
+  const fp2 = { lengthM: 0.45, widthM: 0.45 };
+  const mouth = { side: "front" as const, widthM: 0.33, kind: "brushes" as const };
+  it("accepts a FLOWER axis just outside the mouth and rejects one beside or far from it", async () => {
+    const { flowerInMouth } = await import("../src/sim/intake");
+    const pose = { x: 0, z: 0, heading: 0 }; // front edge at z = -0.225
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.30 })).toBe(true); // 3 in outside the edge
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.22 })).toBe(true); // axis a hair inside the edge (chassis stopped at the ring plate)
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: -0.45 })).toBe(false); // 9 in out: too far
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0.25, z: -0.30 })).toBe(false); // beside the mouth
+    expect(flowerInMouth(pose, fp2, mouth, { x: 0, z: 0.30 })).toBe(false); // behind the robot
+    expect(flowerInMouth({ ...pose, heading: Math.PI }, fp2, mouth, { x: 0, z: 0.30 })).toBe(true); // turned round
+  });
+});

@@ -6,7 +6,7 @@ import { BALL, FIELD, HIVE, ZONES, m } from "../field/fieldSpec";
 import { type Alliance, type CellSide, type CellFrame, aimPoint, cellFrames, hivePivot, upCellFrame } from "../field/hive";
 import { insideCell, type LiveBall } from "./ballPhysics";
 import type { Footprint, Pose } from "./drive";
-import { chassisPush, inIntakeMouth, intakePoint, type IntakeGeom } from "./intake";
+import { chassisPush, flowerInMouth, inIntakeMouth, intakePoint, type IntakeGeom } from "./intake";
 import { headingToward } from "./drive";
 import type { ScriptedRobot } from "./opponents";
 import { solveSpeedForElevation } from "../ballistics/solver";
@@ -29,8 +29,8 @@ export interface HiveSim {
 export const TIP_DEG = 30;
 const INTAKE_RANGE_M = m(7); // ball centre within this of the intake edge gets pulled in
 const PUSH_SPEED_MIN = 0.25; // m/s a nudged ball leaves the chassis with, even when the robot is barely moving
-const FLOWER_REACH_M = m(9); // intake point within this of a FLOWER axis can pull POLLEN from its retrieval opening
 const PICK_INTERVAL = 0.45; // s per ball through an intake
+const FLOWER_PICK_INTERVAL = 0.3; // s per POLLEN pulled out of a FLOWER's retrieval opening (bottom first, the stack drops)
 
 export interface Agent {
   id: string;
@@ -57,6 +57,10 @@ export class Match {
   private flowerStock = [4, 4, 4, 4];
   private rnd = rng(1234);
   private time = 0;
+  /** balls swallowed by any intake since construction (audio and tests edge-detect on it) */
+  intakeCount = 0;
+  /** POLLEN pulled out of FLOWERs since construction */
+  flowerPickCount = 0;
 
   private scene: THREE.Scene; private field: FieldObjects; private flying: LiveBall[]; private hiveState: Record<Alliance, CellSide>; private tipMassKg: () => number; private autoTip: () => boolean;
   constructor(scene: THREE.Scene, field: FieldObjects, flying: LiveBall[], hiveState: Record<Alliance, CellSide>, tipMassKg: () => number, autoTip: () => boolean) {
@@ -334,10 +338,24 @@ export class Match {
     }
   }
 
-  /** Detect before chassis pushing moves the missed ball away. */
+  /** Detect before chassis pushing moves the missed ball away. Also true at a stocked FLOWER the brushes could reach. */
   pickupBlockedByIntake(ag: Agent): boolean {
     return !ag.intakeActive && ag.inventory.pollen + ag.inventory.nectar < ag.caps.capacity
-      && this.flying.some(b => this.atCollectibleBall(ag, b));
+      && (this.flying.some(b => this.atCollectibleBall(ag, b)) || this.atStockedFlower(ag) !== undefined);
+  }
+
+  /** Can this intake pull POLLEN out of FLOWERs at all? Only brushes reach past the lower ring plate into the opening. */
+  static reachesFlower(geom: IntakeGeom): boolean { return (geom.kind ?? "brushes") === "brushes"; }
+
+  /** Index of a FLOWER with stock whose axis sits in this agent's intake mouth, if its intake kind can retrieve. */
+  atStockedFlower(ag: Agent): number | undefined {
+    if (!ag.caps.pollen || !Match.reachesFlower(ag.intakeGeom)) return undefined;
+    for (let fi = 0; fi < 4; fi++) {
+      if (this.flowerStock[fi] <= 0) continue;
+      const ax = this.field.flowerAxis(fi);
+      if (flowerInMouth(ag.pose, ag.footprint, ag.intakeGeom, { x: ax.x, z: ax.z })) return fi;
+    }
+    return undefined;
   }
 
   private atCollectibleBall(ag: Agent, b: LiveBall): boolean {
@@ -353,32 +371,31 @@ export class Match {
     if (!ag.intakeActive) return;
     const held = ag.inventory.pollen + ag.inventory.nectar;
     if (held >= ag.caps.capacity) return;
-    if (this.time - ag.lastPick < PICK_INTERVAL) return;
-    const ix = ag.intake.x, iz = ag.intake.z;
+    const since = this.time - ag.lastPick;
     // loose balls on the floor
-    for (let i = 0; i < this.flying.length; i++) {
+    if (since >= PICK_INTERVAL) for (let i = 0; i < this.flying.length; i++) {
       const b = this.flying[i];
       if (!this.atCollectibleBall(ag, b)) continue;
       b.mesh.removeFromParent();
       this.flying.splice(i, 1);
       ag.inventory[b.kind]++;
       ag.lastPick = this.time;
+      this.intakeCount++;
       return;
     }
-    // FLOWER retrieval openings
-    if (ag.caps.pollen) for (let fi = 0; fi < 4; fi++) {
-      if (this.flowerStock[fi] <= 0) continue;
-      const ax = this.field.flowerAxis(fi);
-      if (Math.hypot(ax.x - ix, ax.z - iz) > FLOWER_REACH_M) continue;
-      this.flowerStock[fi]--;
-      const stack = this.field.flowerPollen[fi];
-      const top = stack.shift(); // bottom one leaves, the rest drop
-      top?.removeFromParent();
-      for (const b of stack) b.position.y -= m(BALL.pollen.diaIn) * 0.92;
-      ag.inventory.pollen++;
-      ag.lastPick = this.time;
-      return;
-    }
+    // FLOWER retrieval opening: the brushes must overlap the opening (axis inside the mouth frame), G418.B bottom only
+    if (since < FLOWER_PICK_INTERVAL) return;
+    const fi = this.atStockedFlower(ag);
+    if (fi === undefined) return;
+    this.flowerStock[fi]--;
+    const stack = this.field.flowerPollen[fi];
+    const top = stack.shift(); // bottom one leaves, the rest drop
+    top?.removeFromParent();
+    for (const b of stack) b.position.y -= m(BALL.pollen.diaIn) * 0.92;
+    ag.inventory.pollen++;
+    ag.lastPick = this.time;
+    this.intakeCount++;
+    this.flowerPickCount++;
   }
 
   // ---------------- scripted robots: pick up, drive to a launch spot, shoot their own hive

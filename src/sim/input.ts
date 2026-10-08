@@ -9,6 +9,10 @@ export interface Actions {
   aim: boolean;
   view?: number;
   boost: boolean;
+  /** I / LB: flip the intake on or off (edge) */
+  intakeToggle: boolean;
+  /** K / LT: run the intake while held */
+  intakeHold: boolean;
 }
 
 export class Input {
@@ -88,6 +92,8 @@ export class Input {
       toggleFieldCentric: this.edges.has("KeyF"),
       aim: this.edges.has("KeyR"),
       boost: k.has("ShiftLeft") || k.has("ShiftRight"),
+      intakeToggle: this.edges.has("KeyI"),
+      intakeHold: k.has("KeyK"),
     };
     for (let i = 1; i <= 5; i++) if (this.edges.has(`Digit${i}`)) actions.view = i;
     const pad = this.pad();
@@ -107,6 +113,8 @@ export class Input {
       if (edge(2)) actions.toggleFieldCentric = true; // X
       if (edge(1)) actions.aim = true; // B
       if (pressed.has(5) || pressed.has(7)) actions.boost = true;
+      if (edge(4)) actions.intakeToggle = true; // LB
+      if (pressed.has(6)) actions.intakeHold = true; // LT
       this.prevButtons = pressed;
     }
     this.edges.clear();

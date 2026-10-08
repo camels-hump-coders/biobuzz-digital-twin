@@ -80,7 +80,39 @@ export class RobotObject {
     const hl = spec.lengthM / 2 + 0.01, hw = spec.widthM / 2 + 0.01;
     bar.position.set(g.side === "front" ? hl : g.side === "rear" ? -hl : 0, 0.003, g.side === "left" ? -hw : g.side === "right" ? hw : 0);
     this.group.add(bar);
+    // brushes: a short bristle wheel at each end of the mouth, spun by spinIntake() while the intake runs
+    this.group.getObjectByName("intakeBrushes")?.removeFromParent();
+    this.brushes = [];
+    if ((g.kind ?? "brushes") !== "brushes") return;
+    const brushGroup = new THREE.Group(); brushGroup.name = "intakeBrushes";
+    const along = g.side === "front" || g.side === "rear" ? "z" : "x";
+    const r = 0.035, len = 0.03;
+    const edgeX = g.side === "front" ? spec.lengthM / 2 : g.side === "rear" ? -spec.lengthM / 2 : 0;
+    const edgeZ = g.side === "left" ? -spec.widthM / 2 : g.side === "right" ? spec.widthM / 2 : 0;
+    const out = 0.02; // just proud of the chassis so the bristles reach into a FLOWER's retrieval opening
+    for (const sgn of [-1, 1]) {
+      const geo = new THREE.CylinderGeometry(r, r, len, 10, 1, false);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.95 });
+      const brush = new THREE.Mesh(geo, mat);
+      // bristle stripes so the spin reads
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(len * 0.9, r * 2.1, 0.006), new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.9 }));
+      stripe.rotation.z = Math.PI / 2; brush.add(stripe);
+      const offset = sgn * (g.widthM / 2 - r);
+      if (along === "z") { brush.position.set(edgeX + Math.sign(edgeX) * out, r + 0.01, offset); brush.rotation.z = Math.PI / 2; }
+      else { brush.position.set(offset, r + 0.01, edgeZ + Math.sign(edgeZ) * out); brush.rotation.x = Math.PI / 2; }
+      brushGroup.add(brush); this.brushes.push(brush);
+    }
+    this.group.add(brushGroup);
   }
+  private brushes: THREE.Mesh[] = [];
+  /** Spin the brushes while the intake runs (about 6 rev/s), slow to a stop when it is off. */
+  spinIntake(dt: number, active: boolean) {
+    if (!this.brushes.length) return;
+    this.brushSpeed = active ? Math.min(6 * Math.PI * 2, this.brushSpeed + 40 * dt) : Math.max(0, this.brushSpeed - 25 * dt);
+    if (this.brushSpeed === 0) return;
+    for (const b of this.brushes) b.rotateY(this.brushSpeed * dt);
+  }
+  private brushSpeed = 0;
 
   /** Green bar = intake running (balls on that side are collected); red = off (they get pushed). */
   setIntakeActive(active: boolean) {

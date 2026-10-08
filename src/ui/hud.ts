@@ -51,6 +51,10 @@ export interface HudData {
   theirHive: string;
   launchBlocked?: string;
   pickupBlocked?: boolean;
+  /** intake state text, whether it runs, and whether manual keys control it */
+  intake: string;
+  intakeOn: boolean;
+  intakeManual: boolean;
   /** match phase + clock */
   match: string;
   matchClass?: string;
@@ -122,10 +126,10 @@ export class Hud {
     const primary = !live ? '' : !d.turretOk ? '<button data-hud-action="aim">Aim at target</button>' : (!d.actualHit || unreachable) ? '<button data-hud-action="hood">Adjust hood angle →</button>' : '<button data-hud-action="shoot">Shoot · Space</button>';
     this.root.innerHTML = `
       ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
-      ${d.pickupBlocked ? '<section class="robot-alert intake-blocked" role="status"><strong>⚠ Ball not collected · intake off</strong><p>You have room for a ball. Turn on the intake motor using your TeamCode controls, then drive the intake over the ball.</p></section>' : ''}
+      ${d.pickupBlocked ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · intake off</strong><p>You have room for a ball. ${d.intakeManual ? 'Press <b>I</b> to switch the intake on (or hold <b>K</b>), then drive the intake side onto the ball or FLOWER opening.' : 'Turn on the intake motor using your TeamCode controls, then drive the intake over the ball or FLOWER opening.'}</p></section>` : ''}
       <div class="readiness ${ready ? 'ready' : ''}"><span class="eyebrow">${document.body.classList.contains('is-replaying') ? 'RECORDED FIELD · LIVE SHOT ANALYSIS' : 'SHOT READINESS'}</span><h2>${title}</h2><p>${advice}</p>
       <div class="hud-actions">${primary}<button class="secondary" data-hud-action="analyze" title="Every knob and lever: arc, speed, target, variability">All knobs: Tune shot →</button></div>
-      <div class="shot-summary"><span>${d.carrying}</span><span>${d.shotsFired} fired · ${d.shotsHit} settled in target</span></div></div>
+      <div class="shot-summary"><span>${d.carrying}</span><span class="intake-state ${d.intakeOn ? 'ok' : ''}" title="${escape(d.intake)}">intake ${d.intakeOn ? '● on' : '○ off'}</span><span>${d.shotsFired} fired · ${d.shotsHit} settled in target</span></div></div>
       <section class="shot-at-glance" aria-label="Shot summary">
         <div><strong class="${pClass}">${p === undefined ? '—' : `${(p * 100).toFixed(0)}%`}</strong> hit chance after aiming</div>
         <div class="as-fired"><strong class="${nowClass}">${d.pHit === undefined ? '—' : `${(d.pHit * 100).toFixed(0)}%`}</strong> as fired now${d.nowReason && d.pHit !== undefined && p !== undefined && Math.abs(d.pHit - p) > 0.1 ? ` <span class="why">· ${d.nowReason}</span>` : ''}</div>
@@ -142,6 +146,7 @@ export class Hud {
           <div class="kv"><span>Range</span><b>${f(d.rangeIn, 1)} in</b></div>
           <div class="kv"><span>Bearing</span><b class="${cls(d.turretOk)}">${bearing}</b></div>
           <div class="kv"><span>Carrying</span><b class="${d.launchBlocked ? "bad" : ""}">${d.carrying}</b></div>
+          <div class="kv"><span>Intake</span><b class="${d.intakeOn ? "ok" : ""}">${escape(d.intake)}</b></div>
         </div>
       </div>
       </details>

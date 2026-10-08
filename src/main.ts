@@ -172,7 +172,7 @@ function makeAgent(id: string, alliance: Alliance, group: THREE.Group, caps: Age
 }
 const playerAgent = makeAgent("player", state.alliance, robot.group, { capacity: state.capacity, pollen: state.canPollen, nectar: state.canNectar }, state.robot, state.robot.intake);
 // scripted robots collect through a front mouth about two thirds of their width
-const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }, s.footprint, { side: "front", widthM: s.footprint.widthM * 0.65 }));
+const scriptedAgents = scripted.map((s, i) => makeAgent(s.name, "red", scriptedObjs[i].group, { capacity: 4, pollen: true, nectar: true }, s.footprint, { side: "front", widthM: s.footprint.widthM * 0.65, kind: "brushes" }));
 const allAgents = [playerAgent, ...scriptedAgents];
 const scoreboard = new Scoreboard();
 const matchScoreView = new MatchScoreView();
@@ -914,6 +914,8 @@ function launch(exit: Vec3, dirXZ: { x: number; z: number }) {
 let roleWarning: string | undefined;
 let lastFoulLogged = -1;
 let intakeBlockedUntil = 0;
+/** manual intake toggle (I / LB); K / LT runs it while held */
+let intakeOn = false;
 let launchBlockedUntil = 0;
 let launchBlockedMsg = "";
 
@@ -1023,7 +1025,9 @@ function frame(now: number) {
     pendingFires += feederFires(state.hardware, link.takeServoTransitions());
     void 0;
   } else {
-    playerAgent.intakeActive = true; // keyboard driving: the intake always runs
+    // manual driving: the intake runs while K / LT is held, after I / LB switched it on, or with the Auto intake assist
+    if (actions.intakeToggle && !replaying) intakeOn = !intakeOn;
+    playerAgent.intakeActive = !replaying && (state.autoIntake || intakeOn || actions.intakeHold);
     link.takeServoTransitions();
     // keep encoders moving sensibly when the keyboard drives, so init_loop telemetry is not frozen
     stepActuators(actuatorModel, state.hardware, {}, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM);
@@ -1120,8 +1124,9 @@ function frame(now: number) {
   robot.setIntakeActive(playerAgent.intakeActive);
   Match.renderCarry(playerAgent.carryGroup, playerAgent.inventory, playerAgent.alliance, state.robot.heightM);
   perf.mark("robots");
-  if (!replaying && runtimeActive && match.pickupBlockedByIntake(playerAgent)) intakeBlockedUntil = performance.now() + 4000;
-  if (replaying || !runtimeActive || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
+  if (!replaying && match.pickupBlockedByIntake(playerAgent)) intakeBlockedUntil = performance.now() + 4000;
+  if (replaying || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
+  robot.spinIntake(dt, playerAgent.intakeActive);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
@@ -1266,6 +1271,9 @@ function frame(now: number) {
     tipping: match.hives[state.alliance].tipping ? `TIPPING… ${(match.hives[state.alliance].tipping!.duration - match.hives[state.alliance].tipping!.t).toFixed(1)} s` : undefined,
     carrying: state.infiniteAmmo ? `∞ ${state.ballKind} (practice: infinite ammo)` : `${playerAgent.inventory.pollen} pollen + ${playerAgent.inventory.nectar} nectar (${playerAgent.inventory.pollen + playerAgent.inventory.nectar}/${playerAgent.caps.capacity})`,
     pickupBlocked: performance.now() < intakeBlockedUntil,
+    intake: playerAgent.intakeActive ? (runtimeActive ? "running (TeamCode)" : state.autoIntake ? "running (auto)" : "running") : runtimeActive ? "off · power the intake motor" : "off · I toggles, K runs",
+    intakeOn: playerAgent.intakeActive,
+    intakeManual: !runtimeActive,
     launchBlocked: performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined,
     supply: `flowers ${match.flowerStocks().join("/")} · nectar reserve red ${match.nectarSupply.red} blue ${match.nectarSupply.blue}`,
     theirHive: (() => { const o: Alliance = state.alliance === "red" ? "blue" : "red"; const c = match.cellLoad(o); const h = match.hives[o]; return `${h.upCell} cell up · ${(c.massKg * 1000).toFixed(0)} g · ${h.tips} tips${h.tipping ? " · TIPPING" : ""}`; })(),

@@ -45,7 +45,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     modelYawDeg: -90, // CAD faces +Z; hood side forward
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "rear", widthM: 13 * IN }, // roller intake between the wheels at the back; the launcher fires forward over the ramp
+    intake: { side: "rear", widthM: 13 * IN, kind: "brushes" }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
   },
@@ -62,7 +62,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     modelYawDeg: -90, // CAD faces +Z; hood side forward
     cameras: [starterBotCamera()],
     launcher: { ...LAUNCHER_PRESETS.starterbot },
-    intake: { side: "rear", widthM: 13 * IN }, // roller intake between the wheels at the back; the launcher fires forward over the ramp
+    intake: { side: "rear", widthM: 13 * IN, kind: "brushes" }, // kit intake between the wheels at the back pulls POLLEN out of a FLOWER; the launcher fires forward over the ramp
     massKg: 11,
     color: 0xe8e8e8,
   },
@@ -77,7 +77,7 @@ export const ROBOT_PRESETS: Record<string, RobotSpec> = {
     model: "box",
     cameras: [defaultCamera()],
     launcher: { ...LAUNCHER_PRESETS.dualFlywheel },
-    intake: { side: "front", widthM: 14 * IN },
+    intake: { side: "front", widthM: 14 * IN, kind: "brushes" },
     massKg: 13,
     color: 0x3aa0c8,
   },

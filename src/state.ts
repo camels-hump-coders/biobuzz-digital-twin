@@ -77,6 +77,8 @@ export interface AppState {
   settingsAutoLoad: boolean;
   /** practice mode: our robot always has a ball of the selected kind to launch; intake and capacity still work */
   infiniteAmmo: boolean;
+  /** manual driving: keep the intake running whenever there is room (off: press I to toggle it, hold K to run it) */
+  autoIntake: boolean;
 }
 
 export function defaultState(): AppState {
@@ -121,6 +123,7 @@ export function defaultState(): AppState {
     calibration: defaultCalibration(robot.launcher.exitHeightM),
     settingsAutoLoad: true,
     infiniteAmmo: false,
+    autoIntake: false,
   };
 }
 
@@ -191,7 +194,9 @@ function migrate(s: any): AppState {
       }
       if (s.tipMassG === 199) s.tipMassG = 195;
       // migration: intake side (older saves collected from every side)
-      if (s.robot && !s.robot.intake) s.robot.intake = { side: "front", widthM: 13 * 0.0254 };
+      if (s.robot && !s.robot.intake) s.robot.intake = { side: "front", widthM: 13 * 0.0254, kind: "brushes" };
+      // migration: intake kind (older saves pulled from FLOWERs with any intake; the kit intake has brushes)
+      if (s.robot?.intake && !s.robot.intake.kind) s.robot.intake.kind = "brushes";
       if (s.robot && !s.robot.massKg) s.robot.massKg = 12;
       // migration: the StarterBot shooter camera default pitch was a guess (8 deg up); the team measured 35 deg up
       for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;

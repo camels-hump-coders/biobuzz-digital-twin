@@ -1,9 +1,9 @@
 /** Intake mouth geometry: which side of the chassis collects game pieces, and the rectangle a ball must be in. */
 import type { Footprint, Pose } from "./drive";
 import { forwardVector, leftVector } from "./drive";
-import type { IntakeSide } from "../robot/robotSpec";
+import type { IntakeKind, IntakeSide } from "../robot/robotSpec";
 
-export interface IntakeGeom { side: IntakeSide; widthM: number }
+export interface IntakeGeom { side: IntakeSide; widthM: number; kind?: IntakeKind }
 
 /** Ball position in the robot frame: forward (+ ahead) and left (+ to the robot's left), metres. */
 export function toRobotFrame(pose: Pose, p: { x: number; z: number }): { fwd: number; left: number } {
@@ -60,4 +60,25 @@ export function chassisPush(pose: Pose, fp: Footprint, ball: { x: number; z: num
   if (pf < pl) { const sgn = r.fwd >= 0 ? 1 : -1; nx = f.x * sgn; nz = f.z * sgn; depth = pf; }
   else { const sgn = r.left >= 0 ? 1 : -1; nx = l.x * sgn; nz = l.z * sgn; depth = pl; }
   return { dx: nx * depth, dz: nz * depth, nx, nz };
+}
+
+/** How far outside the mouth edge a FLOWER axis may sit for the brushes to reach its retrieval opening (metres).
+ *  The opening is 3.57 in deep and the lower ring 2.79 in across; the brushes must overlap the opening. */
+export const FLOWER_MOUTH_REACH_M = 6.5 * 0.0254;
+/** A FLOWER axis slightly behind the mouth edge still counts: the chassis stops at the ring plate, not the axis. */
+const FLOWER_MOUTH_INSIDE_M = 1.0 * 0.0254;
+const FLOWER_MOUTH_SLOP_M = 1.0 * 0.0254;
+
+/** True when the FLOWER axis is inside the intake mouth frame: within the mouth width (plus 1 in) along the edge and
+ *  between 1 in inside and `FLOWER_MOUTH_REACH_M` outside it. Only `brushes` intakes can retrieve; callers check the kind. */
+export function flowerInMouth(pose: Pose, fp: Footprint, geom: IntakeGeom, axis: { x: number; z: number }): boolean {
+  const r = toRobotFrame(pose, axis);
+  let out: number, along: number;
+  switch (geom.side) {
+    case "front": out = r.fwd - fp.lengthM / 2; along = r.left; break;
+    case "rear": out = -r.fwd - fp.lengthM / 2; along = r.left; break;
+    case "left": out = r.left - fp.widthM / 2; along = r.fwd; break;
+    case "right": out = -r.left - fp.widthM / 2; along = r.fwd; break;
+  }
+  return Math.abs(along) <= geom.widthM / 2 + FLOWER_MOUTH_SLOP_M && out <= FLOWER_MOUTH_REACH_M && out >= -FLOWER_MOUTH_INSIDE_M;
 }
