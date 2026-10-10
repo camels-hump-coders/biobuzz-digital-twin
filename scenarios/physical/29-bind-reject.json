@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
   "name": "BIND-REJECT: a real-profile parity run with twin bindings still on — must fail at setup naming the bound calibration keys",
-  "notes": "SG-001: 'flag or reject unapproved binding substitutions'. Bindings supply tagTracking.shotRangeIn / powerTable / launchAngle* from the twin's solver; with bindingsPolicy reject that is a setup failure (expected here), so a synthetic calibration can never pass as a real-profile result. Fails by design.",
+  "notes": "SG-001: 'flag or reject unapproved binding substitutions'. Bindings supply tagTracking.shotRangeIn / powerTable / launchAngle* / exitHeightIn from the twin's solver; with bindingsPolicy reject that is a setup failure naming those keys (expected here), so a synthetic calibration can never pass as a real-profile result. Geometry bindings (wheel size, camera mount) are allowed; reject-all refuses those too. Fails by design.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,

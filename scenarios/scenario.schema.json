@@ -542,10 +542,43 @@
       "enum": [
         "allow",
         "reject",
+        "reject-all",
         "ignore"
       ],
       "default": "allow",
-      "description": "allow: twin bindings apply as usual; reject: setup fails if any effective value comes from a binding (real-profile parity run); ignore: same as ignoreBindings"
+      "description": "allow: twin bindings apply; reject: setup fails if a shot-calibration key (tagTracking.shotRangeIn, powerTable, launchAngle*, …) comes from a binding (a synthetic calibration cannot pass as the robot's profile); reject-all: any bound key fails setup; ignore: same as ignoreBindings"
+    },
+    "balls": {
+      "type": "array",
+      "description": "loose game pieces placed on the floor after INIT (world truth: a pile the route may run into, or balls to collect)",
+      "items": {
+        "type": "object",
+        "required": [
+          "xIn",
+          "zIn"
+        ],
+        "properties": {
+          "xIn": {
+            "type": "number"
+          },
+          "zIn": {
+            "type": "number"
+          },
+          "kind": {
+            "enum": [
+              "pollen",
+              "nectar"
+            ],
+            "default": "pollen"
+          },
+          "alliance": {
+            "enum": [
+              "red",
+              "blue"
+            ]
+          }
+        }
+      }
     }
   }
 }

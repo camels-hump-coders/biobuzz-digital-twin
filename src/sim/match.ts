@@ -362,18 +362,27 @@ export class Match {
     const bx = b.pos.x, bz = b.pos.z;
     b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim);
     let refused = (bx - b.pos.x) * nx + (bz - b.pos.z) * nz; // the push the wall took back, along the push normal
+    // a chain of balls ahead: the pushed ball can only travel as far as the balls in front of it can, down to the wall
+    const free = this.freeAlong(b, nx, nz, 0);
+    if (free < 0) { refused = Math.max(refused, -free); b.pos.x += nx * free; b.pos.z += nz * free; }
+    if (refused <= 1e-4) return;
+    const cur = ag.blocked, mag = Math.hypot(cur?.x ?? 0, cur?.z ?? 0);
+    ag.blocked = { x: refused > mag ? nx * refused : cur!.x, z: refused > mag ? nz * refused : cur!.z, balls: (cur?.balls ?? 0) + 1 };
+  }
+  /** How far ball `b` can still move along (nx, nz) before the perimeter or a ball already in its way stops it;
+   *  negative when it is already overlapping something that cannot give way (the amount it must come back). */
+  private freeAlong(b: LiveBall, nx: number, nz: number, depth: number): number {
+    const lim = m(FIELD.sizeIn) / 2 - b.radius;
+    let free = Math.min(nx > 0 ? lim - b.pos.x : nx < 0 ? b.pos.x + lim : Infinity, nz > 0 ? lim - b.pos.z : nz < 0 ? b.pos.z + lim : Infinity);
+    if (depth >= 4) return free;
     for (const o of this.flying) {
       if (o === b || o.inCell || o.carried || o.pos.y > 0.25) continue;
       const dx = o.pos.x - b.pos.x, dz = o.pos.z - b.pos.z, along = dx * nx + dz * nz, perp = Math.abs(dx * nz - dz * nx);
       const touch = b.radius + o.radius;
-      if (along <= 0 || perp >= touch || along >= touch) continue;
-      const overlap = touch - along; // how far the pushed ball would have to move o along n
-      const freeO = Math.min(nx > 0 ? lim - o.pos.x : nx < 0 ? o.pos.x + lim : Infinity, nz > 0 ? lim - o.pos.z : nz < 0 ? o.pos.z + lim : Infinity);
-      if (freeO < overlap) { refused = Math.max(refused, overlap - Math.max(0, freeO)); b.pos.x -= nx * (overlap - Math.max(0, freeO)); b.pos.z -= nz * (overlap - Math.max(0, freeO)); }
+      if (along <= 0 || perp >= touch * 0.9 || along >= touch + 0.02) continue; // only balls directly ahead and (nearly) touching
+      free = Math.min(free, along - touch + Math.max(0, this.freeAlong(o, nx, nz, depth + 1)));
     }
-    if (refused <= 1e-4) return;
-    const cur = ag.blocked, mag = Math.hypot(cur?.x ?? 0, cur?.z ?? 0);
-    ag.blocked = { x: refused > mag ? nx * refused : cur!.x, z: refused > mag ? nz * refused : cur!.z, balls: (cur?.balls ?? 0) + 1 };
+    return free;
   }
 
   /** Detect before chassis pushing moves the missed ball away. Also true at a stocked FLOWER the brushes could reach. */

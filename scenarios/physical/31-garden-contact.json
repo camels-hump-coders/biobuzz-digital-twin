@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "GARDEN-CONTACT: the along-wall leg runs the full hopper into the garden row — the squeezed balls hold the chassis, the shafts stall, the approach watchdog trips",
-  "notes": "SG-005 (team ledger 2026-10-10, commit 8ce91a5): the operator saw the robot back into garden balls and stall before firing. Here the shooting spot is set 60 in along the wall so the leg reaches the garden balls with four preloads aboard (the intake cannot take them); loose balls squeezed between chassis and wall refuse the motion (match.pushBalls), the estimated tiles grip stalls the shafts rather than spinning the wheels, and the code's encoder watchdog (< 0.25 in in 1 s) must settle and aim from there. Collision-grounded, not a friction fault; the garden pile itself is the twin's default row, not a measured one.",
+  "name": "GARDEN-CONTACT: the along-wall leg runs the full hopper into balls stacked on the wall — the squeezed balls hold the chassis, the shafts stall, the approach watchdog trips",
+  "notes": "SG-005 (team ledger 2026-10-10, commit 8ce91a5): the operator saw the robot back into garden balls and stall before firing. The code caps the along-wall leg short of the twin's own garden row (collectReachIn minus the pollen gap), so three POLLEN are placed in the leg's path, stacked against the audience wall where the leg ends, with four preloads aboard (the intake cannot take them). Balls squeezed between chassis and wall refuse the motion (match.refuse), the estimated tiles grip (tractionMu 1.2) stalls the shafts rather than spinning the wheels, and the code's encoder watchdog (< 0.25 in in 1 s) must settle and aim from there. Collision-grounded, not a friction fault; the pile is placed, not measured.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -21,7 +21,7 @@
       "matchAuto.flowerGraceIn": 4,
       "matchAuto.collectGarden": true,
       "matchAuto.collectOutIn": 0,
-      "matchAuto.shootSpotAlongWallIn": 60,
+      "matchAuto.shootSpotAlongWallIn": 20,
       "matchAuto.collectBudgetSeconds": 8,
       "matchAuto.feedSeconds": 1.0,
       "matchAuto.pauseAimTimers": false,
@@ -53,7 +53,7 @@
       {
         "after": "Match auto : DRIVE_ALONG_WALL",
         "event": "contact",
-        "withinS": 8
+        "withinS": 6
       },
       {
         "after": "contact",
@@ -61,5 +61,19 @@
         "withinS": 3
       }
     ]
-  }
+  },
+  "balls": [
+    {
+      "xIn": 50,
+      "zIn": -70.4
+    },
+    {
+      "xIn": 50,
+      "zIn": -67.15
+    },
+    {
+      "xIn": 50,
+      "zIn": -63.9
+    }
+  ]
 }

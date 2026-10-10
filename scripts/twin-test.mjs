@@ -249,6 +249,8 @@ async function runScenario(scenario, scenarioPath, out) {
   const status = await page.evaluate(() => ({ status: window.__twin.link.status, error: window.__twin.link.statusError }));
   if (status.status !== "INIT") return finish(`INIT did not complete: ${status.status} ${status.error}`);
   if (scenario.start) await page.evaluate((p) => { const t = window.__twin; t.state.pose = { x: p.xIn * 0.0254, z: p.zIn * 0.0254, heading: (p.headingDeg * Math.PI) / 180 }; t.robot.setPose(t.state.pose); }, scenario.start);
+  // loose balls the fixture places on the floor (after INIT's board reset): world truth for contact and collection checks
+  if (scenario.balls?.length) await page.evaluate((b) => window.__twin.link.onAgent("twin", { balls: b }), scenario.balls);
   // the effective configuration at INIT: robot identity, physics, perception and every TeamCode setting with provenance
   manifest = await page.evaluate(() => window.__twin.manifest()).catch(() => undefined);
   if (manifest?.profile) console.log(`twin-test: configuration: ${manifest.profile.mode}${manifest.profile.persistedAssets.length ? ` (${manifest.profile.persistedAssets.map((p) => p.replace(/^.*\//, "")).join(", ")})` : ""}, calibration ${manifest.profile.calibration}${Object.values(manifest.profile.missing).flat().length ? `, missing (parser fallback): ${Object.values(manifest.profile.missing).flat().join(", ")}` : ""}`);
@@ -267,9 +269,12 @@ async function runScenario(scenario, scenarioPath, out) {
     if (bad.length) { requireFailures = bad; return finish(`requireEffective not met: ${bad.join("; ")}`); }
   }
   // bindingsPolicy "reject": a real-profile parity run; any key a twin binding supplies is a setup failure, not a robot result
-  if (scenario.bindingsPolicy === "reject" && manifest) {
-    const bound = Object.entries(manifest.effective).flatMap(([p, keys]) => Object.entries(keys).filter(([, v]) => v.source === "bound").map(([k]) => `${p.replace(/^.*\//, "")} ${k}`));
-    if (bound.length) { requireFailures = [`bindingsPolicy reject: bound ${bound.join(", ")}`]; return finish(`bindingsPolicy reject: ${bound.length} key${bound.length === 1 ? "" : "s"} come from twin bindings (${bound.join(", ")}); use ignoreBindings or allow`); }
+  // "reject" refuses a bound shot calibration (the twin's solver standing in for a measurement); "reject-all" refuses any bound key
+  if ((scenario.bindingsPolicy === "reject" || scenario.bindingsPolicy === "reject-all") && manifest) {
+    const bound = scenario.bindingsPolicy === "reject-all"
+      ? Object.entries(manifest.effective).flatMap(([p, keys]) => Object.entries(keys).filter(([, v]) => v.source === "bound").map(([k]) => `${p.replace(/^.*\//, "")} ${k}`))
+      : (manifest.profile?.boundCalibration ?? []);
+    if (bound.length) { const why = `bindingsPolicy ${scenario.bindingsPolicy}: ${bound.length} ${scenario.bindingsPolicy === "reject" ? "calibration " : ""}key${bound.length === 1 ? "" : "s"} come from twin bindings (${bound.map((b) => b.replace(/^\S+ /, "")).join(", ")}): a synthetic calibration, not the robot's profile; use ignoreBindings for a real-profile run`; requireFailures = [why]; return finish(why); }
   }
   // SG-007: the team's bundled profile ships practice timers ON; a fixture that does not say which clock it tests
   // cannot be compared with a match objective, so say so in the report

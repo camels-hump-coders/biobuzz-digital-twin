@@ -624,7 +624,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide|physics(\.\w+)?|feed\.\w+|perception\.level|perception\.faults\.\w+|tagCovers|persistedAssets)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide|physics(\.\w+)?|feed\.\w+|perception\.level|perception\.faults\.\w+|tagCovers|persistedAssets|balls)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }
@@ -633,6 +633,13 @@ link.onAgent = async (action, params) => {
         if (path.startsWith("physics.")) { (state.physics as any)[path.slice(8)] = value; state.physics.kind = "custom"; state.physics.provenance = "user"; set.push(path); continue; }
         if (path.startsWith("feed.")) { (state.feed as any)[path.slice(5)] = value; state.feed.provenance = "user"; set.push(path); continue; }
         if (path === "perception.level" && !["ideal", "faults", "singles"].includes(String(value))) { rejected.push(`${path} (${UNSUPPORTED_PERCEPTION.includes(String(value)) ? "unsupported in the twin: no camera frames exist" : "unknown level"})`); continue; }
+        if (path === "balls") {
+          // loose game pieces placed on the floor (world truth for contact / collection fixtures): [{xIn, zIn, kind?: pollen|nectar, alliance?}]
+          const list = Array.isArray(value) ? value as { xIn: number; zIn: number; kind?: string; alliance?: string }[] : [];
+          for (const b of list) { const kind = b.kind === "nectar" ? "nectar" : "pollen"; const dia = kind === "pollen" ? BALL.pollen.diaIn : BALL.nectarRed.diaIn; match.spawnBall(kind, kind === "nectar" ? ((b.alliance === "red" ? "red" : "blue") as "red" | "blue") : undefined, new THREE.Vector3(b.xIn * IN, m(dia) / 2, b.zIn * IN), new THREE.Vector3(), true); }
+          recorder.event(Date.now(), "note", `placed ${list.length} loose ball${list.length === 1 ? "" : "s"}: ${list.map((b) => `${b.kind ?? "pollen"} (${b.xIn}, ${b.zIn})`).join(", ")}`);
+          set.push(path); continue;
+        }
         if (path === "persistedAssets") {
           // {"<asset>": {whole saved document}} or {"<asset>": {"drop": [dotted keys], "set": {dotted: value}}} derived from the packaged file; {} = clean install
           const next: Record<string, Record<string, unknown>> = {};
