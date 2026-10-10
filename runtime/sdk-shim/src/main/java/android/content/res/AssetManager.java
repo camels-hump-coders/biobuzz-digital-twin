@@ -31,9 +31,9 @@ public class AssetManager {
         }
         if (src == null) for (File r : roots) { File f = new File(r, path); if (f.isFile()) { src = f; break; } }
         if (src == null) throw new FileNotFoundException("asset not found: " + path + " (searched " + roots + "; set sim.assets or run via pnpm sim)");
-        String key = path.replace('\\', '/');
-        JSONObject persisted = path.endsWith(".json") ? SimHooks.persistedAsset(key) : null;
-        JSONObject ov = path.endsWith(".json") ? SimHooks.assetOverrides(key) : null;
+        String assetKey = path.replace('\\', '/');
+        JSONObject persisted = path.endsWith(".json") ? SimHooks.persistedAsset(assetKey) : null;
+        JSONObject ov = path.endsWith(".json") ? SimHooks.assetOverrides(assetKey) : null;
         if (persisted == null && (ov == null || ov.isEmpty())) return new FileInputStream(src);
         String text = persisted != null ? persisted.toString(2) : Files.readString(src.toPath(), StandardCharsets.UTF_8);
         if (ov == null || ov.isEmpty()) return new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8));

@@ -113,6 +113,23 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
   the SDK cluster origin (opening plane, 5.6 in above the strip); one built with `setTagLibrary` on a custom
   individual-tag library gets single detections, so a team's own consensus code runs in the twin. `requireEffective: {"robot-profile.json": {"tagTracking.shotRangeIn": 54}}` fails setup when a
   binding or a stale profile wins over the scenario, naming the effective value and its source.
+- **The profile the robot saved is not the asset.** `persisted: {"biobuzz/robot-profile.json": {"base": "packaged" |
+  "rev:<git rev>" | "file:<path>", "drop": ["tagTracking.launchAngleMeasured", …], "set": {…}}}` (or a whole
+  document) makes the code read that saved copy instead of the packaged file, as the Control Hub does after the first
+  save; keys it lacks reach the code missing and the manifest says so (`effective[...].source: "missing"`,
+  `manifest.profile.mode: "persisted"`). Assert it with `requireEffective: {…: {"tagTracking.launchAngleMeasured":
+  "<missing>"}}`. `bindingsPolicy: "reject"` fails setup when any effective value is bound (a real-profile parity run;
+  `manifest.profile.calibration` says `synthetic (twin bindings)` otherwise). Model an upgrade as a pair: the old saved
+  profile and the corrected one.
+- **World truth, measured legs, outputs.** Samples carry `truth` (robot-centre and launcher-exit distance to the
+  opening, bearing); `expect.rangeConsistency: {tolIn: 3}` compares the code's telemetry range with it;
+  `travelBetween: [{after, until, minIn, maxIn, headingChangeMaxDeg}]` asserts displacement between two telemetry
+  moments; `flywheelMaxPower: "==0"` asserts the flywheel was never commanded; `telemetryBefore: [{match, byS}]` puts a
+  deadline on a state; `contacts: ">=1"` (and `eventWithin … event: "contact"`) asserts loose balls held the chassis
+  (physics `tractionMu` decides stall vs wheel spin). Camera fault `fpsCap: 12` holds frames at the detector's rate.
+- **Clocks.** The team's `matchAuto.pauseAimTimers` ships true (practice); a timing fixture must set it explicitly or
+  twin-test prints a warning and the report's `timing.practiceTimers` says which clock ran. See runtime/README.md →
+  Clock contract.
 - **Read the verdict, not just pass.** Each check is `pass | fail | inconclusive | unsupported`; the scenario verdict
   is printed last. `inconclusive` means infrastructure (ran under 0.8× real time, seconds of held sensor packets, a
   page error): rerun with less load; it is not a robot result either way.
