@@ -246,3 +246,10 @@ four pass, `auto-30s-far-side-collect-session` skips the garden as before, and `
 `auto-approach-stall-no-tags` fail on their own bundled `pauseAimTimers = true` (both expect the 5 s no-shot bound);
 the harness warning names it in their reports. One twin fault surfaced on the way: the first contact model held the
 robot while its running intake was taking garden balls on the wall; a running intake with room now swallows them.
+
+**Speed raise follow-up (same day, team `d8dd552` → `796f2e1`).** Leg times roughly halved, turns settle, no route stall;
+the spot-leg overshoot (about 3 in at 0.6, still 2–3 in at 0.45) tracks the approach gain, which the team now owns.
+Three contact-model faults found by the runs are fixed: an active intake is not held by balls it is taking; a squeezed
+ball stays put instead of knocking the chain loose; the block holds while the chassis stays put (5 mm, 10°) so encoders
+cannot creep against a pile. `noStall` takes `{before}` so STALL-OK judges the route, not the garden hold the team's new
+collect watchdog now handles ("held short of the wall; collecting here"). Numbers in `scenarios/physical/README.md`.
