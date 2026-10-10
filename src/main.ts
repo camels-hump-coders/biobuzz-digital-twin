@@ -455,7 +455,9 @@ function breakawayNow(): { straight: number; turn: number } {
   const r = state.robot, dp = driveParams();
   const drive = state.hardware.devices.filter((d) => d.kind === "motor" && ["left", "right", "frontLeft", "frontRight", "backLeft", "backRight"].includes(d.role ?? ""));
   const perSide = Math.max(1, Math.ceil(drive.length / 2));
-  return breakawayCommands({ massKg: r.massKg ?? 11, trackWidthM: dp.trackWidthM, wheelbaseM: dp.wheelbaseM, wheelRadiusM: r.wheelDiameterM / 2, motorsPerSide: perSide, motor: motorSpecFor(drive[0]?.freeRpm ?? r.wheelRpm, GOBILDA_5203_312) }, state.physics);
+  const b = breakawayCommands({ massKg: r.massKg ?? 11, trackWidthM: dp.trackWidthM, wheelbaseM: dp.wheelbaseM, wheelRadiusM: r.wheelDiameterM / 2, motorsPerSide: perSide, motor: motorSpecFor(drive[0]?.freeRpm ?? r.wheelRpm, GOBILDA_5203_312) }, state.physics);
+  // a mecanum chassis gets the straight breakaway in every direction (no skid-steer scrub is modelled for it)
+  return r.drivetrain === "mecanum" ? { straight: b.straight, turn: b.straight } : b;
 }
 function manifestSummary(): string {
   const r = state.robot; const n = Object.values(buildManifest().effective).reduce((acc, f) => { for (const v of Object.values(f)) acc[v.source]++; return acc; }, { packaged: 0, manual: 0, bound: 0 });

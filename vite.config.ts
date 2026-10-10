@@ -35,15 +35,16 @@ export default defineConfig(({ mode }) => {
     base,
     define: { __TWIN_REV__: JSON.stringify(twinRev) },
     plugins: [
-      posthog({
-        personalApiKey: process.env.POSTHOG_API_KEY!,
-        projectId: process.env.POSTHOG_PROJECT_ID,
-        host: process.env.POSTHOG_HOST,
-        sourcemaps: {
-          enabled: true,
-          deleteAfterUpload: true,
-        },
-      }),
+      // source-map upload is optional: a build without the PostHog credentials (a fresh clone, a CI runner, a test
+      // worktree) must still succeed, so the plugin is only added when they are set (.env, see .env.example)
+      ...(process.env.POSTHOG_API_KEY && process.env.POSTHOG_PROJECT_ID
+        ? [posthog({
+            personalApiKey: process.env.POSTHOG_API_KEY,
+            projectId: process.env.POSTHOG_PROJECT_ID,
+            host: process.env.POSTHOG_HOST,
+            sourcemaps: { enabled: true, deleteAfterUpload: true },
+          })]
+        : []),
       startupStatus,
       VitePWA({
         // "prompt": the app shows a Reload toast when a new build is deployed instead of swapping under the user's feet
