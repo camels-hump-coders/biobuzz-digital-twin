@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
   "name": "GARDEN-CONTACT: the along-wall leg runs the full hopper into balls stacked on the wall — the squeezed balls hold the chassis, the shafts stall, the approach watchdog trips",
-  "notes": "SG-005 (team ledger 2026-10-10, commit 8ce91a5): the operator saw the robot back into garden balls and stall before firing. The code caps the along-wall leg short of the twin's own garden row (collectReachIn minus the pollen gap), so three POLLEN are placed in the leg's path, stacked toward the audience wall about four inches before the leg's end (a pile ending on the wall would stop the chassis within the leg's own tolerance and the leg would simply finish), with four preloads aboard (the intake cannot take them). Balls squeezed between chassis and wall refuse the motion (match.refuse), the estimated tiles grip (tractionMu 1.2) stalls the shafts rather than spinning the wheels, and the code's encoder watchdog (< 0.25 in in 1 s) must settle and aim from there. Collision-grounded, not a friction fault; the pile is placed, not measured.",
+  "notes": "SG-005 (team ledger 2026-10-10, commit 8ce91a5): the operator saw the robot back into garden balls and stall before firing. The code caps the along-wall leg short of the twin's own garden row (collectReachIn minus the pollen gap), so six POLLEN (2.8 in) are placed touching in a row from the audience wall up the leg's path, so the chassis meets a chain that cannot give at all about ten inches into the twenty-inch leg (a shorter pile with gaps compacted within the leg's own final approach and the leg simply finished), with four preloads aboard (the intake cannot take them). Balls squeezed between chassis and wall refuse the motion (match.refuse), the estimated tiles grip (tractionMu 1.2) stalls the shafts rather than spinning the wheels, and the code's encoder watchdog (< 0.25 in in 1 s) must settle and aim from there. Collision-grounded, not a friction fault; the pile is placed, not measured.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -65,15 +65,27 @@
   "balls": [
     {
       "xIn": 50,
-      "zIn": -66.4
+      "zIn": -70.6
     },
     {
       "xIn": 50,
-      "zIn": -63.15
+      "zIn": -67.8
     },
     {
       "xIn": 50,
-      "zIn": -59.9
+      "zIn": -65.0
+    },
+    {
+      "xIn": 50,
+      "zIn": -62.2
+    },
+    {
+      "xIn": 50,
+      "zIn": -59.4
+    },
+    {
+      "xIn": 50,
+      "zIn": -56.6
     }
   ]
 }
