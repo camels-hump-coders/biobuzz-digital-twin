@@ -84,6 +84,9 @@ export interface AppState {
   tagNoiseIn: number;
   /** TeamCode asset overrides edited in the browser: asset path -> dotted key -> value (sent to the host) */
   assetOverrides: Record<string, Record<string, unknown>>;
+  /** the profile the robot SAVED on the hub, per asset path (whole document): when present the OpModes read it instead
+   * of the packaged file, as the Control Hub does after the first save; keys it lacks stay missing (SG-001) */
+  persistedAssets: Record<string, Record<string, unknown>>;
   /** shooter calibration wizard: setup, measured shots and the OpMode's pending shot announcements */
   calibration: CalibrationSession;
   /** server mode: apply the repo's twin-settings.json when the host connects (unless the browser has unsaved changes) */
@@ -142,6 +145,7 @@ export function defaultState(): AppState {
     hardware: defaultHardwareConfig(),
     tagNoiseIn: 0.3,
     assetOverrides: {},
+    persistedAssets: {},
     calibration: defaultCalibration(robot.launcher.exitHeightM),
     settingsAutoLoad: true,
     infiniteAmmo: false,
@@ -243,7 +247,7 @@ function migrate(s: any): AppState {
       const feed: FeedSettings = { ...DEFAULT_FEED, ...(s.feed ?? {}) };
       const perception: PerceptionSettings = { level: ["ideal", "faults", "singles"].includes(s.perception?.level) ? s.perception.level : DEFAULT_PERCEPTION.level, faults: { ...NO_FAULTS, misreadIds: {}, duplicateIds: [], ...(s.perception?.faults ?? {}) } };
       const tagCovers: number[] = Array.isArray(s.tagCovers) ? s.tagCovers.map(Number).filter((n: number) => Number.isFinite(n)) : [];
-      return { ...defaultState(), ...s, physics, feed, perception, tagCovers, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, aiTier: coerceTier(s.aiTier), matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
+      return { ...defaultState(), ...s, physics, feed, perception, tagCovers, persistedAssets: s.persistedAssets && typeof s.persistedAssets === "object" ? s.persistedAssets : {}, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, aiTier: coerceTier(s.aiTier), matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
     }
   }
 }

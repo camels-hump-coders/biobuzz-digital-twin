@@ -28,6 +28,13 @@ public final class SimHooks {
     private static final java.util.concurrent.ConcurrentHashMap<String, org.json.JSONObject> assetOverrides = new java.util.concurrent.ConcurrentHashMap<>();
     public static void setAssetOverrides(java.util.Map<String, org.json.JSONObject> all) { assetOverrides.clear(); assetOverrides.putAll(all); }
     public static org.json.JSONObject assetOverrides(String path) { return assetOverrides.get(path); }
+    /** A profile the robot PERSISTED (the Control Hub keeps the saved robot-profile in its own database and reads it
+     * instead of the packaged asset after the first save): asset path -> the whole saved document. When present it
+     * replaces the packaged file as the base the overrides are merged into, so keys the saved copy never had stay
+     * missing and the code's parser fallbacks apply, as on the robot. Absent = clean install (the packaged asset). */
+    private static final java.util.concurrent.ConcurrentHashMap<String, org.json.JSONObject> persistedAssets = new java.util.concurrent.ConcurrentHashMap<>();
+    public static void setPersistedAssets(java.util.Map<String, org.json.JSONObject> all) { persistedAssets.clear(); persistedAssets.putAll(all); }
+    public static org.json.JSONObject persistedAsset(String path) { return persistedAssets.get(path); }
 
     private static volatile TagSource tagSource;
     public static void setTagSource(TagSource s) { tagSource = s; }

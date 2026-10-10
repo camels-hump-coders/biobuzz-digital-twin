@@ -20,7 +20,7 @@ import { setupUpdates } from "./pwa";
 import { BALL, FIELD, m, ZONES } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
-import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, maxYawRate, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
+import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, forwardVector, maxYawRate, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import type { Footprint } from "./sim/drive";
 import type { RobotSpec } from "./robot/robotSpec";
@@ -41,9 +41,9 @@ import { Match, type Agent } from "./sim/match";
 import { RuntimeLink, type SensorPacket } from "./runtime/link";
 import { createActuatorModel, stepActuators, motorSensors } from "./runtime/actuators";
 import { createFeederState, stepFeeder, transitSeconds, type FeederState } from "./sim/feeder";
-import { LatencyQueue, PERCEPTION_LEVELS, UNSUPPORTED_PERCEPTION, applyFaults } from "./runtime/visionFaults";
+import { FrameCadence, LatencyQueue, PERCEPTION_LEVELS, UNSUPPORTED_PERCEPTION, applyFaults } from "./runtime/visionFaults";
 import { GOBILDA_5203_312, PHYSICS_PROFILES, SCRUB_MU_BAND, breakawayCommands, motorSpecFor } from "./sim/drivePhysics";
-import { flattenDotted } from "./runtime/assetExport";
+import { derivePersisted, effectiveConfig } from "./runtime/effectiveConfig";
 import { parseCalLines, speedForRange, type FlightModel } from "./ballistics/calibration";
 import { isSchemaFile, schemaFor, schemaPathFor, validateAll } from "./runtime/assetSchema";
 import { applyOverrides, exportChangedAssets } from "./runtime/assetExport";
@@ -306,7 +306,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   }
   if (what === "runtime") syncRuntime();
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
-  if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides));
+  if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides), state.persistedAssets);
   if (what === "robot" || what === "cameras" || what === "launcher" || what === "hardware" || what === "sim" || what === "reset") syncBindings();
   if (what === "view") venueFx.group.visible = state.stadium;
   if (what === "sim" || what === "view") applyScriptedModels();
@@ -338,11 +338,28 @@ let feederPulses = 0;
 /** stall watchdog: how long each drive motor has been commanded without its shaft turning */
 const stallFor = new Map<string, number>();
 let stallActive = false, stallCount = 0, notMoving: string | undefined;
+/** highest |power| TeamCode has commanded on a flywheel-role motor since INIT (or resetPeaks): "the flywheel never spun" is a physical claim */
+let flywheelPeak = 0;
+/** World truth the harness compares telemetry against (SG-002): horizontal distance from the robot centre and from the
+ * launcher exit to the target cell's opening centre, and the bearing of the opening from the launcher's line. */
+function worldTruth() {
+  const f = targetFrame(), ex = robot.exitPoint();
+  const dx = f.openingCenter.x - state.pose.x, dz = f.openingCenter.z - state.pose.z;
+  const ex2 = f.openingCenter.x - ex.x, ez2 = f.openingCenter.z - ex.z;
+  const fwd = forwardVector(state.pose.heading), launchDir = ((state.robot.launcher.yawOffsetDeg) * Math.PI) / 180;
+  const lx = fwd.x * Math.cos(launchDir) - fwd.z * Math.sin(launchDir), lz = fwd.x * Math.sin(launchDir) + fwd.z * Math.cos(launchDir);
+  const bearing = Math.atan2(lx * dz - lz * dx, lx * dx + lz * dz);
+  return { rangeCentreIn: +(Math.hypot(dx, dz) / IN).toFixed(1), rangeExitIn: +(Math.hypot(ex2, ez2) / IN).toFixed(1), openingHeightIn: +(f.openingCenter.y / IN).toFixed(1), bearingDeg: +rad2deg(bearing).toFixed(1), pose: { xIn: +(state.pose.x / IN).toFixed(1), zIn: +(state.pose.z / IN).toFixed(1), headingDeg: +rad2deg(state.pose.heading).toFixed(1) } };
+}
 let feederNote: string | undefined;
 /** camera-latency fault: delivery queues per webcam device */
 const latencyQueues = new Map<string, LatencyQueue>();
+const frameCadences = new Map<string, FrameCadence>();
 let lastFaultsApplied = "";
-const physicsInput = () => ({ profile: state.physics, massKg: state.robot.massKg ?? 11 });
+/** A loose-ball contact that held the chassis last frame(s): which way is blocked (route forward +1 / back −1) and until
+ * when the latch holds (a quarter second after the last refused push, so one free frame cannot creep through it). */
+let contactBlock: { fwdSign: 1 | -1; balls: number; untilMs: number; episode: boolean } | undefined;
+const physicsInput = () => ({ profile: state.physics, massKg: state.robot.massKg ?? 11, block: (contactBlock && performance.now() < contactBlock.untilMs ? contactBlock.fwdSign : 0) as -1 | 0 | 1 });
 let imuYawRef = 0; // IMU yaw is reported relative to the heading at connect time
 function hardwareDevices() {
   return state.hardware.devices.map((d) => ({ name: d.name, kind: d.kind, ticksPerRev: d.ticksPerRev ?? 537.7, port: d.port ?? 0 }));
@@ -394,7 +411,7 @@ function syncBindings() {
   catch (e) { link.bound = { overrides: {}, sources: {}, errors: [`twin-bindings.json: ${(e as Error).message}`] }; }
   lastBindingsText = text;
   const json = JSON.stringify(link.bound.overrides);
-  if (json !== lastBoundJson) { lastBoundJson = json; if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); panel.render(); }
+  if (json !== lastBoundJson) { lastBoundJson = json; if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides), state.persistedAssets); panel.render(); }
 }
 link.onLog = (level, text, millis) => {
   // stack-trace continuation lines belong to the exception line before them
@@ -415,17 +432,9 @@ link.onLog = (level, text, millis) => {
 // ---------- run manifest: the effective robot, physics, perception and TeamCode settings with provenance (handoff G01/G02)
 declare const __TWIN_REV__: string;
 function buildManifest() {
-  const effective: Record<string, Record<string, { value: unknown; source: "packaged" | "manual" | "bound" }>> = {};
-  for (const a of link.assets) {
-    if (!a.path.endsWith(".json") || isSchemaFile(a.path)) continue;
-    let packaged: Record<string, unknown> = {};
-    try { packaged = flattenDotted(JSON.parse(a.text)); } catch { continue; }
-    const manual = state.assetOverrides[a.path] ?? {}, bound = link.bound.overrides[a.path] ?? {};
-    const keys = new Set([...Object.keys(packaged), ...Object.keys(manual), ...Object.keys(bound)]);
-    const file: Record<string, { value: unknown; source: "packaged" | "manual" | "bound" }> = {};
-    for (const k of keys) file[k] = k in bound ? { value: bound[k], source: "bound" } : k in manual ? { value: manual[k], source: "manual" } : { value: packaged[k], source: "packaged" };
-    effective[a.path] = file;
-  }
+  // every TeamCode setting with where it came from: bound > manual > persisted (the profile saved on the hub) >
+  // packaged, and the keys no source carries (the code's parser fallback decides them), see effectiveConfig.ts
+  const { effective, profile } = effectiveConfig(link.assets, state.persistedAssets, state.assetOverrides, link.bound.overrides);
   const r = state.robot;
   return {
     schemaVersion: 1,
@@ -448,6 +457,8 @@ function buildManifest() {
     clock: { mode: "wall", note: "TeamCode timers are JVM wall clock; the twin steps physics per browser frame and sends sensors at 50 Hz. Check the run's simulated/wall ratio and packet holds before trusting a timing result." },
     bindings: { file: link.bindings?.path, errors: link.bound.errors, ignored: new URLSearchParams(location.search).get("nobind") === "1" },
     warnings: manifestWarnings(),
+    /** persisted vs clean install, missing keys, and whether bindings supply the shot calibration (synthetic) */
+    profile,
     effective,
   };
 }
@@ -477,18 +488,18 @@ function breakawayNow(): { straight: number; turn: number } {
   return r.drivetrain === "mecanum" ? { straight: b.straight, turn: b.straight } : b;
 }
 function manifestSummary(): string {
-  const r = state.robot; const n = Object.values(buildManifest().effective).reduce((acc, f) => { for (const v of Object.values(f)) acc[v.source]++; return acc; }, { packaged: 0, manual: 0, bound: 0 });
-  return `${state.robotPresetId} ${r.drivetrain} ${(r.lengthM / IN).toFixed(1)}×${(r.widthM / IN).toFixed(1)} in, intake ${r.intake.side}, launcher yaw ${r.launcher.yawOffsetDeg}°, physics ${state.physics.kind} (${state.physics.provenance}), camera ${state.perception.level}${state.tagCovers.length ? ` covers ${state.tagCovers.join(",")}` : ""} · settings: ${n.packaged} packaged, ${n.manual} overridden, ${n.bound} bound`;
+  const r = state.robot; const man = buildManifest(); const n = Object.values(man.effective).reduce((acc, f) => { for (const v of Object.values(f)) acc[v.source] = (acc[v.source] ?? 0) + 1; return acc; }, {} as Record<string, number>);
+  return `${state.robotPresetId} ${r.drivetrain} ${(r.lengthM / IN).toFixed(1)}×${(r.widthM / IN).toFixed(1)} in, intake ${r.intake.side}, launcher yaw ${r.launcher.yawOffsetDeg}°, physics ${state.physics.kind} (${state.physics.provenance}), camera ${state.perception.level}${state.tagCovers.length ? ` covers ${state.tagCovers.join(",")}` : ""} · settings: ${n.packaged ?? 0} packaged${n.persisted ? `, ${n.persisted} from the saved hub profile` : ""}, ${n.manual ?? 0} overridden, ${n.bound ?? 0} bound${n.missing ? `, ${n.missing} missing (parser fallback)` : ""} · calibration ${man.profile.calibration}`;
 }
 function capabilities() {
   return {
     schemaVersion: 1,
-    perception: { levels: PERCEPTION_LEVELS.map((l) => l.id), unsupported: UNSUPPORTED_PERCEPTION, faults: ["dropoutProb", "latencyMs", "poseNoiseIn", "misreadIds", "duplicateIds", "blurAboveDps", "minPixels"], tagCovers: true },
-    physics: { profiles: Object.keys(PHYSICS_PROFILES).concat("custom"), current: true, batterySag: true, stallWatchdog: true, mecanumScrub: false },
+    perception: { levels: PERCEPTION_LEVELS.map((l) => l.id), unsupported: UNSUPPORTED_PERCEPTION, faults: ["dropoutProb", "latencyMs", "poseNoiseIn", "misreadIds", "duplicateIds", "blurAboveDps", "minPixels", "fpsCap"], tagCovers: true, timestamps: "frameAcquisitionNanoTime is the frame's true acquisition time (cadence + latency); there is no preview JPEG in the twin, so no second, throttled age exists" },
+    physics: { profiles: Object.keys(PHYSICS_PROFILES).concat("custom"), current: true, batterySag: true, stallWatchdog: true, mecanumScrub: false, ballContact: "loose balls squeezed on the wall hold the chassis; tractionMu decides stall vs wheel spin (estimate, not a measured garden pile)", jams: false },
     feed: { transit: true, positionalStroke: true, jams: false },
     clock: { mode: "wall", fixedStep: false, pauseUnderOpMode: false },
     assertions: ["noErrors", "shotsFired", "shotsHit", "launches", "feederPulses", "collectedAtLeast", "footprintInside", "outputsZeroAfterStop", "eventWithin", "noStall", "fouls", "telemetryIncludes", "telemetryFinalIncludes", "telemetrySequence", "movedAtLeastIn", "poseNear", "scoreAtLeast"],
-    events: ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest", "pick"],
+    events: ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest", "pick", "contact"],
     api: ["manifest", "capabilities", "twin(physics, feed, perception, tagCovers)"],
   };
 }
@@ -613,7 +624,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide|physics(\.\w+)?|feed\.\w+|perception\.level|perception\.faults\.\w+|tagCovers)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide|physics(\.\w+)?|feed\.\w+|perception\.level|perception\.faults\.\w+|tagCovers|persistedAssets)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }
@@ -622,6 +633,18 @@ link.onAgent = async (action, params) => {
         if (path.startsWith("physics.")) { (state.physics as any)[path.slice(8)] = value; state.physics.kind = "custom"; state.physics.provenance = "user"; set.push(path); continue; }
         if (path.startsWith("feed.")) { (state.feed as any)[path.slice(5)] = value; state.feed.provenance = "user"; set.push(path); continue; }
         if (path === "perception.level" && !["ideal", "faults", "singles"].includes(String(value))) { rejected.push(`${path} (${UNSUPPORTED_PERCEPTION.includes(String(value)) ? "unsupported in the twin: no camera frames exist" : "unknown level"})`); continue; }
+        if (path === "persistedAssets") {
+          // {"<asset>": {whole saved document}} or {"<asset>": {"drop": [dotted keys], "set": {dotted: value}}} derived from the packaged file; {} = clean install
+          const next: Record<string, Record<string, unknown>> = {};
+          for (const [asset, doc] of Object.entries((value && typeof value === "object" ? value : {}) as Record<string, any>)) {
+            const file = link.assets.find((a) => a.path === asset || a.path.endsWith("/" + asset)); if (!file) { rejected.push(`${path}: unknown asset ${asset}`); continue; }
+            const recipe = doc && typeof doc === "object" && (Array.isArray(doc.drop) || (doc.set && typeof doc.set === "object")) && Object.keys(doc).every((k) => ["drop", "set", "base"].includes(k));
+            next[file.path] = recipe ? derivePersisted(JSON.parse(file.text), doc.drop ?? [], doc.set ?? {}) : doc;
+          }
+          state.persistedAssets = next; onChange("assets");
+          recorder.event(Date.now(), "note", `saved hub profile: ${Object.keys(next).length ? Object.keys(next).map((p) => p.replace(/^.*\//, "")).join(", ") + " replace the packaged assets at the next INIT" : "none (clean install)"}`);
+          set.push(path); continue;
+        }
         if (path === "tagCovers") { state.tagCovers = Array.isArray(value) ? value.map(Number).filter(Number.isFinite) : []; syncTagCovers(); recorder.event(Date.now(), "fault", `tag covers: ${state.tagCovers.length ? state.tagCovers.join(", ") : "none"}`, { tagCovers: state.tagCovers }); set.push(path); continue; }
         const parts = path.split("."); let o: any = state;
         for (const k of parts.slice(0, -1)) o = o[k];
@@ -719,7 +742,7 @@ link.onSettings = (f) => {
 // the host wrote a settings file back to the repo: the manual overrides for it are now in the file, so drop them
 const pendingWrites = new Map<string, (r: { ok: boolean; file?: string; error?: string }) => void>();
 link.onAssetWritten = (r) => {
-  if (r.ok) { delete state.assetOverrides[r.path]; saveState(state); if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); }
+  if (r.ok) { delete state.assetOverrides[r.path]; saveState(state); if (link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides), state.persistedAssets); }
   recorder.event(Date.now(), r.ok ? "note" : "error", r.ok ? `saved ${r.path} to the repo (${r.file})` : `could not save ${r.path}: ${r.error}`);
   pendingWrites.get(r.path)?.(r); pendingWrites.delete(r.path);
   panel.render(); // rebuilds the panel (new flash element), so flash afterwards
@@ -741,7 +764,7 @@ function saveAssetToRepo(path: string): Promise<{ ok: boolean; file?: string; er
 let lastLinkStatus = link.status;
 link.onChange = () => {
   if (link.statusError && link.status === "ERROR") recorder.event(Date.now(), "error", link.statusError.split("\n")[0]);
-  if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides)); hardwareSent = true; }
+  if (link.connected && !hardwareSent) { link.sendHardware(hardwareDevices(), hardwareHints()); link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides), state.persistedAssets); hardwareSent = true; }
   if (link.bindings?.text !== lastBindingsText) syncBindings();
   if (!link.connected) { hardwareSent = false; settingsAutoLoaded = false; }
   // Driver-Station flow: INIT parks everything at the start positions, START releases the match clock and the other
@@ -750,7 +773,7 @@ link.onChange = () => {
     // START on TeamCode: the keyboard drives gamepad1 straight away, no click on the field needed first
     if (link.status === "RUNNING") workspace.focusKeyboard("TeamCode started: keyboard is gamepad1. Press Tab for gamepad2.");
     if ((link.status === "INIT" || link.status === "RUNNING") && recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } // a new run: back to live
-    if (link.status === "INIT") { resetBoard(); for (const [name, f] of feeders) { f.ballPosM = undefined; f.strokeLeftS = 0; f.reason = undefined; const dev = state.hardware.devices.find((d) => d.name === name); f.last = dev?.kind === "servo" ? (link.actuators[name]?.position ?? 0.5) : 0; } stallFor.clear(); stallActive = false; latencyQueues.clear(); actuatorModel.touched.clear(); recorder.event(Date.now(), "manifest", `INIT ${link.currentOpMode}: ${manifestSummary()}`, buildManifest()); }
+    if (link.status === "INIT") { resetBoard(); for (const [name, f] of feeders) { f.ballPosM = undefined; f.strokeLeftS = 0; f.reason = undefined; const dev = state.hardware.devices.find((d) => d.name === name); f.last = dev?.kind === "servo" ? (link.actuators[name]?.position ?? 0.5) : 0; } stallFor.clear(); stallActive = false; latencyQueues.clear(); frameCadences.clear(); actuatorModel.touched.clear(); flywheelPeak = 0; contactBlock = undefined; recorder.event(Date.now(), "manifest", `INIT ${link.currentOpMode}: ${manifestSummary()}`, buildManifest()); }
     else if (link.status === "RUNNING") startMatch();
     else if (lastLinkStatus === "RUNNING") stopMatch();
     lastLinkStatus = link.status;
@@ -1211,6 +1234,7 @@ function frame(now: number) {
   if (runtimeActive) {
     const act = stepActuators(actuatorModel, state.hardware, link.actuators, dt, state.robot.drivetrain, state.pose.heading, state.robot.wheelDiameterM, dp.trackWidthM, dp.wheelbaseM, physicsInput());
     vel = act.vel;
+    for (const d of state.hardware.devices) if (d.kind === "motor" && d.role === "flywheel") flywheelPeak = Math.max(flywheelPeak, Math.abs(link.actuators[d.name]?.power ?? 0));
     updateStallWatchdog(dt);
     playerAgent.intakeActive = Math.abs(act.intakePower) > 0.2;
     // motors your code is powering that the sim does not know what to do with (no role): say so instead of standing still
@@ -1240,6 +1264,10 @@ function frame(now: number) {
   // other robots are not static obstacles: contact with them is a pushing contest, resolved below
   const others: Obstacle[] = [];
   const prevPose = state.pose;
+  if (contactBlock && performance.now() < contactBlock.untilMs) { // kinematic drive (ideal profile, keyboard): no travel into the contact either
+    const f = forwardVector(state.pose.heading), into = vel.vx * f.x + vel.vz * f.z;
+    if (Math.sign(into) === contactBlock.fwdSign) vel = { ...vel, vx: vel.vx - f.x * into, vz: vel.vz - f.z * into };
+  }
   state.pose = stepPose(state.pose, vel, dt, footprintOf(state.robot), fieldObstacles(), WALL_MU[state.robot.drivetrain]);
   robot.setPose(state.pose);
   if (state.wheelSpin) { // world velocity -> robot frame (+X forward, +left)
@@ -1355,6 +1383,7 @@ function frame(now: number) {
   if (replaying || playerAgent.intakeActive || playerAgent.inventory.pollen + playerAgent.inventory.nectar >= playerAgent.caps.capacity) intakeBlockedUntil = 0;
   robot.spinIntake(dt, playerAgent.intakeActive);
   match.update(dt, state.opponents ? allAgents : [playerAgent]);
+  applyBallContact();
   audio?.update({ phase: state.matchPhase ?? "setup", clock: state.matchClock ?? MATCH_SECONDS, transition: state.matchTransition, shots: shotsFired, intakes: playerAgent.picks ?? 0, /* only our robot's shots and swallows sound: the cue tells the driver what their robot did */ tipsStarted: match.tipsStarted, tipsDone: match.tipsDone, bounces: drainImpacts() }, dt);
   scoreboard.update(state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS, MATCH_SECONDS, scoreRobots(), { red: match.hives.red.tips, blue: match.hives.blue.tips });
   matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
@@ -1609,7 +1638,7 @@ function frame(now: number) {
 // debugging hook for scripts / console
 Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twinRenderNow = () => { renderRequested = true; };
-(window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit, launches: shotsFired, feederPulses, stalls: stallCount, notMoving, feeder: feederNote }), manifest: buildManifest, capabilities: () => capabilities(), syncTagCovers, predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
+(window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit, launches: shotsFired, feederPulses, stalls: stallCount, notMoving, feeder: feederNote, flywheelPeakPower: +flywheelPeak.toFixed(3) }), truth: worldTruth, resetPeaks: () => { flywheelPeak = 0; }, manifest: buildManifest, capabilities: () => capabilities(), syncTagCovers, predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };
@@ -1641,11 +1670,17 @@ function scanTagsForRuntime() {
       const key = r.applied.join(",");
       if (key !== lastFaultsApplied) { if (key) recorder.event(Date.now(), "fault", `camera faults engaged on ${dev.name}: ${key}`, { camera: dev.name, applied: r.applied }); lastFaultsApplied = key; }
     }
+    // the detector's frame rate (acquisition) and then the delivery latency; both keep the frame's true acquisition
+    // time, which the host writes into frameAcquisitionNanoTime, so the OpMode's freshness gates see real ages
     const latency = state.perception.level === "faults" ? state.perception.faults.latencyMs : 0;
+    const fps = state.perception.level === "faults" ? state.perception.faults.fpsCap : 0;
+    let acquiredMs = nowMs, fresh = true;
+    if (fps > 0) { let c = frameCadences.get(dev.name); if (!c) { c = new FrameCadence(); frameCadences.set(dev.name, c); } const held = c.next(nowMs, packets, fps); acquiredMs = held.t; packets = held.packets; fresh = held.fresh; }
+    else frameCadences.get(dev.name)?.clear();
     if (latency > 0) {
       let q = latencyQueues.get(dev.name); if (!q) { q = new LatencyQueue(); latencyQueues.set(dev.name, q); }
-      packets = q.push(nowMs, packets, latency, nowMs) ?? [];
-    } else latencyQueues.get(dev.name)?.clear();
+      packets = (fresh ? q.push(acquiredMs, packets, latency, nowMs) : q.poll(nowMs, latency)) ?? [];
+    } else { latencyQueues.get(dev.name)?.clear(); if (!fresh) packets = packets.map((p) => ({ ...p, ageMs: nowMs - acquiredMs })); }
     tagsByCam[dev.name] = packets;
   }
   lastTagsByCam = tagsByCam;
@@ -1701,6 +1736,26 @@ function notePicks() {
     for (let i = 0; i < gained; i++) recorder.event(Date.now(), "pick", `picked ${kind.toUpperCase()} ${where} at (${xIn.toFixed(0)}, ${zIn.toFixed(0)}) in · carrying ${inv.pollen} + ${inv.nectar}`, { kind, where: nearGarden ? "garden" : "floor", xIn: +xIn.toFixed(1), zIn: +zIn.toFixed(1), inventory: { ...inv } });
   }
   lastPickInv = { ...inv };
+}
+/** Loose balls the chassis squeezed against the wall (match.pushBalls) held it: take the refused travel back out of the
+ * pose and tell the drive model which way is blocked, so the shafts stall (or the wheels spin, by traction) instead of
+ * the robot driving through a pile of game pieces (SG-005). One `contact` event per episode. */
+function applyBallContact() {
+  const bp = playerAgent.blocked;
+  const nowMs = performance.now();
+  if (bp && Math.hypot(bp.x, bp.z) > 2e-4) {
+    state.pose = { ...state.pose, x: state.pose.x - bp.x, z: state.pose.z - bp.z };
+    robot.setPose(state.pose); playerAgent.pose = state.pose;
+    const f = forwardVector(state.pose.heading), along = f.x * bp.x + f.z * bp.z;
+    const fwdSign: 1 | -1 = along >= 0 ? 1 : -1;
+    if (fwdSign === contactBlock?.fwdSign && contactBlock.episode) { contactBlock.untilMs = nowMs + 250; contactBlock.balls = Math.max(contactBlock.balls, bp.balls); }
+    else {
+      contactBlock = { fwdSign, balls: bp.balls, untilMs: nowMs + 250, episode: true };
+      if (Math.sign(actuatorModel.body.vFwd) === fwdSign) actuatorModel.body.vFwd = 0;
+      const t = worldTruth();
+      recorder.event(Date.now(), "contact", `chassis held by ${bp.balls} loose ball${bp.balls === 1 ? "" : "s"} against the wall while driving ${fwdSign > 0 ? "forward" : "backward"} at (${t.pose.xIn}, ${t.pose.zIn}) in · physics ${state.physics.kind}: ${state.physics.kind === "ideal" ? "kinematic stop (encoders keep counting)" : `grip ${state.physics.tractionMu ?? 1.2} decides stall vs wheel spin`}`, { balls: bp.balls, fwdSign, pose: t.pose, physics: state.physics.kind });
+    }
+  } else if (contactBlock && nowMs >= contactBlock.untilMs) contactBlock = undefined;
 }
 /** Drive motors commanded without progress for half a second: say so (HUD) and record it (events), once per episode. */
 function updateStallWatchdog(dt: number) {

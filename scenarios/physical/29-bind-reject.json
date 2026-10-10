@@ -1,0 +1,47 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "BIND-REJECT: a real-profile parity run with twin bindings still on — must fail at setup naming the bound calibration keys",
+  "notes": "SG-001: 'flag or reject unapproved binding substitutions'. Bindings supply tagTracking.shotRangeIn / powerTable / launchAngle* from the twin's solver; with bindingsPolicy reject that is a setup failure (expected here), so a synthetic calibration can never pass as a real-profile result. Fails by design.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.pauseAimTimers": false
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": -90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "bindingsPolicy": "reject",
+  "physics": "ideal",
+  "perception": "ideal",
+  "durationS": 5,
+  "expect": {
+    "noErrors": true
+  }
+}

@@ -38,6 +38,10 @@ export interface PhysicsProfile {
   scrubMu: number;
   /** kinetic/static ratio once moving */
   kineticRatio: number;
+  /** wheel-to-floor grip as a fraction of weight: what decides, against an immovable contact (a ball squeezed on
+   * the wall, SG-005), whether the shafts stall or the wheels spin in place. Gecko wheels on foam tiles grip well
+   * (estimate 1.2: the StarterBot stalls rather than slips); absent = 1.2 */
+  tractionMu?: number;
   /** battery open-circuit volts and internal resistance (sag per amp drawn) */
   batteryVolts: number;
   batteryOhms: number;
@@ -48,7 +52,7 @@ export interface PhysicsProfile {
 export const PHYSICS_PROFILES: Record<Exclude<PhysicsProfileKind, "custom">, PhysicsProfile> = {
   ideal: { kind: "ideal", rollingMu: 0, staticMu: 0, scrubMu: 0, kineticRatio: 1, batteryVolts: 12, batteryOhms: 0, provenance: "ideal" }, // nominal volts: full power = the hardware map's free RPM, as before
   // foam tiles, gecko wheels, 6WD: estimate from the 2026-10-08 session (14 % stalled a turn near target, 20 % crept, 25 % smooth)
-  tiles: { kind: "tiles", rollingMu: 0.03, staticMu: 0.06, scrubMu: 0.38, kineticRatio: 0.85, batteryVolts: 12.6, batteryOhms: 0.05, provenance: "estimated" },
+  tiles: { kind: "tiles", rollingMu: 0.03, staticMu: 0.06, scrubMu: 0.38, kineticRatio: 0.85, tractionMu: 1.2, batteryVolts: 12.6, batteryOhms: 0.05, provenance: "estimated" },
 };
 /** The band the estimate is believed to lie in: sweep this, do not encode "14 % always fails". */
 export const SCRUB_MU_BAND: [number, number] = [0.3, 0.5];
@@ -86,6 +90,8 @@ export interface DriveStep {
   volts: number;
   /** a side is commanded above 5 % and its shaft is not turning */
   stalled: { left: boolean; right: boolean };
+  /** against a contact: the side's wheels spin on the floor while the chassis does not move (encoders count, no progress) */
+  slipping: { left: boolean; right: boolean };
   /** breakaway thresholds for the current profile, as command fractions (what a human needs to read) */
   breakaway: { straight: number; turn: number };
 }
@@ -102,8 +108,13 @@ export function breakawayCommands(p: ChassisParams, prof: PhysicsProfile, volts 
   return { straight, turn };
 }
 
+/** An immovable contact in front of (+1) or behind (−1) the chassis: a loose ball squeezed against the wall, a
+ * chassis against a field element the obstacle model stops it at. 0 = free. Translation into it is impossible;
+ * whether the shafts stall or the wheels spin is decided by the traction (`tractionMu`) against the motor force. */
+export type ContactBlock = -1 | 0 | 1;
+
 /** Advance the chassis by dt (sub-stepped internally). */
-export function stepDrive(body: DriveBody, cmd: { left: SideCommand; right: SideCommand }, p: ChassisParams, prof: PhysicsProfile, dt: number): DriveStep {
+export function stepDrive(body: DriveBody, cmd: { left: SideCommand; right: SideCommand }, p: ChassisParams, prof: PhysicsProfile, dt: number, block: ContactBlock = 0): DriveStep {
   const m = p.massKg, w = m * G, r = p.wheelRadiusM, halfTrack = p.trackWidthM / 2;
   const inertia = (m * (p.trackWidthM ** 2 + p.wheelbaseM ** 2)) / 12;
   const n = Math.max(1, Math.ceil(dt / 0.005));
@@ -121,7 +132,8 @@ export function stepDrive(body: DriveBody, cmd: { left: SideCommand; right: Side
     const current = motor.freeCurrentA + (motor.stallCurrentA - motor.freeCurrentA) * (tStall > 0 ? Math.abs(t) / tStall : 0);
     return { torque: t * p.motorsPerSide, current };
   };
-  let stalledL = false, stalledR = false;
+  let stalledL = false, stalledR = false, slipL = false, slipR = false;
+  const traction = (prof.tractionMu ?? 1.2) * w / 2; // grip per side, N
   for (let i = 0; i < n; i++) {
     const vL = vFwd - omega * halfTrack, vR = vFwd + omega * halfTrack;
     const tl = torqueFor(cmd.left, vL / r, volts), tr = torqueFor(cmd.right, vR / r, volts);
@@ -132,7 +144,11 @@ export function stepDrive(body: DriveBody, cmd: { left: SideCommand; right: Side
     let fDrive = fL + fR;
     const staticF = prof.staticMu * w, rollF = prof.rollingMu * w;
     let a = 0;
-    if (Math.abs(vFwd) < 1e-3 && Math.abs(fDrive) <= staticF) { vFwd = 0; }
+    if (block !== 0 && Math.sign(fDrive) === block && !(Math.sign(vFwd) === -block && Math.abs(vFwd) > 1e-3)) {
+      // pushing into something that does not move: the chassis stops; the grip decides what the wheels do
+      vFwd = 0;
+      slipL = Math.abs(fL) > traction; slipR = Math.abs(fR) > traction;
+    } else if (Math.abs(vFwd) < 1e-3 && Math.abs(fDrive) <= staticF) { vFwd = 0; }
     else {
       const resist = (Math.abs(vFwd) < 1e-3 ? staticF * prof.kineticRatio : rollF) * Math.sign(vFwd || fDrive);
       a = (fDrive - resist) / m;
@@ -154,7 +170,11 @@ export function stepDrive(body: DriveBody, cmd: { left: SideCommand; right: Side
   const vL = vFwd - omega * halfTrack, vR = vFwd + omega * halfTrack;
   const shaft = { left: vL / (2 * Math.PI * r), right: vR / (2 * Math.PI * r) };
   const free = motor.freeRpm / 60;
+  // wheels spinning against the floor: the motor runs against the kinetic friction torque, the encoders count
+  const slipSpeed = (c: SideCommand) => { const wFree = free * (volts / motor.nominalVolts); const load = (traction * prof.kineticRatio * r) / (motor.stallTorqueNm * (volts / motor.nominalVolts) * p.motorsPerSide); return Math.sign(c.u) * Math.max(0, Math.abs(c.u) - load) * wFree; };
+  if (slipL) { shaft.left = slipSpeed(cmd.left); iL = torqueFor(cmd.left, shaft.left * 2 * Math.PI, volts).current; }
+  if (slipR) { shaft.right = slipSpeed(cmd.right); iR = torqueFor(cmd.right, shaft.right * 2 * Math.PI, volts).current; }
   stalledL = Math.abs(cmd.left.u) > 0.05 && Math.abs(shaft.left) < 0.02 * free;
   stalledR = Math.abs(cmd.right.u) > 0.05 && Math.abs(shaft.right) < 0.02 * free;
-  return { body: { vFwd, omega }, shaftRevPerSec: shaft, currentA: { left: iL, right: iR }, volts, stalled: { left: stalledL, right: stalledR }, breakaway: breakawayCommands(p, prof, volts) };
+  return { body: { vFwd, omega }, shaftRevPerSec: shaft, currentA: { left: iL, right: iR }, volts, stalled: { left: stalledL, right: stalledR }, slipping: { left: slipL, right: slipR }, breakaway: breakawayCommands(p, prof, volts) };
 }

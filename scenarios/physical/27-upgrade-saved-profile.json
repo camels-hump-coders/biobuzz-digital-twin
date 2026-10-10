@@ -1,0 +1,76 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "UPGRADE: a profile saved on the hub before the solver keys existed — the 60° asset is not what the code reads; shooting stays inhibited and says why",
+  "notes": "SG-001 (team ledger, commit 2f297a7): after the solver-required build was installed the hub's SAVED tagTracking still had no launchAngleDeg / launchAngleMeasured / adaptivePower; telemetry said 'solver unavailable: launch angle is unmeasured'. Here the packaged file minus those keys is what the robot persisted (persisted.base packaged, drop); the manifest marks them missing (parser fallback) and the code must refuse the shot with that reason, never fall back to fixed power. Pair with SPOT-45 (clean install, corrected profile).",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.pauseAimTimers": false
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 51,
+    "zIn": -36,
+    "headingDeg": -90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "ignoreBindings": true,
+  "physics": "ideal",
+  "perception": "ideal",
+  "durationS": 40,
+  "persisted": {
+    "biobuzz/robot-profile.json": {
+      "base": "packaged",
+      "drop": [
+        "tagTracking.launchAngleDeg",
+        "tagTracking.launchAngleMeasured",
+        "tagTracking.adaptivePower"
+      ]
+    }
+  },
+  "requireEffective": {
+    "biobuzz/robot-profile.json": {
+      "tagTracking.launchAngleMeasured": "<missing>",
+      "tagTracking.launchAngleDeg": "<missing>",
+      "matchAuto.pauseAimTimers": false
+    }
+  },
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Shot calibration : solver unavailable: launch angle is unmeasured"
+    ],
+    "flywheelMaxPower": "==0",
+    "launches": "==0",
+    "eventWithin": [
+      {
+        "after": "Match auto : AIM_SHOOT",
+        "event": "Match auto : TURN_BACK",
+        "withinS": 8
+      }
+    ]
+  }
+}

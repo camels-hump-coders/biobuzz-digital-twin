@@ -22,9 +22,13 @@ export interface CameraFaults {
   blurAboveDps: number;
   /** tags smaller than this many pixels across are not decoded; 0 = off */
   minPixels: number;
+  /** detector frame rate, frames per second: between frames the OpMode keeps seeing the last processed frame with its
+   * acquisition stamp ageing (the C270 pipeline ran at about 12 fps at decimation 1, 30 at the default); 0 = every
+   * sensor tick (20 Hz) is a fresh frame */
+  fpsCap: number;
 }
 export interface PerceptionSettings { level: PerceptionLevel; faults: CameraFaults }
-export const NO_FAULTS: CameraFaults = { dropoutProb: 0, latencyMs: 0, poseNoiseIn: 0, misreadIds: {}, duplicateIds: [], blurAboveDps: 0, minPixels: 0 };
+export const NO_FAULTS: CameraFaults = { dropoutProb: 0, latencyMs: 0, poseNoiseIn: 0, misreadIds: {}, duplicateIds: [], blurAboveDps: 0, minPixels: 0, fpsCap: 0 };
 export const DEFAULT_PERCEPTION: PerceptionSettings = { level: "ideal", faults: { ...NO_FAULTS } };
 export const PERCEPTION_LEVELS: { id: PerceptionLevel; label: string; note: string }[] = [
   { id: "ideal", label: "Ideal geometry", note: "every visible tag decoded with its true pose (plus the Launcher-section tag noise); bypasses perception" },
@@ -70,6 +74,19 @@ function withDerived(p: TagPacket): TagPacket {
   return { ...p, range, bearing, elevation };
 }
 
+/** The detector's own frame rate: a new frame is accepted only every 1000/fps ms; in between, the last processed frame
+ * is what `getDetections()` keeps returning, its acquisition stamp fixed and therefore ageing. That is the real
+ * pipeline's behaviour (and why a preview JPEG's age says nothing about the detector's). */
+export class FrameCadence {
+  private last?: { t: number; packets: TagPacket[] };
+  /** returns the frame the detector holds now: the new one (fresh = true) or the previous one with its acquisition time */
+  next(nowMs: number, packets: TagPacket[], fps: number): { t: number; packets: TagPacket[]; fresh: boolean } {
+    if (fps <= 0 || !this.last || nowMs - this.last.t >= 1000 / fps - 1e-6) { this.last = { t: nowMs, packets }; return { ...this.last, fresh: true }; }
+    return { ...this.last, fresh: false };
+  }
+  clear() { this.last = undefined; }
+}
+
 /** Delays delivery by `latencyMs` while keeping each frame's acquisition age so the OpMode's freshness logic sees it. */
 export class LatencyQueue {
   private q: { t: number; packets: TagPacket[] }[] = [];
@@ -77,11 +94,18 @@ export class LatencyQueue {
   push(t: number, packets: TagPacket[], latencyMs: number, now = t): TagPacket[] | undefined {
     this.q.push({ t, packets });
     if (this.q.length > 400) this.q.splice(0, this.q.length - 400);
+    return this.poll(now, latencyMs);
+  }
+  /** the frame due now without pushing a new one (the detector held its frame this tick); the last delivered frame
+   * stays current, ageing, when nothing new is due */
+  poll(now: number, latencyMs: number): TagPacket[] | undefined {
     let due: { t: number; packets: TagPacket[] } | undefined;
     while (this.q.length && now - this.q[0].t >= latencyMs) due = this.q.shift();
-    if (!due) return undefined;
-    const ageMs = Math.max(0, now - due.t);
-    return due.packets.map((p) => ({ ...p, ageMs }));
+    if (due) this.delivered = due;
+    if (!this.delivered) return undefined;
+    const ageMs = Math.max(0, now - this.delivered.t);
+    return this.delivered.packets.map((p) => ({ ...p, ageMs }));
   }
-  clear() { this.q = []; }
+  private delivered?: { t: number; packets: TagPacket[] };
+  clear() { this.q = []; this.delivered = undefined; }
 }

@@ -10,7 +10,9 @@
  * when every scenario passes. Every check carries a verdict (pass | fail | inconclusive | unsupported): a run the
  * machine could not keep at real time (simulated/wall under 0.8x, packets held for seconds, a page error) makes the
  * physical checks inconclusive instead of green or red, and a coverage the twin cannot provide (pixel decoding) is
- * reported as unsupported, never silently downgraded. The twin is served as a production build of the COMMITTED tree (HEAD), so another
+ * reported as unsupported, never silently downgraded. A scenario can also run the robot against the profile it SAVED on
+ * the hub (`persisted`, SG-001), reject bound calibration (`bindingsPolicy`), and assert world truth against telemetry
+ * (`rangeConsistency`, `travelBetween`, `flywheelMaxPower`, `contacts`). The twin is served as a production build of the COMMITTED tree (HEAD), so another
  * agent's uncommitted edits never run here (--wip builds the working tree, --dev uses the dev server, --rebuild forces). Other flags: --port 5190 --host-port 8790 --headed --screenshot shot.png --host-timeout 600.
  */
 import { spawn, execSync } from "node:child_process";
@@ -147,8 +149,32 @@ async function runScenario(scenario, scenarioPath, out) {
   }
   const mergedOverrides = {};
   for (const src of [fileSettings.assetOverrides ?? {}, scenario.assetOverrides ?? {}]) for (const [path, vals] of Object.entries(src)) mergedOverrides[path] = { ...(mergedOverrides[path] ?? {}), ...vals };
+  // persisted (SG-001): the profile the robot SAVED on the hub, which replaces the packaged asset as the base TeamCode
+  // reads. {"<asset>": {whole document}} or {"<asset>": {"base": "packaged" | "rev:<git rev>" | "file:<path>", "drop": [dotted keys], "set": {dotted: value}}}
+  const persistedAssets = {}; const persistedNotes = [];
+  for (const [asset, spec] of Object.entries(scenario.persisted ?? {})) {
+    try {
+      const recipe = spec && typeof spec === "object" && ("base" in spec || Array.isArray(spec.drop) || (spec.set && typeof spec.set === "object")) && Object.keys(spec).every((k) => ["base", "drop", "set"].includes(k));
+      let doc;
+      if (!recipe) doc = spec;
+      else {
+        const base = spec.base ?? "packaged";
+        const packagedFile = findTeamFile(team, `src/main/assets/${asset}`) ?? findTeamFile(team, asset);
+        if (base === "packaged") { if (!packagedFile) throw new Error(`packaged asset ${asset} not found under --team`); doc = JSON.parse(readFileSync(packagedFile, "utf8")); }
+        else if (base.startsWith("rev:")) { if (!packagedFile) throw new Error(`asset ${asset} not found under --team to locate it in git`); const relPath = execSync(`git ls-files --full-name -- "${packagedFile}"`, { cwd: dirname(packagedFile), encoding: "utf8" }).trim(); doc = JSON.parse(execSync(`git show ${base.slice(4)}:${relPath}`, { cwd: dirname(packagedFile), encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })); }
+        else if (base.startsWith("file:")) { const f = findTeamFile(team, base.slice(5)) ?? base.slice(5); doc = JSON.parse(readFileSync(f, "utf8")); }
+        else throw new Error(`persisted base "${base}" must be packaged, rev:<git rev> or file:<path>`);
+        for (const key of spec.drop ?? []) { const parts = key.split("."); let o = doc; for (const q of parts.slice(0, -1)) { o = o?.[q]; if (!o || typeof o !== "object") break; } if (o && typeof o === "object") delete o[parts[parts.length - 1]]; }
+        for (const [key, value] of Object.entries(spec.set ?? {})) { const parts = key.split("."); let o = doc; for (const q of parts.slice(0, -1)) { if (!o[q] || typeof o[q] !== "object") o[q] = {}; o = o[q]; } o[parts[parts.length - 1]] = value; }
+        persistedNotes.push(`${asset} from ${base}${spec.drop?.length ? ` minus ${spec.drop.join(", ")}` : ""}${spec.set ? ` with ${Object.keys(spec.set).join(", ")}` : ""}`);
+      }
+      persistedAssets[asset] = doc;
+    } catch (e) { console.error(`twin-test: persisted ${asset}: ${e.message ?? e}`); await context.close(); return reportSetupFailure(`persisted ${asset}: ${e.message ?? e}`); }
+  }
+  if (persistedNotes.length) console.log(`twin-test: saved hub profile: ${persistedNotes.join("; ")}`);
   const seed = {
     ...fileSettings,
+    persistedAssets: Object.keys(persistedAssets).length ? persistedAssets : {},
     alliance: scenario.alliance ?? fileSettings.alliance ?? "red",
     opponents: scenario.opponents ?? true,
     opponentsScore: scenario.opponentsScore ?? true,
@@ -176,7 +202,8 @@ async function runScenario(scenario, scenarioPath, out) {
   const unsupported = (wantPerception && !caps.perception.includes(wantPerception) ? [`perception level "${wantPerception}" (the twin has no camera frames; supported: ${caps.perception.join(", ")})`] : []).concat(wantPhysics && !caps.physics.includes(wantPhysics) ? [`physics profile "${wantPhysics}" (supported: ${caps.physics.join(", ")})`] : []);
   if (unsupported.length) { console.error(`twin-test: unsupported coverage: ${unsupported.join("; ")}`); await context.close(); return reportUnsupported(unsupported); }
   await page.addInitScript((s) => { localStorage.setItem("biobuzz-twin", JSON.stringify(s)); }, seed);
-  await page.goto(`http://localhost:${port}/?ci=1${scenario.ignoreBindings ? "&nobind=1" : ""}`, { waitUntil: "networkidle" }); // ci=1: light rendering so the sim runs at full rate under software GL
+  const noBind = scenario.ignoreBindings || scenario.bindingsPolicy === "ignore";
+  await page.goto(`http://localhost:${port}/?ci=1${noBind ? "&nobind=1" : ""}`, { waitUntil: "networkidle" }); // ci=1: light rendering so the sim runs at full rate under software GL
   await page.waitForFunction(() => window.__twin && window.__twin.robot.modelStatus !== "loading", null, { timeout: 60_000 });
   await page.waitForFunction(() => window.__twin.link.connected && window.__twin.link.opModes.length > 0, null, { timeout: 30_000 }).catch(() => {});
   // the first renders compile every shader and stall the page for up to a second under software GL; let that happen
@@ -185,11 +212,12 @@ async function runScenario(scenario, scenarioPath, out) {
   const opModes = await page.evaluate(() => window.__twin.link.opModes.map((o) => o.name));
   const samples = [];
   let requireFailures = [];
-  let startSnapshot, final, simStart = 0, telemetryChanges = [], manifest, outputsAfterStop, eventsAll = [], eventsFrom = 0, hostStart, hostEnd, wallStartMs = 0, faultLog = [];
+  const warnings = [];
+  let startSnapshot, final, simStart = 0, telemetryChanges = [], manifest, outputsAfterStop, eventsAll = [], eventsFrom = 0, hostStart, hostEnd, wallStartMs = 0, faultLog = [], timingNote;
   const hostStatus = async () => { try { const r = await fetch(`http://127.0.0.1:${+hostPort + 1}/api/status`); return await r.json(); } catch { return undefined; } };
   const snapshot = (light = false) => page.evaluate((light) => {
     const t = window.__twin, s = t.stats();
-    const base = { status: t.link.status, error: t.link.statusError || undefined, telemetry: t.link.telemetry, poseIn: { x: +(t.state.pose.x / 0.0254).toFixed(1), z: +(t.state.pose.z / 0.0254).toFixed(1), headingDeg: +((t.state.pose.heading * 180) / Math.PI).toFixed(1) }, shotsFired: s.shotsFired, shotsHit: s.shotsHit, launches: s.launches, feederPulses: s.feederPulses, stalls: s.stalls, notMoving: s.notMoving, feeder: s.feeder, picks: t.playerAgent.picks ?? 0, events: t.recorder.events.length };
+    const base = { status: t.link.status, error: t.link.statusError || undefined, telemetry: t.link.telemetry, poseIn: { x: +(t.state.pose.x / 0.0254).toFixed(1), z: +(t.state.pose.z / 0.0254).toFixed(1), headingDeg: +((t.state.pose.heading * 180) / Math.PI).toFixed(1) }, shotsFired: s.shotsFired, shotsHit: s.shotsHit, launches: s.launches, feederPulses: s.feederPulses, stalls: s.stalls, notMoving: s.notMoving, feeder: s.feeder, flywheelPeakPower: s.flywheelPeakPower, picks: t.playerAgent.picks ?? 0, events: t.recorder.events.length, truth: t.truth?.(), flywheelPower: Math.max(0, ...t.state.hardware.devices.filter((d) => d.role === "flywheel").map((d) => Math.abs(t.link.actuators[d.name]?.power ?? 0))) };
     if (light) return base;
     const inv = t.playerAgent.inventory;
     const r = t.state.robot, fly = t.state.hardware.devices.find((d) => d.role === "flywheel");
@@ -223,6 +251,7 @@ async function runScenario(scenario, scenarioPath, out) {
   if (scenario.start) await page.evaluate((p) => { const t = window.__twin; t.state.pose = { x: p.xIn * 0.0254, z: p.zIn * 0.0254, heading: (p.headingDeg * Math.PI) / 180 }; t.robot.setPose(t.state.pose); }, scenario.start);
   // the effective configuration at INIT: robot identity, physics, perception and every TeamCode setting with provenance
   manifest = await page.evaluate(() => window.__twin.manifest()).catch(() => undefined);
+  if (manifest?.profile) console.log(`twin-test: configuration: ${manifest.profile.mode}${manifest.profile.persistedAssets.length ? ` (${manifest.profile.persistedAssets.map((p) => p.replace(/^.*\//, "")).join(", ")})` : ""}, calibration ${manifest.profile.calibration}${Object.values(manifest.profile.missing).flat().length ? `, missing (parser fallback): ${Object.values(manifest.profile.missing).flat().join(", ")}` : ""}`);
   if (manifest) console.log(`twin-test: INIT with ${manifest.robot.preset} ${manifest.robot.drivetrain}, intake ${manifest.robot.intake.side}, physics ${manifest.physics.kind} (${manifest.physics.provenance}, turn breakaway ≈ ${Math.round(manifest.physics.breakaway.turn * 100)} %), camera ${manifest.perception.level}${manifest.perception.tagCovers.length ? ` covers ${manifest.perception.tagCovers.join(",")}` : ""}, twin ${manifest.twin.revision}${manifest.team?.revision ? `, TeamCode ${manifest.team.revision}${manifest.team.dirty ? "-dirty" : ""}` : ""}`);
   // requireEffective: the test is only valid if these settings are what TeamCode will read; a binding or a stale
   // profile winning over the scenario is a setup failure, not a robot result (handoff P0 BIND / CONFIG)
@@ -231,14 +260,29 @@ async function runScenario(scenario, scenarioPath, out) {
     for (const [asset, keys] of Object.entries(scenario.requireEffective)) for (const [k, want] of Object.entries(keys)) {
       const file = Object.entries(manifest.effective).find(([p]) => p === asset || p.endsWith("/" + asset))?.[1];
       const got = file?.[k];
-      if (!got || JSON.stringify(got.value) !== JSON.stringify(want)) bad.push(`${asset} ${k}: expected ${JSON.stringify(want)}, effective ${got ? `${JSON.stringify(got.value)} (${got.source})` : "missing"}`);
+      // "<missing>" asserts the key reaches TeamCode absent (parser fallback), as a saved profile from an older build leaves it
+      const ok = want === "<missing>" ? got?.source === "missing" || !got : !!got && got.source !== "missing" && JSON.stringify(got.value) === JSON.stringify(want);
+      if (!ok) bad.push(`${asset} ${k}: expected ${JSON.stringify(want)}, effective ${got && got.source !== "missing" ? `${JSON.stringify(got.value)} (${got.source})` : "missing"}`);
     }
     if (bad.length) { requireFailures = bad; return finish(`requireEffective not met: ${bad.join("; ")}`); }
+  }
+  // bindingsPolicy "reject": a real-profile parity run; any key a twin binding supplies is a setup failure, not a robot result
+  if (scenario.bindingsPolicy === "reject" && manifest) {
+    const bound = Object.entries(manifest.effective).flatMap(([p, keys]) => Object.entries(keys).filter(([, v]) => v.source === "bound").map(([k]) => `${p.replace(/^.*\//, "")} ${k}`));
+    if (bound.length) { requireFailures = [`bindingsPolicy reject: bound ${bound.join(", ")}`]; return finish(`bindingsPolicy reject: ${bound.length} key${bound.length === 1 ? "" : "s"} come from twin bindings (${bound.join(", ")}); use ignoreBindings or allow`); }
+  }
+  // SG-007: the team's bundled profile ships practice timers ON; a fixture that does not say which clock it tests
+  // cannot be compared with a match objective, so say so in the report
+  if (manifest && /auto/i.test(scenario.opMode)) {
+    const eff = Object.values(manifest.effective).map((f) => f["matchAuto.pauseAimTimers"]).find(Boolean);
+    const explicit = Object.values(scenario.assetOverrides ?? {}).some((o) => "matchAuto.pauseAimTimers" in o) || Object.values(scenario.requireEffective ?? {}).some((o) => "matchAuto.pauseAimTimers" in o);
+    if (eff?.value === true && !explicit) warnings.push(`matchAuto.pauseAimTimers is true (${eff.source}) and the scenario does not set it: aiming deadlines are PAUSED (practice clock); return-time and no-shot expectations are not match evidence`);
+    if (eff) timingNote = { practiceTimers: eff.value === true, source: eff.source };
   }
   eventsFrom = await page.evaluate(() => window.__twin.recorder.events.length).catch(() => 0);
   hostStart = await hostStatus();
   startSnapshot = await snapshot();
-  await page.evaluate(() => window.__twin.link.onAgent("match", { action: "start" }));
+  await page.evaluate(() => { window.__twin.resetPeaks?.(); return window.__twin.link.onAgent("match", { action: "start" }); });
   await page.waitForFunction(() => window.__twin.link.status === "RUNNING", null, { timeout: 10_000 }).catch(() => {});
   simStart = await page.evaluate(() => window.__twin.match.now());
   const wallStart = Date.now();
@@ -290,11 +334,17 @@ async function runScenario(scenario, scenarioPath, out) {
   telemetryChanges = await page.evaluate(() => {
     const t = window.__twin; const run = t.recorder.latestRun(); const from = run ? run.start : 0;
     const out = []; let prev = "";
-    for (const s of t.recorder.samples) { if (s.t < from) continue; const key = s.telemetry.join("\n"); if (key !== prev) { out.push({ t: +((s.t - from) / 1000).toFixed(1), lines: s.telemetry }); prev = key; } }
+    for (const s of t.recorder.samples) { if (s.t < from) continue; const key = s.telemetry.join("\n"); if (key !== prev) { out.push({ t: +((s.t - from) / 1000).toFixed(1), lines: s.telemetry, pose: { xIn: +s.pose.xIn.toFixed(1), zIn: +s.pose.zIn.toFixed(1), headingDeg: +s.pose.headingDeg.toFixed(1) } }); prev = key; } }
     return out;
   }).catch(() => []);
   return finish(stall && !pageErrors.length ? stall : undefined);
 
+  function reportSetupFailure(reason) {
+    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, pass: false, verdict: "fail", failed: reason, checks: [{ check: "setup", pass: false, verdict: "fail", detail: reason }], samples: [], pageErrors: [], generatedAt: new Date().toISOString() };
+    writeReport(out, rep);
+    console.log(`\ntwin-test: ${rep.scenario}\n  ✗ setup: ${reason}\n  report: ${out}`);
+    return false;
+  }
   function reportUnsupported(reasons) {
     const e = scenario.expect ?? {};
     const checks = Object.keys(e).map((k) => ({ check: k, pass: false, verdict: "unsupported", detail: reasons.join("; ") }));
@@ -349,6 +399,33 @@ async function runScenario(scenario, scenarioPath, out) {
     if (e.collectedAtLeast !== undefined) checks.push({ check: `collected ≥ ${e.collectedAtLeast} (inventory delta)`, pass: delta("picks") >= e.collectedAtLeast, detail: `${delta("picks")} game pieces entered the robot` });
     if (e.stalls) checks.push({ check: `stalls ${e.stalls}`, pass: cmp(e.stalls, delta("stalls")), detail: `${delta("stalls")} stall episodes` });
     if (e.noStall) { const st = eventsAll.filter((x) => x.kind === "stall"); checks.push({ check: "no drive stall", pass: st.length === 0, detail: st.length ? st[0].text : "" }); }
+    if (e.contacts) { const ct = eventsAll.filter((x) => x.kind === "contact"); checks.push({ check: `contacts ${e.contacts}`, pass: cmp(e.contacts, ct.length), detail: ct.length ? `${ct.length}: ${ct[0].text}` : "no loose-ball contact held the chassis" }); }
+    // the flywheel never commanded: "no shot was even attempted" is a claim about outputs, not about states
+    if (e.flywheelMaxPower) { const peak = final?.flywheelPeakPower ?? Math.max(0, ...samples.map((x) => x.flywheelPower ?? 0)); checks.push({ check: `flywheel peak power ${e.flywheelMaxPower}`, pass: cmp(e.flywheelMaxPower, +peak.toFixed(3)), detail: `peak commanded ${Math.round(peak * 100)} %` }); }
+    // telemetry range vs world truth (SG-002): the code's range to the opening against the twin's geometric distance
+    if (e.rangeConsistency) {
+      const re = new RegExp(e.rangeConsistency.telemetry ?? "Target / range / power.*?/ (-?\\d+(?:\\.\\d+)?) in /");
+      const ref = e.rangeConsistency.reference === "exit" ? "rangeExitIn" : "rangeCentreIn";
+      const pairs = samples.flatMap((x) => { const line = (x.telemetry ?? []).map((l) => re.exec(l)).find(Boolean); return line && x.truth ? [{ t: x.t, reported: parseFloat(line[1]), truth: x.truth[ref] }] : []; }).filter((p) => Number.isFinite(p.reported) && Number.isFinite(p.truth));
+      const tol = e.rangeConsistency.tolIn ?? 3;
+      const devs = pairs.map((p) => p.reported - p.truth);
+      const worst = devs.length ? devs.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0) : undefined;
+      const mean = devs.length ? devs.reduce((a, b) => a + b, 0) / devs.length : undefined;
+      checks.push({ check: `telemetry range within ${tol} in of the ${ref === "rangeExitIn" ? "launcher-exit" : "robot-centre"} distance to the opening`, pass: pairs.length > 0 && Math.abs(worst) <= tol, ...(pairs.length ? {} : { verdict: "inconclusive" }), detail: pairs.length ? `${pairs.length} samples, reported − truth: worst ${worst.toFixed(1)} in, mean ${mean.toFixed(1)} in (e.g. ${pairs[0].reported} vs ${pairs[0].truth} in at ${pairs[0].t}s)` : "no telemetry line with a range matched while a truth sample existed" });
+    }
+    // measured displacement and heading change between two telemetry moments (SG-008): not DRIVE_OUT → AIM_SHOOT, inches
+    for (const tb of e.travelBetween ?? []) {
+      const at = (re) => { const r = new RegExp(re); return telemetryChanges.find((c) => c.lines.some((l) => r.test(l))); };
+      const a = at(tb.after), b = at(tb.until);
+      if (!a || !b || !a.pose || !b.pose) { checks.push({ check: `travel /${tb.after}/ → /${tb.until}/`, pass: false, detail: !a ? `/${tb.after}/ never appeared` : !b ? `/${tb.until}/ never appeared` : "no pose recorded" }); continue; }
+      const d = Math.hypot(b.pose.xIn - a.pose.xIn, b.pose.zIn - a.pose.zIn);
+      const dh = Math.abs(((b.pose.headingDeg - a.pose.headingDeg + 540) % 360) - 180);
+      const okD = (tb.minIn === undefined || d >= tb.minIn) && (tb.maxIn === undefined || d <= tb.maxIn);
+      const okH = tb.headingChangeMaxDeg === undefined || dh <= tb.headingChangeMaxDeg;
+      checks.push({ check: `travel /${tb.after}/ → /${tb.until}/${tb.minIn !== undefined || tb.maxIn !== undefined ? ` ${tb.minIn ?? 0}–${tb.maxIn ?? "∞"} in` : ""}${tb.headingChangeMaxDeg !== undefined ? `, heading change ≤ ${tb.headingChangeMaxDeg}°` : ""}`, pass: okD && okH, detail: `${d.toFixed(1)} in, heading ${dh.toFixed(1)}° (from (${a.pose.xIn}, ${a.pose.zIn}) @ ${a.t}s to (${b.pose.xIn}, ${b.pose.zIn}) @ ${b.t}s)` });
+    }
+    // a state reached before a deadline (SG-010): elapsed time is part of the objective
+    for (const tbf of e.telemetryBefore ?? []) { const t = firstSeen(tbf.match); checks.push({ check: `/${tbf.match}/ by ${tbf.byS} s`, pass: t !== undefined && t <= tbf.byS, detail: t === undefined ? "never appeared" : `at ${t} s` }); }
     if (e.outputsZeroAfterStop) checks.push({ check: "commanded outputs zero after STOP", pass: !!outputsAfterStop?.zero, detail: outputsAfterStop?.zero ? "" : `still commanded: ${(outputsAfterStop?.nonZero ?? []).join(", ") || "unknown"}` });
     if (e.footprintInside && final) {
       const zones = { loadingRed: { xMin: -72, xMax: -61, zMin: -48, zMax: -25 }, loadingBlue: { xMin: 61, xMax: 72, zMin: 25, zMax: 48 } };
@@ -374,7 +451,7 @@ async function runScenario(scenario, scenarioPath, out) {
     for (const w of e.eventWithin ?? []) {
       // after the first telemetry match of `after`, an event of kind/regex `event` must occur within `withinS` (bounded fallbacks)
       const t0 = firstSeen(w.after);
-      const kinds = ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest", "pick"];
+      const kinds = ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest", "pick", "contact"];
       const match = (ev) => (kinds.includes(w.event) ? ev.kind === w.event : new RegExp(w.event).test(ev.text));
       const hit = t0 === undefined ? undefined : eventsAll.find((ev) => match(ev) && evT(ev) >= t0 - 0.5);
       const telemetryHit = t0 === undefined || kinds.includes(w.event) ? undefined : firstSeen(w.event);
@@ -387,7 +464,8 @@ async function runScenario(scenario, scenarioPath, out) {
     const pass = judged.every((c) => c.verdict === "pass") && !failed;
     const verdict = pass ? "pass" : judged.some((c) => c.verdict === "unsupported") && judged.every((c) => c.verdict !== "fail") ? "unsupported" : infra.length && judged.every((c) => c.verdict !== "fail") ? "inconclusive" : "fail";
     const events = eventsAll.map((ev) => ({ t: +evT(ev).toFixed(2), kind: ev.kind, text: ev.text, ...(ev.data ? { data: ev.data } : {}) }));
-    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, twinSettings: settingsFile, pass, verdict, failed, infrastructure: infra.length ? infra : undefined, timing: { simulatedS: +simS.toFixed(1), wallS: +wallS.toFixed(1), ratio: +ratio.toFixed(2), heldSensorPackets: held, liveGapsOver300Ms: liveGaps, clock: "wall" }, checks: judged, manifest, faults: faultLog.length ? faultLog : undefined, events, start: startSnapshot, final, samples, telemetryChanges, pageErrors, pageErrorStacks, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
+    const runId = `${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${Math.random().toString(36).slice(2, 8)}`;
+    const rep = { runId, scenario: scenario.name ?? scenarioPath ?? scenario.opMode, scenarioPath, opMode: scenario.opMode, team, twinSettings: settingsFile, seed: scenario.seed, pass, verdict, failed, infrastructure: infra.length ? infra : undefined, warnings: warnings.length ? warnings : undefined, timing: { simulatedS: +simS.toFixed(1), wallS: +wallS.toFixed(1), ratio: +ratio.toFixed(2), heldSensorPackets: held, liveGapsOver300Ms: liveGaps, clock: "wall", practiceTimers: timingNote?.practiceTimers, practiceTimersSource: timingNote?.source }, checks: judged, manifest, faults: faultLog.length ? faultLog : undefined, events, start: startSnapshot, final, samples, telemetryChanges, pageErrors, pageErrorStacks, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
     writeReport(out, rep);
     if (pageErrorStacks.length) console.log(`  page error stack:\n    ${pageErrorStacks[0].replace(/\n/g, "\n    ")}`);
     const mark = { pass: "✓", fail: "✗", inconclusive: "~", unsupported: "?" };
@@ -395,9 +473,10 @@ async function runScenario(scenario, scenarioPath, out) {
     if (failed) console.log(`  ✗ ${failed}`);
     for (const c of judged) console.log(`  ${mark[c.verdict] ?? "✗"} ${c.check}${c.verdict !== "pass" && c.verdict !== "fail" ? ` [${c.verdict}]` : ""}${c.detail ? ` — ${c.detail}` : ""}`);
     if (infra.length) console.log(`  ~ infrastructure: ${infra.join("; ")}`);
+    for (const w of warnings) console.log(`  ! ${w}`);
     if (final) {
       console.log(`  final: ${final.status}${final.error ? " " + final.error.split("\n")[0] : ""} · pose (${final.poseIn.x}, ${final.poseIn.z}) in @ ${final.poseIn.headingDeg}° · ${delta("feederPulses")} pulses, ${delta("launches")} launched, ${final.shotsHit} scored · collected ${delta("picks")} · ${delta("stalls")} stalls · carrying ${final.carrying?.pollen} pollen + ${final.carrying?.nectar} nectar · ${ratio.toFixed(2)}x real time`);
-      const notable = events.filter((ev) => ["stall", "launch", "feed", "fault", "error", "pick"].includes(ev.kind)).slice(0, 14);
+      const notable = events.filter((ev) => ["stall", "launch", "feed", "fault", "error", "pick", "contact"].includes(ev.kind)).slice(0, 14);
       if (notable.length) console.log(`  events:\n    ${notable.map((ev) => `${ev.t}s [${ev.kind}] ${ev.text}`).join("\n    ")}${events.length > notable.length ? `\n    (… ${events.length} events in the report)` : ""}`);
       console.log(`  telemetry (final):\n    ${(final.telemetry ?? []).join("\n    ")}`);
     }

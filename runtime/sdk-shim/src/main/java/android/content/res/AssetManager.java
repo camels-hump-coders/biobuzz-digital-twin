@@ -19,7 +19,9 @@ public class AssetManager {
     /**
      * JSON assets can be adjusted for the simulator without touching the competition files:
      * 1. overrides edited in the browser panel ("TeamCode settings") are merged in by dotted key, e.g. aim.shotRangeIn;
-     * 2. if `foo.sim.json` exists next to `foo.json`, it is served instead of the original (file-based alternative).
+     * 2. if `foo.sim.json` exists next to `foo.json`, it is served instead of the original (file-based alternative);
+     * 3. a PERSISTED document (SimHooks.persistedAsset: what the robot saved on the hub) replaces the file as the base
+     *    before the overrides, so a saved profile that predates a new key leaves that key missing, as on the robot.
      */
     public InputStream open(String path) throws IOException {
         File src = null;
@@ -29,9 +31,12 @@ public class AssetManager {
         }
         if (src == null) for (File r : roots) { File f = new File(r, path); if (f.isFile()) { src = f; break; } }
         if (src == null) throw new FileNotFoundException("asset not found: " + path + " (searched " + roots + "; set sim.assets or run via pnpm sim)");
-        JSONObject ov = path.endsWith(".json") ? SimHooks.assetOverrides(path.replace('\\', '/')) : null;
-        if (ov == null || ov.isEmpty()) return new FileInputStream(src);
-        String text = Files.readString(src.toPath(), StandardCharsets.UTF_8);
+        String key = path.replace('\\', '/');
+        JSONObject persisted = path.endsWith(".json") ? SimHooks.persistedAsset(key) : null;
+        JSONObject ov = path.endsWith(".json") ? SimHooks.assetOverrides(key) : null;
+        if (persisted == null && (ov == null || ov.isEmpty())) return new FileInputStream(src);
+        String text = persisted != null ? persisted.toString(2) : Files.readString(src.toPath(), StandardCharsets.UTF_8);
+        if (ov == null || ov.isEmpty()) return new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8));
         try {
             JSONObject json = new JSONObject(text);
             for (String key : ov.keySet()) put(json, key.split("\\."), ov.get(key));

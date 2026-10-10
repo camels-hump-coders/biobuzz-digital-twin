@@ -1,0 +1,62 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "PRACTICE-CLOCK: pauseAimTimers on at the 45 in spot — the leg never ends on the 5 s or budget bound, the flywheel stays off, STOP still zeroes every output",
+  "notes": "SG-007: the bundled profile ships matchAuto.pauseAimTimers true. It pauses the no-shot and return-reserve deadlines only: feed, spin-up, faults and STOP keep their meaning. At the 45 in spot the solver refuses the shot, so without the pause the leg ends in 5 s (SPOT-45); with it the robot must still be in AIM_SHOOT well past 20 s with the flywheel never commanded, and a STOP at the end must leave every commanded output at zero. Never compare this run with a 30 s match objective.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 28,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.pauseAimTimers": true,
+      "tagTracking.adaptivePower": true
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 51,
+    "zIn": -36,
+    "headingDeg": -90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "ignoreBindings": true,
+  "physics": "ideal",
+  "perception": "ideal",
+  "durationS": 30,
+  "requireEffective": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.pauseAimTimers": true
+    }
+  },
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Aim timers : PAUSED - PRACTICE"
+    ],
+    "telemetryFinalIncludes": [
+      "Match auto : AIM_SHOOT"
+    ],
+    "flywheelMaxPower": "==0",
+    "launches": "==0",
+    "outputsZeroAfterStop": true
+  }
+}

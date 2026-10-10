@@ -39,7 +39,7 @@ export interface SceneSnapshot {
 export interface Run { start: number; end?: number; opMode: string }
 /** `stall`: drive motors commanded without progress; `feed`: feeder pulses and ball transit; `launch`: a ball left the robot;
  *  `fault`: a camera fault engaged or a tag cover changed; `manifest`: the effective configuration at INIT; `pick`: a game piece entered our robot (kind and where) */
-export interface Event { t: number; kind: "status" | "error" | "log" | "button" | "shot" | "foul" | "note" | "hardware" | "stall" | "feed" | "launch" | "fault" | "manifest" | "pick"; text: string; data?: Record<string, unknown> }
+export interface Event { t: number; kind: "status" | "error" | "log" | "button" | "shot" | "foul" | "note" | "hardware" | "stall" | "feed" | "launch" | "fault" | "manifest" | "pick" | "contact"; text: string; data?: Record<string, unknown> }
 
 export class Recorder {
   samples: Sample[] = [];

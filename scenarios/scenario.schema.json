@@ -215,7 +215,7 @@
         },
         "eventWithin": {
           "type": "array",
-          "description": "after the first telemetry match of `after`, an event (kind: launch, stall, feed, fault, pick, status, error, \u2026 or a regex on event text / telemetry, e.g. \"picked POLLEN in the garden\") must happen within withinS seconds",
+          "description": "after the first telemetry match of `after`, an event (kind: launch, stall, contact, feed, fault, pick, status, error, … or a regex on event text / telemetry, e.g. \"picked POLLEN in the garden\") must happen within withinS seconds",
           "items": {
             "type": "object",
             "required": [
@@ -235,6 +235,82 @@
               }
             }
           }
+        },
+        "flywheelMaxPower": {
+          "type": "string",
+          "description": "comparison on the highest |power| TeamCode commanded on a flywheel-role motor between START and the end, e.g. \"==0\" (no shot was attempted)"
+        },
+        "rangeConsistency": {
+          "type": "object",
+          "description": "SG-002: compare the range the code reports in telemetry with the twin's geometric distance from the robot centre (or launcher exit) to the target opening on every 1 Hz sample that has both",
+          "properties": {
+            "tolIn": {
+              "type": "number",
+              "default": 3
+            },
+            "reference": {
+              "enum": [
+                "centre",
+                "exit"
+              ],
+              "default": "centre"
+            },
+            "telemetry": {
+              "type": "string",
+              "description": "regex with one capture group for the inches; default matches the team's 'Target / range / power' line"
+            }
+          }
+        },
+        "travelBetween": {
+          "type": "array",
+          "description": "SG-008: measured chassis displacement (inches) and heading change between the first telemetry match of `after` and of `until`",
+          "items": {
+            "type": "object",
+            "required": [
+              "after",
+              "until"
+            ],
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "until": {
+                "type": "string"
+              },
+              "minIn": {
+                "type": "number"
+              },
+              "maxIn": {
+                "type": "number"
+              },
+              "headingChangeMaxDeg": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "telemetryBefore": {
+          "type": "array",
+          "description": "SG-010: a telemetry regex must first appear by this many simulated seconds after START",
+          "items": {
+            "type": "object",
+            "required": [
+              "match",
+              "byS"
+            ],
+            "properties": {
+              "match": {
+                "type": "string"
+              },
+              "byS": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "contacts": {
+          "type": "string",
+          "description": "comparison on contact events: loose balls squeezed against the wall held the chassis (SG-005)"
         }
       }
     },
@@ -290,6 +366,10 @@
             },
             "batteryOhms": {
               "type": "number"
+            },
+            "tractionMu": {
+              "type": "number",
+              "description": "wheel-to-floor grip as a fraction of weight (default 1.2, gecko on foam): against an immovable contact it decides stalled shafts (grip wins) or spinning wheels"
             }
           }
         }
@@ -369,6 +449,10 @@
                 },
                 "minPixels": {
                   "type": "number"
+                },
+                "fpsCap": {
+                  "type": "number",
+                  "description": "detector frame rate; between frames the OpMode keeps the last processed frame with its acquisition stamp ageing (C270 ran ~12 fps at decimation 1); 0 = every 20 Hz tick is fresh"
                 }
               }
             }
@@ -445,7 +529,23 @@
     },
     "twin": {
       "type": "object",
-      "description": "any other twin setting from the settings file (capacity, infiniteAmmo, tipMassG, aiTier, autoTransition, canPollen, \u2026), merged into the browser's settings before the page loads"
+      "description": "any other twin setting from the settings file (capacity, infiniteAmmo, tipMassG, aiTier, autoTransition, canPollen, …), merged into the browser's settings before the page loads"
+    },
+    "persisted": {
+      "type": "object",
+      "description": "SG-001: the profile the robot SAVED on the hub, per asset path (e.g. biobuzz/robot-profile.json). It replaces the packaged file as the base TeamCode reads (keys it lacks stay missing, so the code's parser fallbacks apply). Either the whole document, or a recipe {base: \"packaged\" | \"rev:<git rev>\" | \"file:<path>\", drop: [dotted keys], set: {dotted: value}} built from the team repo. Absent = clean install.",
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "bindingsPolicy": {
+      "enum": [
+        "allow",
+        "reject",
+        "ignore"
+      ],
+      "default": "allow",
+      "description": "allow: twin bindings apply as usual; reject: setup fails if any effective value comes from a binding (real-profile parity run); ignore: same as ignoreBindings"
     }
   }
 }

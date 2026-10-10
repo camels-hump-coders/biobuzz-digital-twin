@@ -135,7 +135,7 @@ export class RuntimeLink {
   private send(o: unknown) { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }
   sendHardware(devices: unknown[], hints?: unknown) { this.send({ type: "hardware", devices, hints }); }
   /** asset path -> dotted key -> value; the host merges these into the JSON the OpMode reads at INIT */
-  sendAssetOverrides(overrides: Record<string, Record<string, unknown>>) { this.send({ type: "assetOverrides", overrides }); }
+  sendAssetOverrides(overrides: Record<string, Record<string, unknown>>, persisted: Record<string, Record<string, unknown>> = {}) { this.send({ type: "assetOverrides", overrides, persisted }); }
   /** a finished run (samples + events + context) for the host to keep under runtime/runs/ */
   sendRun(run: unknown) { this.send({ type: "run", run }); }
   /** server mode: ask the host to write the merged settings file into the team's assets folder */

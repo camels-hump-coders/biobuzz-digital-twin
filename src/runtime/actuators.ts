@@ -2,7 +2,7 @@
 import type { DeviceConfig, HardwareConfig } from "./hardwareConfig";
 import type { Drivetrain, Velocity } from "../sim/drive";
 import { forwardVector, leftVector } from "../sim/drive";
-import { GOBILDA_5203_312, PHYSICS_PROFILES, motorSpecFor, stepDrive, type DriveBody, type PhysicsProfile } from "../sim/drivePhysics";
+import { GOBILDA_5203_312, PHYSICS_PROFILES, motorSpecFor, stepDrive, type ContactBlock, type DriveBody, type PhysicsProfile } from "../sim/drivePhysics";
 
 export interface MotorCommand {
   power: number;
@@ -28,6 +28,8 @@ export interface ActuatorModel {
   fired: string[];
   /** chassis body speeds carried between steps by the drive physics (tank) */
   body: DriveBody;
+  /** last step: a side's wheels spun against the floor while a contact held the chassis (encoders count, no progress) */
+  slipping?: boolean;
   /** per motor current, A, from the motor model */
   currents: Map<string, number>;
   /** battery terminal volts after sag */
@@ -46,7 +48,7 @@ export function createActuatorModel(): ActuatorModel {
 }
 
 /** What the drive physics needs from the robot: the surface/battery profile and the chassis mass. */
-export interface PhysicsInput { profile: PhysicsProfile; massKg: number }
+export interface PhysicsInput { profile: PhysicsProfile; massKg: number; /** an immovable contact ahead (+1) or behind (−1) the chassis this step (loose balls on the wall, SG-005) */ block?: ContactBlock }
 const IDEAL_PHYSICS: PhysicsInput = { profile: PHYSICS_PROFILES.ideal, massKg: 11 };
 
 const TAU = 0.12; // s, motor spin-up time constant
@@ -128,8 +130,8 @@ export function stepActuators(
     const ref = sideCmd.left.devices[0] ?? sideCmd.right.devices[0];
     const spec = motorSpecFor(ref.freeRpm ?? 312, GOBILDA_5203_312);
     const r = stepDrive(model.body, { left: { u: sideCmd.left.u, brake: sideCmd.left.brake }, right: { u: sideCmd.right.u, brake: sideCmd.right.brake } },
-      { massKg: physics.massKg, trackWidthM, wheelbaseM, wheelRadiusM: wheelDiameterM / 2, motorsPerSide: Math.max(1, Math.max(sideCmd.left.devices.length, sideCmd.right.devices.length)), motor: spec }, prof, dt);
-    model.body = r.body; model.volts = r.volts; model.breakaway = r.breakaway;
+      { massKg: physics.massKg, trackWidthM, wheelbaseM, wheelRadiusM: wheelDiameterM / 2, motorsPerSide: Math.max(1, Math.max(sideCmd.left.devices.length, sideCmd.right.devices.length)), motor: spec }, prof, dt, physics.block ?? 0);
+    model.body = r.body; model.volts = r.volts; model.breakaway = r.breakaway; model.slipping = r.slipping.left || r.slipping.right;
     for (const side of ["left", "right"] as const) for (const dev of sideCmd[side].devices) {
       const st = model.motors.get(dev.name)!; const tpr = dev.ticksPerRev ?? 537.7;
       st.revPerSec = r.shaftRevPerSec[side]; st.ticks += st.revPerSec * tpr * dt;

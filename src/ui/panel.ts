@@ -13,6 +13,7 @@ import { START_LABELS, defaultStarts, startPose, type StartKey, startSideOf, set
 import { twinKnobs } from "../runtime/bindings";
 import type { Recorder } from "../runtime/recorder";
 import { applyOverrides, downloadText, exportChangedAssets, guessAssetFor, parsePastedSettings } from "../runtime/assetExport";
+import { derivePersisted } from "../runtime/effectiveConfig";
 import { constraintText, hasRange, isInteger, isNumeric, isSchemaFile, nodeAt, nullable, schemaFor, searchText, validate, validateAll } from "../runtime/assetSchema";
 import { classifyTelemetryLine, splitTelemetryLine } from "./telemetryFormat";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
@@ -470,16 +471,20 @@ export class Panel {
       if (this.manifest) {
         const m = this.manifest() as any;
         const eff = (m.effective ?? {}) as Record<string, Record<string, { value: unknown; source: string }>>;
-        const counts = { packaged: 0, manual: 0, bound: 0 };
+        const counts: Record<string, number> = { packaged: 0, persisted: 0, manual: 0, bound: 0, missing: 0 };
         const rowsOut: HTMLElement[] = [];
         for (const [path, keys] of Object.entries(eff)) {
-          const changed = Object.entries(keys).filter(([, v]) => v.source !== "packaged");
-          for (const [, v] of Object.entries(keys)) (counts as any)[v.source]++;
+          const changed = Object.entries(keys).filter(([, v]) => v.source === "manual" || v.source === "bound");
+          const missing = Object.entries(keys).filter(([, v]) => v.source === "missing").map(([k]) => k);
+          for (const [, v] of Object.entries(keys)) counts[v.source] = (counts[v.source] ?? 0) + 1;
           if (changed.length) rowsOut.push(el("div", { class: "note full" }, el("b", {}, path.replace(/^.*\//, "")), ": ", changed.map(([k, v]) => `${k} = ${JSON.stringify(v.value)} (${v.source === "bound" ? "⇐ bound" : "override"})`).join(" · ")));
+          if (missing.length) rowsOut.push(el("div", { class: "note full", style: "color:#f2c200" }, el("b", {}, path.replace(/^.*\//, "")), ` reaches the code WITHOUT ${missing.length} key${missing.length === 1 ? "" : "s"} (its parser fallback decides): ${missing.join(", ")}`));
         }
+        const prof = m.profile as { mode: string; persistedAssets: string[]; calibration: string; boundCalibration: string[] } | undefined;
+        if (prof) rowsOut.unshift(el("div", { class: "note full" }, prof.mode === "persisted" ? `Saved hub profile: the code reads ${prof.persistedAssets.map((p) => p.replace(/^.*\//, "")).join(", ")} as the robot saved them, not the packaged files (upgrade case).` : "Clean install: the code reads the packaged assets (no saved hub profile simulated).", ` Shot calibration: ${prof.calibration}${prof.boundCalibration.length ? ` (${prof.boundCalibration.join(", ")}) — a simulated calibration, not a measurement on the robot` : ""}.`));
         const r = m.robot ?? {};
         rowsOut.unshift(el("div", { class: "note full" }, `Robot at INIT: ${r.preset} · ${r.drivetrain} ${r.lengthIn}×${r.widthIn} in, ${r.massKg} kg · intake ${r.intake?.side} (${r.intake?.kind}) · launcher yaw ${r.launcher?.yawOffsetDeg}°, hood ${r.launcher?.elevationDeg}° · ${(r.cameras ?? []).map((c: any) => `${c.name} ${c.forwardIn} in fwd, ${c.heightIn} in up, pitch ${-c.pitchDegDown}° up, yaw ${c.yawDeg}°`).join("; ")} · mirrored ${r.hardware?.mirroredSide} · physics ${m.physics?.kind} (${m.physics?.provenance}) · camera ${m.perception?.level}${(m.perception?.tagCovers ?? []).length ? ` · covers ${m.perception.tagCovers.join(", ")}` : ""} · twin ${m.twin?.revision}${m.team?.revision ? ` · TeamCode ${m.team.revision}${m.team.dirty ? "-dirty" : ""}` : ""}`));
-        rtRows.push(el("details", { class: "full", open: "" }, el("summary", {}, `Effective configuration · ${counts.packaged} packaged, ${counts.manual} overridden, ${counts.bound} bound`), ...rowsOut,
+        rtRows.push(el("details", { class: "full", open: "" }, el("summary", {}, `Effective configuration · ${counts.packaged} packaged${counts.persisted ? `, ${counts.persisted} saved on the hub` : ""}, ${counts.manual} overridden, ${counts.bound} bound${counts.missing ? `, ${counts.missing} missing` : ""}`), ...rowsOut,
           el("div", { class: "row full", style: "gap:6px" }, el("button", { onclick: () => { navigator.clipboard?.writeText(JSON.stringify(this.manifest!(), null, 2)); this.toast("Manifest copied"); } }, "Copy manifest JSON"), el("span", { class: "note" }, "Same as GET /api/manifest. Recorded at every INIT in the timeline and in twin-test reports."))));
       }
       this.telemetryEl = el("div", { class: "full telemetry-box" }, el("div", { class: "tel-line tel-empty" }, "(telemetry)"));
@@ -725,6 +730,17 @@ export class Panel {
           el("button", { class: "primary", onclick: () => this.openAssetDialog() }, "Open settings editor"),
           el("button", { ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets" : "Nothing differs from disk", onclick: async () => { const list = changed.map((c) => `${c.path}:\n${c.changed.map(k => `${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}`).join("\n")}`).join("\n\n"); if (await this.reviewChanges("Save TeamCode settings", list)) for (const c of changed) await this.saveAssetToRepo?.(c.path); } }, changed.length ? `Review & save TeamCode (${changed.length})` : "Save TeamCode settings")),
         adv(el("div", { class: "note" }, "The OpModes read these JSON files from assets. Edits are simulator-only overrides until you Save them to the repo; bound values (⇐) come from the twin's measurements; a schema sidecar gives help, dropdowns, sliders and validation.")),
+        // SG-001: the robot reads the profile it SAVED on the hub, not the packaged file; a profile saved by an older build
+        // lacks the keys the new code added, and the code's fallbacks decide them. Simulate that upgrade here.
+        (() => {
+          const persisted = Object.keys(st.persistedAssets ?? {});
+          const keys = el("input", { "aria-label": "Keys the saved hub profile lacks", type: "text", placeholder: "keys the saved profile lacks, e.g. tagTracking.launchAngleMeasured, tagTracking.adaptivePower", style: "flex:1;min-width:16em" }) as HTMLInputElement;
+          const sel = el("select", { "aria-label": "Asset the robot saved" }, ...files.map((f) => el("option", { value: f.path }, f.path.replace(/^.*\//, "")))) as HTMLSelectElement;
+          const apply = () => { const file = files.find((f) => f.path === sel.value); if (!file) return; const drop = keys.value.split(/[,\s]+/).map((k) => k.trim()).filter(Boolean); try { st.persistedAssets = { ...(st.persistedAssets ?? {}), [file.path]: derivePersisted(JSON.parse(file.text), drop) }; } catch { return; } change("assets"); this.toast(`Saved hub profile simulated: ${file.path.replace(/^.*\//, "")}${drop.length ? ` minus ${drop.length} key${drop.length === 1 ? "" : "s"}` : ""} · re-INIT to apply`); };
+          return el("details", { class: "full" }, el("summary", {}, `Saved hub profile (upgrade case)${persisted.length ? ` · simulating ${persisted.map((p) => p.replace(/^.*\//, "")).join(", ")}` : " · clean install"}`),
+            el("div", { class: "note" }, "On the robot the code reads the profile it last SAVED on the Control Hub, not the packaged asset. A profile saved by an older build has none of the keys added since; the code's parser fallbacks decide them (a 60° launch angle in the asset does nothing if the saved profile has no launchAngleMeasured). Build that saved copy from the packaged file minus the keys it would lack, then INIT: the Effective configuration above marks them missing."),
+            el("div", { class: "row full", style: "gap:6px;align-items:center;flex-wrap:wrap" }, sel, keys, el("button", { onclick: apply }, "Simulate saved profile"), el("button", { ...(persisted.length ? {} : { disabled: "" }), onclick: () => { st.persistedAssets = {}; change("assets"); this.toast("Clean install: packaged assets at the next INIT"); } }, "Clean install")));
+        })(),
       ];
       if (invalid) summaryRows.push(el("div", { class: "status-badge bad full" }, el("span", { class: "dot" }), `${invalid} value${invalid > 1 ? "s" : ""} the code will reject at INIT — open the editor`));
       addSection(section("TeamCode settings (assets)", open("TeamCode settings (assets)", false), ...summaryRows));
@@ -820,6 +836,7 @@ export class Panel {
         ...(pc.level === "faults" ? [
           fnum("Dropout", "dropoutProb", { unit: "%", min: 0, max: 100, step: 1 }, 100),
           fnum("Latency", "latencyMs", { unit: "ms", min: 0, max: 2000, step: 10 }),
+          fnum("Detector fps", "fpsCap", { unit: "fps", min: 0, max: 60, step: 1 }),
           fnum("Pose noise", "poseNoiseIn", { unit: "in", min: 0, max: 12, step: 0.1 }),
           fnum("Blur above", "blurAboveDps", { unit: "°/s", min: 0, max: 720, step: 10 }),
           fnum("Min tag size", "minPixels", { unit: "px", min: 0, max: 200, step: 1 }),

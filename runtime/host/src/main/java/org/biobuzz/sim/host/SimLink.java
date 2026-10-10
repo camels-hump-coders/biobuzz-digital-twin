@@ -184,6 +184,12 @@ public class SimLink extends WebSocketServer {
                     for (Map.Entry<String, JsonElement> e : msg.getAsJsonObject("overrides").entrySet())
                         if (e.getValue().isJsonObject() && !e.getValue().getAsJsonObject().isEmpty()) all.put(e.getKey(), new org.json.JSONObject(gson.toJson(e.getValue())));
                 SimHooks.setAssetOverrides(all);
+                // {persisted: {path: {whole saved document}}}: the profile the robot keeps on the hub, replacing the packaged file
+                Map<String, org.json.JSONObject> kept = new HashMap<>();
+                if (msg.has("persisted") && msg.get("persisted").isJsonObject())
+                    for (Map.Entry<String, JsonElement> e : msg.getAsJsonObject("persisted").entrySet())
+                        if (e.getValue().isJsonObject()) kept.put(e.getKey(), new org.json.JSONObject(gson.toJson(e.getValue())));
+                SimHooks.setPersistedAssets(kept);
                 break;
             }
             default: break;

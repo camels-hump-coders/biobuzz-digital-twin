@@ -53,6 +53,9 @@ export interface Agent {
   intake: { x: number; z: number };
   /** previous pose for the chassis velocity used when pushing balls */
   prevPose?: Pose;
+  /** this update: the part of the chassis motion loose balls refused (squeezed on the wall or on a wall-pinned ball),
+   * world metres in the push direction, and how many balls held it (SG-005: a stalled pre-shot approach) */
+  blocked?: { x: number; z: number; balls: number };
   lastPick: number;
   /** sim time the feeder last pulled a POLLEN out of a FLOWER */
   lastFlowerGrip: number;
@@ -272,6 +275,7 @@ export class Match {
       ag.intake = intakePoint(ag.pose, ag.footprint, ag.intakeGeom.side);
       const vx = ag.prevPose && dt > 0 ? (ag.pose.x - ag.prevPose.x) / dt : 0, vz = ag.prevPose && dt > 0 ? (ag.pose.z - ag.prevPose.z) / dt : 0;
       ag.prevPose = { ...ag.pose };
+      ag.blocked = undefined;
       this.pushBalls(ag, vx, vz);
     }
     this.separateBalls();
@@ -328,6 +332,7 @@ export class Match {
         const ax = mouthAxes(ag.pose, ag.intakeGeom);
         const pen = line - mf.u;
         b.pos.x += ax.u.x * pen; b.pos.z += ax.u.z * pen;
+        this.refuse(ag, b, ax.u.x, ax.u.z);
         const vn = Math.max(vx * ax.u.x + vz * ax.u.z, 0);
         b.vel.x = ax.u.x * Math.max(vn + 0.05, 0.1) + vx * 0.3; b.vel.z = ax.u.z * Math.max(vn + 0.05, 0.1) + vz * 0.3;
         b.settled = false; b.restFor = 0; b.contactAge = 1; b.mesh.position.copy(b.pos);
@@ -336,8 +341,7 @@ export class Match {
       const push = chassisPush(ag.pose, ag.footprint, { x: b.pos.x, z: b.pos.z }, b.radius);
       if (!push) continue;
       b.pos.x += push.dx; b.pos.z += push.dz;
-      const lim = m(FIELD.sizeIn) / 2 - b.radius; // the wall is solid: a ball squeezed between chassis and wall stays inside
-      b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim);
+      this.refuse(ag, b, push.nx, push.nz); // the wall is solid: a ball squeezed between chassis and wall stays inside, and holds the chassis
       // the ball is inside the chassis volume right now: the sweep must not collide with the chassis's own interior faces
       const group = ag.carryGroup.parent as THREE.Object3D | null;
       if (group) { b.launcher = group; b.launcherIgnoreUntil = b.age + 0.15; }
@@ -348,6 +352,28 @@ export class Match {
       b.settled = false; b.restFor = 0; b.contactAge = 1;
       b.mesh.position.copy(b.pos);
     }
+  }
+
+  /** A ball the chassis just pushed along (nx, nz) may have nowhere to go: the perimeter wall, or another floor ball
+   *  that is itself against the wall. Clamp it there and charge the refused travel to the agent, which the drive model
+   *  turns into a blocked chassis (stalled shafts or spinning wheels by traction), not a ball through the wall. */
+  private refuse(ag: Agent, b: LiveBall, nx: number, nz: number) {
+    const lim = m(FIELD.sizeIn) / 2 - b.radius;
+    const bx = b.pos.x, bz = b.pos.z;
+    b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim);
+    let refused = (bx - b.pos.x) * nx + (bz - b.pos.z) * nz; // the push the wall took back, along the push normal
+    for (const o of this.flying) {
+      if (o === b || o.inCell || o.carried || o.pos.y > 0.25) continue;
+      const dx = o.pos.x - b.pos.x, dz = o.pos.z - b.pos.z, along = dx * nx + dz * nz, perp = Math.abs(dx * nz - dz * nx);
+      const touch = b.radius + o.radius;
+      if (along <= 0 || perp >= touch || along >= touch) continue;
+      const overlap = touch - along; // how far the pushed ball would have to move o along n
+      const freeO = Math.min(nx > 0 ? lim - o.pos.x : nx < 0 ? o.pos.x + lim : Infinity, nz > 0 ? lim - o.pos.z : nz < 0 ? o.pos.z + lim : Infinity);
+      if (freeO < overlap) { refused = Math.max(refused, overlap - Math.max(0, freeO)); b.pos.x -= nx * (overlap - Math.max(0, freeO)); b.pos.z -= nz * (overlap - Math.max(0, freeO)); }
+    }
+    if (refused <= 1e-4) return;
+    const cur = ag.blocked, mag = Math.hypot(cur?.x ?? 0, cur?.z ?? 0);
+    ag.blocked = { x: refused > mag ? nx * refused : cur!.x, z: refused > mag ? nz * refused : cur!.z, balls: (cur?.balls ?? 0) + 1 };
   }
 
   /** Detect before chassis pushing moves the missed ball away. Also true at a stocked FLOWER the brushes could reach. */

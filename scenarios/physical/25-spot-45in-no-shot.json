@@ -1,0 +1,72 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "SPOT-45: the real profile at a 45 in fixed spot — tags locked and centred, flywheel never commanded, leg ends on the no-shot bound",
+  "notes": "SG-002 (team ledger 2026-10-10, commit 365e433): on the robot a 24 in departure put the spot about 45 in from the opening; 100 fresh centred targets, zero inShotRange, zero flywheel, because the 60° drag-free arc cannot descend into the opening closer than 54.6 in (3 in slack). Reconstruction, not a replay: the current code departs 12 in, so the start is moved 12 in further from the wall to stand where the 24 in departure stood. Packaged profile as committed (bindings off: no twin solver calibration), ideal physics and camera so only the shot gates decide. Match clock explicit (pauseAimTimers false).",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.pauseAimTimers": false,
+      "tagTracking.adaptivePower": true
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 51,
+    "zIn": -36,
+    "headingDeg": -90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "ignoreBindings": true,
+  "physics": "ideal",
+  "perception": "ideal",
+  "durationS": 40,
+  "requireEffective": {
+    "biobuzz/robot-profile.json": {
+      "tagTracking.launchAngleMeasured": true,
+      "tagTracking.launchAngleDeg": 60,
+      "matchAuto.pauseAimTimers": false
+    }
+  },
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Shot calibration : solver decides range and power",
+      "Match auto : AIM_SHOOT",
+      "Camera sees"
+    ],
+    "flywheelMaxPower": "==0",
+    "launches": "==0",
+    "rangeConsistency": {
+      "tolIn": 4
+    },
+    "eventWithin": [
+      {
+        "after": "Match auto : AIM_SHOOT",
+        "event": "Match auto : TURN_BACK",
+        "withinS": 8
+      }
+    ]
+  }
+}
