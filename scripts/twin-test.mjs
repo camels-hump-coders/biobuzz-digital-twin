@@ -380,6 +380,7 @@ async function runScenario(scenario, scenarioPath, out) {
     // 1 Hz samples plus the 10 Hz change log, so brief states count
     const allLines = samples.flatMap((s) => s.telemetry ?? []).concat(final?.telemetry ?? [], telemetryChanges.flatMap((c) => c.lines));
     // first simulated time each regex matched, for ordered checks
+    const evT = (ev) => (ev.t - (wallStartMs || ev.t)) / 1000; // wall-clock events as seconds after START (the ratio is reported)
     const firstSeen = (re) => { const r = new RegExp(re); for (const c of telemetryChanges) if (c.lines.some((l) => r.test(l))) return c.t; for (const s of samples) if ((s.telemetry ?? []).some((l) => r.test(l))) return s.t; return undefined; };
     if (e.noErrors) checks.push({ check: "noErrors", pass: !final?.error && pageErrors.length === 0 && !failed, detail: final?.error || pageErrors[0] || failed || "" });
     if (e.shotsFired) checks.push({ check: `shotsFired ${e.shotsFired}`, pass: cmp(e.shotsFired, final?.shotsFired ?? 0), detail: `fired ${final?.shotsFired ?? 0}` });
@@ -458,7 +459,6 @@ async function runScenario(scenario, scenarioPath, out) {
         checks.push({ check: `footprint ${require === "all" ? "fully inside" : require === "center" ? "centre inside" : "overlaps"} ${zoneName ?? "bounds"}`, pass: ok, detail: `${nIn}/4 corners inside, centre ${center ? "inside" : "outside"}, chassis ${final.robot?.lengthIn ?? 18}×${final.robot?.widthIn ?? 18} in at (${final.poseIn.x}, ${final.poseIn.z}) @ ${final.poseIn.headingDeg}°` });
       }
     }
-    const evT = (ev) => (ev.t - (wallStartMs || ev.t)) / 1000; // wall-clock events as seconds after START (the ratio is reported)
     for (const w of e.eventWithin ?? []) {
       // after the first telemetry match of `after`, an event of kind/regex `event` must occur within `withinS` (bounded fallbacks)
       const t0 = firstSeen(w.after);
