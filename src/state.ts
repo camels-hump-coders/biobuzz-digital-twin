@@ -34,6 +34,9 @@ export interface AppState {
   stadium: boolean;
   /** other robots use the CAD chassis (tinted in their alliance colour) instead of boxes */
   opponentsCad: boolean;
+  /** visual quality of THIS browser (never written to the settings file): auto measures the first seconds and picks;
+   * performance drops the stadium, shadows, hit map, camera insets, CAD chassis and spinning wheels and renders at 1× */
+  quality: "auto" | "full" | "performance";
   /** carve the CAD's wheels out and spin them with the drive (on by default: a one-off geometry pass, then free) */
   wheelSpin: boolean;
   /** transient: rotate to face the target on the next frame */
@@ -125,6 +128,7 @@ export function defaultState(): AppState {
     pip: true,
     stadium: true,
     opponentsCad: false,
+    quality: "auto",
     wheelSpin: true,
     overlays: { trajectory: true, actualArc: true, dispersion: true, fan: false, footprint: true, frustum: true, target: true, aim: true, reach: false, hitmap: true },
     showPerf: false,
@@ -161,12 +165,15 @@ export function defaultState(): AppState {
 
 const KEY = "biobuzz-twin";
 /** Fields that describe the moment, not the setup: never saved to the settings file, never restored from it. */
+/** Settings that belong to the machine, not the project: never in twin-settings.json, kept when a file is loaded. */
+export const LOCAL_KEYS = ["quality"] as const;
 export const TRANSIENT_KEYS = ["pose", "aimRequest", "shootRequest", "resetMatchRequest", "placeAtStartRequest", "matchPhase", "matchClock", "matchTransition", "matchRequest"] as const;
 /** Deterministic JSON of the settings (sorted keys, transient fields dropped) so a committed file diffs cleanly. */
 /** The settings as they go into the file: transient fields and values the simulation itself writes every frame removed. */
 export function settingsForFile(s: AppState): Record<string, unknown> {
   const copy: Record<string, unknown> = { ...s };
   for (const k of TRANSIENT_KEYS) delete copy[k];
+  for (const k of LOCAL_KEYS) delete copy[k];
   // which cell is up is match state (tips flip it, every match start resets it), not setup
   delete copy.hive;
   // with auto-RPM / auto-hood on, the commanded RPM and hood angle follow the robot around: outputs, not settings
@@ -247,7 +254,7 @@ function migrate(s: any): AppState {
       const feed: FeedSettings = { ...DEFAULT_FEED, ...(s.feed ?? {}) };
       const perception: PerceptionSettings = { level: ["ideal", "faults", "singles"].includes(s.perception?.level) ? s.perception.level : DEFAULT_PERCEPTION.level, faults: { ...NO_FAULTS, misreadIds: {}, duplicateIds: [], ...(s.perception?.faults ?? {}) } };
       const tagCovers: number[] = Array.isArray(s.tagCovers) ? s.tagCovers.map(Number).filter((n: number) => Number.isFinite(n)) : [];
-      return { ...defaultState(), ...s, physics, feed, perception, tagCovers, persistedAssets: s.persistedAssets && typeof s.persistedAssets === "object" ? s.persistedAssets : {}, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, aiTier: coerceTier(s.aiTier), matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
+      return { ...defaultState(), ...s, physics, feed, perception, tagCovers, quality: ["auto", "full", "performance"].includes(s.quality) ? s.quality : "auto", persistedAssets: s.persistedAssets && typeof s.persistedAssets === "object" ? s.persistedAssets : {}, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, aiTier: coerceTier(s.aiTier), matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
     }
   }
 }

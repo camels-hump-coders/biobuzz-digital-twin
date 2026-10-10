@@ -165,11 +165,12 @@ export class RobotObject {
     }
   }
 
-  /** headless test runs draw every robot as the procedural box: the CAD is a look, the footprint and mounts come from the spec */
-  static forceBox = false;
+  /** performance visuals and headless test runs draw every robot as the procedural box: the CAD is a look, the
+   * footprint, mounts and launcher come from the spec either way */
+  static renderCad = true;
   private rebuildChassis() {
     const spec = this.spec;
-    const key = RobotObject.forceBox ? "box" : spec.model;
+    const key = RobotObject.renderCad ? spec.model : "box";
     if (key === "box" || !MODEL_URLS[key]) {
       this.chassis.clear();
       this.modelKey = "box";

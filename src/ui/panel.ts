@@ -1103,6 +1103,8 @@ export class Panel {
     const o = st.overlays;
     addSection(section("View & overlays", open("View & overlays", false),
       sel("Main view", [{ value: "orbit", label: "Orbit (1)" }, { value: "top", label: "Top-down (2)" }, { value: "chase", label: "Chase (3)" }, { value: "robot", label: "Robot camera (4)" }], () => st.view, (v) => { st.view = v as any; change("view"); }),
+      ...sel("Visual quality", [{ value: "auto", label: "Auto (measure this machine)" }, { value: "full", label: "Full" }, { value: "performance", label: "Performance" }], () => st.quality, (v) => { st.quality = v as AppState["quality"]; change("view"); }),
+      el("div", { class: "note" }, `${(() => { const r = String((this.manifest?.() as any)?.render ?? ""); return r ? `Now: ${r.replace(/; physics.*$/, "")}. ` : ""; })()}Performance keeps the robot preset but draws a box instead of the CAD, and turns off the stadium, shadows, the hit map, camera insets and spinning wheels, at 1× pixel ratio. Auto decides from the first seconds of each session. This choice lives in this browser only: it is never written to twin-settings.json, so a Chromebook's choice does not reach the repo.`),
       chk("Camera insets (all cameras)", () => st.pip, (v) => { st.pip = v; change("view"); }),
       chk("Stadium backdrop", () => st.stadium, (v) => { st.stadium = v; change("view"); }),
       chk("Spinning wheels on the CAD", () => st.wheelSpin, (v) => { st.wheelSpin = v; change("view"); }),

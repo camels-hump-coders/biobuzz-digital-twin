@@ -29,7 +29,7 @@ import { Panel } from "./ui/panel";
 import { MatchScoreView } from "./ui/matchScore";
 import { Workspace } from "./ui/workspace";
 import { Hud, type HudData } from "./ui/hud";
-import { hydrateState, loadState, saveState, serializeSettings, setPersistence, settingsDiffPaths, type AppState } from "./state";
+import { LOCAL_KEYS, hydrateState, loadState, saveState, serializeSettings, setPersistence, settingsDiffPaths, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveSpeedAdaptive } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { ReachJob } from "./ballistics/reachability";
@@ -64,10 +64,18 @@ const state: AppState = loadState();
 // from the spec either way). These are forced on this page and never saved, so the human's shared settings are untouched.
 if (ciMode) {
   setPersistence(false);
-  state.stadium = false; state.pip = false; state.opponentsCad = false; state.showPerf = false;
+  state.quality = "performance"; state.opponentsCad = false; state.showPerf = false;
   for (const k of Object.keys(state.overlays) as (keyof AppState["overlays"])[]) state.overlays[k] = false;
-  RobotObject.forceBox = true;
 }
+// Visual quality (a property of this machine, never of the project file): "performance" turns off everything that is a
+// picture and not physics; "auto" measures the first seconds of the session and decides; the decision is remembered for
+// the session only, so a fast machine never inherits a Chromebook's choice through the shared settings.
+let autoQuality: "full" | "performance" | undefined;
+let autoFps: number | undefined;
+let qualityNotice: { text: string; untilMs: number } | undefined;
+const perfMode = () => ciMode || state.quality === "performance" || (state.quality === "auto" && autoQuality === "performance");
+const wheelSpinOn = () => state.wheelSpin && !perfMode();
+let appliedPerf: boolean | undefined;
 // `pnpm sim` opens the page with ?runtime=1 so the twin connects to the host straight away
 if (new URLSearchParams(location.search).get("runtime") === "1") state.runtimeEnabled = true;
 const launchedHostPort = new URLSearchParams(location.search).get('hostPort');
@@ -75,11 +83,11 @@ if (new URLSearchParams(location.search).get('sim') === '1' && launchedHostPort 
 
 // ---------- renderer & scenes
 const canvas = document.getElementById("view") as HTMLCanvasElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 // ?ci=1: headless test-bed mode (pnpm twin-test). Software GL renders a frame in ~200 ms, which would starve the
 // simulation loop; render the view only every few ticks at low resolution and drive the loop with a timer so the
 // physics, sensors and the OpMode see the same cadence as on a real display.
-renderer.setPixelRatio(ciMode ? 0.25 : Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(ciMode ? 0.25 : Math.min(devicePixelRatio, 2)); // re-applied by applyQuality()
 renderer.shadowMap.enabled = !ciMode;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -153,7 +161,7 @@ scene.add(venue);
 const field = buildField(state.hive);
 scene.add(field.group);
 const venueFx = buildVenue();
-venueFx.group.visible = state.stadium;
+venueFx.group.visible = state.stadium && !perfMode();
 scene.add(venueFx.group);
 
 const overlays = new Overlays();
@@ -176,8 +184,9 @@ const scriptedObjs = scripted.map((s) => {
   return o;
 });
 // saved toggles: the player's CAD is still loading at this point, so the flag is read when the load lands
-robot.wheelSpin = state.wheelSpin;
+robot.wheelSpin = wheelSpinOn();
 applyScriptedModels();
+applyQuality(true);
 
 // ---------- match dynamics (inventories, pickup, flowers, both hives)
 const flying: LiveBall[] = [];
@@ -290,16 +299,28 @@ let panel: Panel;
 
 /** Other robots: box or the CAD chassis (the player's model, or the mecanum StarterBot when the player is a box). */
 function applyScriptedModels() {
-  robot.setWheelSpin(state.wheelSpin); // the toggle arrives as a "view" change, not a robot change
+  robot.setWheelSpin(wheelSpinOn()); // the toggle arrives as a "view" change, not a robot change
   const model = state.opponentsCad ? (state.robot.model === "box" ? "starterbot-mecanum" : state.robot.model) : "box";
   scriptedObjs.forEach((o) => {
-    o.setWheelSpin(state.wheelSpin);
+    o.setWheelSpin(wheelSpinOn());
     const preset = Object.values(ROBOT_PRESETS).find((p) => p.model === model);
     if (o.spec.model !== model) o.applySpec({ ...o.spec, model, modelYawDeg: model === "box" ? 0 : (preset?.modelYawDeg ?? state.robot.modelYawDeg ?? 0) });
   });
 }
+/** Push the visual-quality mode into everything it touches: pixel ratio, shadows, CAD vs box, wheel spin. Idempotent. */
+function applyQuality(force = false) {
+  const perf = perfMode();
+  if (!force && appliedPerf === perf) return;
+  appliedPerf = perf;
+  renderer.setPixelRatio(ciMode ? 0.25 : perf ? Math.min(devicePixelRatio, 1) : Math.min(devicePixelRatio, 2));
+  sun.castShadow = !perf;
+  const cadBefore = RobotObject.renderCad;
+  RobotObject.renderCad = !perf;
+  if (cadBefore !== RobotObject.renderCad) { robot.applySpec(state.robot); scriptedObjs.forEach((o) => o.applySpec({ ...o.spec })); }
+  applyScriptedModels();
+}
 function applyRobotSpec() {
-  robot.setWheelSpin(state.wheelSpin);
+  robot.setWheelSpin(wheelSpinOn());
   robot.applySpec(state.robot);
   applyScriptedModels();
   if (!state.robot.cameras.some((c) => c.id === state.selectedCameraId)) state.selectedCameraId = state.robot.cameras[0]?.id ?? "";
@@ -318,7 +339,7 @@ function onChange(what: Parameters<ConstructorParameters<typeof Panel>[1]>[0]) {
   if (what === "hardware" && link.connected) link.sendHardware(hardwareDevices(), hardwareHints());
   if (what === "assets" && link.connected) link.sendAssetOverrides(mergeOverrides(state.assetOverrides, link.bound.overrides), state.persistedAssets);
   if (what === "robot" || what === "cameras" || what === "launcher" || what === "hardware" || what === "sim" || what === "reset") syncBindings();
-  if (what === "view") venueFx.group.visible = state.stadium;
+  if (what === "view") { applyQuality(); venueFx.group.visible = state.stadium && !perfMode(); }
   if (what === "sim" || what === "view") applyScriptedModels();
   if (what === "sim" || what === "reset") syncTagCovers();
   if (what === "sim") {
@@ -469,7 +490,7 @@ function buildManifest() {
     physics: { ...state.physics, breakaway: breakawayNow(), scrubMuBand: state.physics.kind === "tiles" ? SCRUB_MU_BAND : undefined, note: state.physics.kind === "ideal" ? "kinematic drive: no friction, no stall; a command always moves the robot" : `estimated surface model: a turn command below ${Math.round(actuatorModel.breakaway.turn * 100)} % does not move this robot`.replace(/below \d+ %/, `below ${Math.round(breakawayNow().turn * 100)} %`) },
     feed: { ...state.feed, transitAt20PercentS: +transitSeconds(state.feed, 0.2).toFixed(2) },
     perception: { level: state.perception.level, faults: state.perception.level === "faults" ? state.perception.faults : undefined, tagCovers: state.tagCovers, tagNoiseIn: state.tagNoiseIn, note: PERCEPTION_LEVELS.find((l) => l.id === state.perception.level)?.note, unsupported: UNSUPPORTED_PERCEPTION },
-    render: ciMode ? "bare-bones (?ci=1): no stadium, shadows, overlays, hit map, camera insets or CAD chassis; physics and sensors unchanged" : "full",
+    render: ciMode ? "bare-bones (?ci=1): no stadium, shadows, overlays, hit map, camera insets or CAD chassis; physics and sensors unchanged" : `${perfMode() ? "performance" : "full"} visuals (quality ${state.quality}${autoFps !== undefined ? `, ${autoFps} fps measured` : ""}); physics and sensors unchanged`,
     clock: { mode: "wall", note: "TeamCode timers are JVM wall clock; the twin steps physics per browser frame and sends sensors at 50 Hz. Check the run's simulated/wall ratio and packet holds before trusting a timing result." },
     bindings: { file: link.bindings?.path, errors: link.bound.errors, ignored: new URLSearchParams(location.search).get("nobind") === "1" },
     warnings: manifestWarnings(),
@@ -640,7 +661,7 @@ link.onAgent = async (action, params) => {
     }
     case "twin": {
       // whitelisted paths only: everything the panel exposes as a plain setting, nothing structural
-      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide|physics(\.\w+)?|feed\.\w+|perception\.level|perception\.faults\.\w+|tagCovers|persistedAssets|balls)$/;
+      const allowed = /^(alliance|ballKind|infiniteAmmo|autoRpm|autoHood|drag|fieldCentric|opponents|pauseOpponents|opponentsScore|aiTier|autoTip|autoIntake|autoTransition|audio\.(master|cues|effects|voice)|tipMassG|capacity|canPollen|canNectar|tagNoiseIn|monteCarloN|view|hive\.(red|blue)|overlays\.\w+|noise\.\w+|starts\.(you|partner|opp1|opp2)\.(xIn|zIn|headingDeg)|starts\.followUpCell|robot\.(lengthM|widthM|heightM|massKg|wheelDiameterM|wheelRpm|drivetrain|intake\.(side|widthM|kind)|look\.color)|robot\.launcher\.\w+|hardware\.mirroredSide|physics(\.\w+)?|feed\.\w+|perception\.level|perception\.faults\.\w+|tagCovers|persistedAssets|balls|quality)$/;
       const set: string[] = [], rejected: string[] = [];
       for (const [path, value] of Object.entries(params)) {
         if (!allowed.test(path)) { rejected.push(path); continue; }
@@ -715,7 +736,7 @@ function applySettingsJson(json: unknown) {
   const h = hydrateState(JSON.parse(JSON.stringify(json)));
   for (const k of Object.keys(h) as (keyof AppState)[]) {
     if (k === "hive") Object.assign(state.hive, h.hive);
-    else if (!(["pose", "matchPhase", "matchClock", "matchRequest", "aimRequest", "resetMatchRequest"] as string[]).includes(k)) (state as any)[k] = h[k];
+    else if (!(["pose", "matchPhase", "matchClock", "matchRequest", "aimRequest", "resetMatchRequest", ...LOCAL_KEYS] as string[]).includes(k)) (state as any)[k] = h[k];
   }
   onChange("reset"); onChange("sim"); onChange("runtime"); onChange("hardware"); onChange("assets");
   panel.render();
@@ -1195,6 +1216,24 @@ function flywheelPowerCmd(): number {
 }
 
 let frameInterval = 1 / 60; // EMA of the real time between frames, for the frame-rate / time-dilation readout
+/** Auto quality: once the robot model has settled, average the frame time over 4 s (after a 3 s warm-up for shader
+ * compilation) and decide once per session; below 30 fps the page switches itself to performance visuals and says so. */
+let measureFrom: number | undefined, measureN = 0, measureSum = 0;
+function measureQuality(now: number, real: number) {
+  if (autoQuality !== undefined || ciMode || robot.modelStatus === "loading" || document.hidden) return;
+  if (measureFrom === undefined) { measureFrom = now + 3000; return; }
+  if (now < measureFrom) return;
+  measureN++; measureSum += real;
+  if (now - measureFrom < 4000) return;
+  autoFps = Math.round(measureN / Math.max(measureSum, 1e-3));
+  autoQuality = autoFps < 30 ? "performance" : "full";
+  if (state.quality === "auto" && autoQuality === "performance") {
+    applyQuality();
+    qualityNotice = { text: `${autoFps} fps measured: switched to performance visuals (no stadium, shadows, hit map, insets, CAD or spinning wheels). View & overlays → Visual quality to change; this choice stays in this browser.`, untilMs: performance.now() + 20000 };
+    recorder.event(Date.now(), "note", `auto quality: ${autoFps} fps measured, performance visuals on`);
+    panel.render();
+  } else recorder.event(Date.now(), "note", `auto quality: ${autoFps} fps measured, full visuals kept`);
+}
 function frame(now: number) {
   const real = (now - last) / 1000;
   last = now;
@@ -1208,6 +1247,7 @@ function frame(now: number) {
   const dt = replaying ? 0 : Math.min(0.1, real);
   const fps = 1 / Math.max(frameInterval, 1e-3);
   const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
+  measureQuality(now, real);
 
   // input & drive
   perf.begin();
@@ -1295,7 +1335,7 @@ function frame(now: number) {
   }
   state.pose = stepPose(state.pose, vel, dt, footprintOf(state.robot), fieldObstacles(), WALL_MU[state.robot.drivetrain]);
   robot.setPose(state.pose);
-  if (state.wheelSpin) { // world velocity -> robot frame (+X forward, +left)
+  if (wheelSpinOn()) { // world velocity -> robot frame (+X forward, +left)
     const h = state.pose.heading;
     robot.spinWheels(dt, vel.vx * -Math.sin(h) + vel.vz * -Math.cos(h), vel.vx * -Math.cos(h) + vel.vz * Math.sin(h), vel.yawRate);
   }
@@ -1394,7 +1434,7 @@ function frame(now: number) {
     if (pins.lastCall && pins.lastCall.at !== lastFoulLogged) { lastFoulLogged = pins.lastCall.at; recorder.event(Date.now(), "foul", pins.lastCall.text); }
     if (pins.lastCall && match.now() - pins.lastCall.at < 4) { contactText = `${pins.lastCall.text}${contactText ? " · " + contactText : ""}`; contactBad = true; }
   }
-  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); if (state.wheelSpin) o.spinFromPose(dt); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, o.spec.heightM); });
+  scriptedObjs.forEach((o, i) => { o.group.visible = state.opponents; o.setPose(scripted[i].pose); if (wheelSpinOn()) o.spinFromPose(dt); Match.renderCarry(scriptedAgents[i].carryGroup, scriptedAgents[i].inventory, scriptedAgents[i].alliance, o.spec.heightM); });
   // our agent
   playerAgent.pose = state.pose;
   playerAgent.footprint = footprintOf(state.robot);
@@ -1583,7 +1623,7 @@ function frame(now: number) {
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus],
     runtime: link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}${link.status === "INIT" ? " · press START to drive" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " (select Gamepad 1 in the control bar to switch)" : ""}` : "not connected",
-    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, fps < 20 ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: turn off camera insets or the hit map` : undefined].filter(Boolean).join(" · ") || undefined,
+    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, qualityNotice && performance.now() < qualityNotice.untilMs ? qualityNotice.text : undefined, fps < 20 && !perfMode() ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: View & overlays → Visual quality → Performance` : undefined].filter(Boolean).join(" · ") || undefined,
     noticeBad: performance.now() < launchBlockedUntil || !!roleWarning,
   });
 
@@ -1623,13 +1663,13 @@ function frame(now: number) {
   const renderThisFrame = !ciMode || renderCount < 3 || now - lastRenderAt >= 1000 || renderRequested;
   renderRequested = false;
   if (renderThisFrame) { lastRenderAt = now; renderCount++; }
-  venueFx.group.visible = state.stadium && state.view !== "top"; // the top-down view is for analysis: no truss fixtures in the way
-  if (renderThisFrame) venueFx.update(real, now);
+  venueFx.group.visible = state.stadium && !perfMode() && state.view !== "top"; // the top-down view is for analysis: no truss fixtures in the way
+  if (renderThisFrame && venueFx.group.visible) venueFx.update(real, now);
   if (renderThisFrame) renderer.render(scene, cam);
   perf.mark("render");
 
   // PiP: every enabled camera gets an inset (except the one filling the main view)
-  const pipCams = state.pip ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
+  const pipCams = state.pip && !perfMode() ? camInfos.filter((c) => c.enabled && !(state.view === "robot" && c.selected)).slice(0, 2) : [];
   ensurePips(pipCams.length);
   pips.forEach((p, i) => {
     const c = pipCams[i];
@@ -1886,7 +1926,7 @@ function cellCameraVisibility(x: number, z: number, frame: CellFrame, frameSide:
   return vis.some((t) => t.visible && t.alliance === state.alliance && t.side === frameSide);
 }
 function updateHitMap(frame: CellFrame) {
-  if (!state.overlays.hitmap) { if (hitKey) { hitKey = ""; for (const id of hitBatchIds) offload.cancel(id); hitBatchIds = []; hitJobs = {}; hitShown = undefined; overlays.setHitMap(undefined); } return; }
+  if (!state.overlays.hitmap || perfMode()) { if (hitKey) { hitKey = ""; for (const id of hitBatchIds) offload.cancel(id); hitBatchIds = []; hitJobs = {}; hitShown = undefined; overlays.setHitMap(undefined); } return; }
   const l = state.robot.launcher;
   const camMount = state.robot.cameras.find((c) => c.id === state.selectedCameraId) ?? state.robot.cameras[0];
   // deliberately not keyed on which cell is up: both sides are kept, and a tip only changes which one is shown
