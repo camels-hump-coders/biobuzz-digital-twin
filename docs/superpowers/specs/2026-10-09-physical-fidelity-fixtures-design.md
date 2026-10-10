@@ -234,3 +234,15 @@ execution and pause under an OpMode remain out of scope (§6).
 already there. **SG-009.** Reports carry a `runId`, the scenario path and seed, TeamCode and twin revisions with dirty
 flags, the manifest, and the warnings above.
 
+**Outcome against `a962746` (2026-10-10):** 19 of 25 physical fixtures pass, 1 unsupported (pixels), 3 fail by design
+(COLLECT-MISS, BIND, BIND-REJECT); the remaining two first failed only because they inherited the team's practice clock,
+and pass with the match clock stated. SPOT-45 reproduces the physical no-flywheel outcome (44 in reported, truth 45.5,
+tags locked and centred, flywheel 0 %, leg over in 6 s); SPOT-12 measures the current departure: the spot stands 55.6 in
+from the opening, the code reports 54 (within 2 in of truth on every sample), the solver accepts and four balls launch,
+so the 12 in departure is not the 45 in case. UPGRADE reads the saved profile without the three solver keys and refuses
+with the team's own reason. GARDEN-CONTACT trips the team's `STALL_SETTLE` from a collision, not a friction fault.
+PRACTICE-CLOCK holds AIM_SHOOT past 30 s with no flywheel and zero outputs after STOP. Of the team's seven scenarios,
+four pass, `auto-30s-far-side-collect-session` skips the garden as before, and `auto-40-real-shot-range` and
+`auto-approach-stall-no-tags` fail on their own bundled `pauseAimTimers = true` (both expect the 5 s no-shot bound);
+the harness warning names it in their reports. One twin fault surfaced on the way: the first contact model held the
+robot while its running intake was taking garden balls on the wall; a running intake with room now swallows them.
