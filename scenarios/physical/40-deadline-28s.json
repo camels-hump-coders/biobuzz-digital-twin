@@ -1,6 +1,6 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "DEADLINE: physical feed timing inside the 28 s match budget \u2014 a separate verdict from the 60 s diagnostic",
+  "name": "DEADLINE: physical feed timing inside the 28 s match budget — a separate verdict from the 60 s diagnostic",
   "notes": "Handoff G09 / P0 DEADLINE. Four 1.0 s pulses with 0.6 s recovery and a 10 s return reserve inside 28 s. Launches must still happen and the robot must end overlapping its LOADING ZONE; collection is whatever the budget allows. Do not widen the window to make this green.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
@@ -33,7 +33,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

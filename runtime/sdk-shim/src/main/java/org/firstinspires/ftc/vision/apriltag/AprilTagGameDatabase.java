@@ -17,10 +17,16 @@ public final class AprilTagGameDatabase {
         String[] names = { "RedScoring", "RedAudience", "BlueAudience", "BlueScoring" };
         for (int c = 0; c < 4; c++) for (int i = 0; i < 4; i++) {
             double x = centre[c][0] + offsets[i];
-            b.addTag(clusters[c][i], names[c] + "_" + clusters[c][i], size, new VectorF((float) x, (float) centre[c][1], (float) centre[c][2]), DistanceUnit.INCH, Quaternion.identityQuaternion());
+            b.addTag(new AprilTagMetadata(clusters[c][i], names[c] + "_" + clusters[c][i], size, new VectorF((float) x, (float) centre[c][1], (float) centre[c][2]), DistanceUnit.INCH, Quaternion.identityQuaternion(), CLUSTERS[c]));
         }
         return b.build();
     }
+    /** SDK 12 library geometry: where tag {@code id} sits relative to its cluster's origin, inches, in the tag's own axes
+     * (x right along the printed face, y down it, z into it): x = -6.5, -2.75, 2.75, 6.5 by (id - 30) % 4, y = 7.1874,
+     * z = -5.622. The cluster origin is therefore in the plane of the cell opening, 5.6 in above the sticker strip and
+     * 7.19 in in front of it; a consumer recovers it as t - R * offset. */
+    public static double[] tagOffsetIn(int id) { return new double[] { TAG_X_IN[Math.floorMod(id - 30, 4)], 7.1874, -5.622 }; }
+    private static final double[] TAG_X_IN = { -6.5, -2.75, 2.75, 6.5 };
     public static AprilTagLibrary getSampleTagLibrary() { return getBiobuzzTagLibrary(); }
 
     private static final AprilTagClusterMetadata[] CLUSTERS = {

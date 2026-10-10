@@ -1,6 +1,6 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "FEED: 1.0 s windmill pulses at 20 % \u2014 every pulse delivers a ball",
+  "name": "FEED: 1.0 s windmill pulses at 20 % — every pulse delivers a ball",
   "notes": "Handoff G04 / P0 FEED. The pulse the operator found to work: 1.0 s at 20 % after a 2 s spin-up. Four pulses, four preloaded POLLEN, so at least three launches are expected inside the window.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
@@ -34,7 +34,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

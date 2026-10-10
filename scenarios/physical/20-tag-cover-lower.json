@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "TAG-COVER: the lowered cell's four tags are covered (38\u201341) \u2014 the raised cell is seen on its own",
-  "notes": "Handoff G06 / P0 TAG-COVER. The covers are world objects (grey plates in the scene, occluding the stickers); the ids stay installed. The route should still acquire the raised blue scoring cell (42\u201345) and shoot.",
+  "name": "TAG-COVER: the lowered cell's four tags are covered (38–41) — the raised cell is seen on its own",
+  "notes": "Handoff G06 / P0 TAG-COVER. The covers are world objects (grey plates in the scene, occluding the stickers); the ids stay installed. The route should acquire the raised blue scoring cell (42–45) on its own and shoot. With the team's earlier saved robot (camera 17° up) the raised cluster was never visible enough from the spot; the saved 35° camera (2026-10-10) is the physical mount.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -33,7 +33,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

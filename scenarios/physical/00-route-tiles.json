@@ -1,6 +1,6 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "STALL: the far-side route on foam tiles (estimate) \u2014 finishing turns at the 14 % floor stall, as on the robot",
+  "name": "STALL: the far-side route on foam tiles (estimate) — finishing turns at the 14 % floor stall, as on the robot",
   "notes": "Handoff G03. The local TeamCode finishes turns with MIN_TURN 0.14 and a 0.20 near-target cap; on the tiles profile the turning breakaway is about 18 %, so a turn that reaches its last degrees at the floor stops with stuck encoders and a stall current. This fixture is EXPECTED to show stall events; it fails if the physics never stalls. Compare with 01-route-ideal.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
@@ -32,7 +32,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

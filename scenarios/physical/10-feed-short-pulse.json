@@ -1,6 +1,6 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "FEED: 0.4 s windmill pulses at 20 % \u2014 pulses are counted, launches are fewer",
+  "name": "FEED: 0.4 s windmill pulses at 20 % — pulses are counted, launches are fewer",
   "notes": "Handoff G04 / P0 FEED. With the estimated throat (0.69 s at 20 %), a 0.4 s pulse leaves the ball 58 % of the way; the next pulse continues from there, so four pulses launch at most two balls and never four. The old twin launched one ball per pulse edge.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
@@ -34,7 +34,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

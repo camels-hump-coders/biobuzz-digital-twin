@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "SEARCH: camera frames arrive 500 ms late from AIM_SHOOT — no fresh target, so the shooting leg must end on its bound",
-  "notes": "Handoff G07 / P0 SEARCH. A 500 ms delivery delay keeps each frame's true acquisition time, so the OpMode's 0.30 s freshness check sees stale frames and must not fire. The leg should give up within the no-shot bound (5 s plus settle) and move on to TURN_BACK. TeamCode before c8d5ed0 only ran that timer at a wall or when range-blocked (48 s in AIM_SHOOT); the fixed-spot timer landed with the 2026-10-10 TeamCode.",
+  "name": "TAG-MIX: the lowered cell's 40 and 41 decode as 44 and 45 — six single detections, two of them lying about their cell",
+  "notes": "Handoff G06 / P0 TAG-MIX, the frame captured on the robot (42/43/45 above, 44/45 below). TeamCode's AprilTagProcessor is built with an individual-tag library, so the shim returns AprilTagSingleDetections (as the SDK does for a custom library) and TagClusterConsensus runs: the four consistent raised tags must beat the two lowered impostors and the route must still shoot. The stickers keep their ids and poses; only the decoded ids lie.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -41,29 +41,22 @@
   "inputs": [],
   "physics": "ideal",
   "perception": {
-    "level": "faults"
-  },
-  "faults": [
-    {
-      "at": {
-        "telemetry": "Match auto : AIM_SHOOT"
-      },
-      "perception": {
-        "faults": {
-          "latencyMs": 500
-        }
+    "level": "faults",
+    "faults": {
+      "misreadIds": {
+        "40": 44,
+        "41": 45
       }
     }
-  ],
+  },
   "expect": {
     "noErrors": true,
-    "launches": "==0",
-    "eventWithin": [
-      {
-        "after": "Match auto : AIM_SHOOT",
-        "event": "Match auto : TURN_BACK",
-        "withinS": 8
-      }
-    ]
+    "telemetryIncludes": [
+      "Match auto : AIM_SHOOT"
+    ],
+    "launches": ">=1"
+  },
+  "coverage": {
+    "perception": "faults"
   }
 }

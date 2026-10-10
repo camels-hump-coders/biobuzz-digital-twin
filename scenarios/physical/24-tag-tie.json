@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "SEARCH: camera frames arrive 500 ms late from AIM_SHOOT — no fresh target, so the shooting leg must end on its bound",
-  "notes": "Handoff G07 / P0 SEARCH. A 500 ms delivery delay keeps each frame's true acquisition time, so the OpMode's 0.30 s freshness check sees stale frames and must not fire. The leg should give up within the no-shot bound (5 s plus settle) and move on to TURN_BACK. TeamCode before c8d5ed0 only ran that timer at a wall or when range-blocked (48 s in AIM_SHOOT); the fixed-spot timer landed with the 2026-10-10 TeamCode.",
+  "name": "TAG-TIE: raised 44/45 covered while the lowered 40/41 decode as 44/45 — two against two, no confident target, no shot",
+  "notes": "Handoff G06 / P0 TAG-TIE. Two incompatible, equally supported groups (42+43 on the raised cell versus the impostor 44+45 on the lowered cell) must be reported as ambiguous: no blended pose, no firing, and the fixed-spot no-shot bound must end the leg.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -41,23 +41,20 @@
   "inputs": [],
   "physics": "ideal",
   "perception": {
-    "level": "faults"
-  },
-  "faults": [
-    {
-      "at": {
-        "telemetry": "Match auto : AIM_SHOOT"
-      },
-      "perception": {
-        "faults": {
-          "latencyMs": 500
-        }
+    "level": "faults",
+    "faults": {
+      "misreadIds": {
+        "40": 44,
+        "41": 45
       }
     }
-  ],
+  },
   "expect": {
     "noErrors": true,
     "launches": "==0",
+    "telemetryIncludes": [
+      "no shot started at this position"
+    ],
     "eventWithin": [
       {
         "after": "Match auto : AIM_SHOOT",
@@ -65,5 +62,12 @@
         "withinS": 8
       }
     ]
+  },
+  "tagCovers": [
+    44,
+    45
+  ],
+  "coverage": {
+    "perception": "faults"
   }
 }

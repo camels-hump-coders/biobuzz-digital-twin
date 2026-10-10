@@ -1,6 +1,6 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "EMPTY: four 1.0 s pulses with two balls aboard \u2014 launches follow the balls, not the pulses",
+  "name": "EMPTY: four 1.0 s pulses with two balls aboard — launches follow the balls, not the pulses",
   "notes": "Handoff P0 EMPTY. capacity 2 preloads two POLLEN. The code still commands four pulses; the twin must report at most two launches and no fabricated shots.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
@@ -33,7 +33,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

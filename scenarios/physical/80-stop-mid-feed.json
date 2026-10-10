@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "SEARCH: camera frames arrive 500 ms late from AIM_SHOOT — no fresh target, so the shooting leg must end on its bound",
-  "notes": "Handoff G07 / P0 SEARCH. A 500 ms delivery delay keeps each frame's true acquisition time, so the OpMode's 0.30 s freshness check sees stale frames and must not fire. The leg should give up within the no-shot bound (5 s plus settle) and move on to TURN_BACK. TeamCode before c8d5ed0 only ran that timer at a wall or when range-blocked (48 s in AIM_SHOOT); the fixed-spot timer landed with the 2026-10-10 TeamCode.",
+  "name": "STOP: the run is stopped while the feeder is pulsing — every output must be zero after STOP",
+  "notes": "Handoff G11 / P0 STOP. The scenario's duration ends inside the shooting leg (spin-up and feed pulses start a few seconds after AIM_SHOOT); twin-test sends STOP and reads the applied commands back. Flywheel, windmill and wheels must all be zero; the twin models the flywheel coasting, so a nonzero RPM is not a nonzero command.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -37,33 +37,15 @@
   },
   "opponents": false,
   "opponentsScore": false,
-  "durationS": 60,
+  "durationS": 11,
   "inputs": [],
   "physics": "ideal",
-  "perception": {
-    "level": "faults"
-  },
-  "faults": [
-    {
-      "at": {
-        "telemetry": "Match auto : AIM_SHOOT"
-      },
-      "perception": {
-        "faults": {
-          "latencyMs": 500
-        }
-      }
-    }
-  ],
+  "perception": "ideal",
   "expect": {
     "noErrors": true,
-    "launches": "==0",
-    "eventWithin": [
-      {
-        "after": "Match auto : AIM_SHOOT",
-        "event": "Match auto : TURN_BACK",
-        "withinS": 8
-      }
-    ]
+    "telemetryIncludes": [
+      "Match auto : AIM_SHOOT"
+    ],
+    "outputsZeroAfterStop": true
   }
 }

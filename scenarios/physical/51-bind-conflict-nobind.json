@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "BIND: the same real fixed-shot request with bindings off \u2014 effective values proven before the run",
-  "notes": "ignoreBindings opens the twin with ?nobind=1, so the scenario's 54 \u00b1 6 in window is the effective setting and requireEffective passes. The shooting spot is about 72 in from the cell, so the fixed-range policy should refuse the shot (no launches) and the report shows the team's range telemetry.",
+  "name": "BIND: the same real fixed-shot request with bindings off — effective values proven before the run",
+  "notes": "ignoreBindings opens the twin with ?nobind=1, so the scenario's 54 ± 6 in window is the effective setting and requireEffective passes. The shooting spot is about 72 in from the cell, so the fixed-range policy should refuse the shot (no launches) and the report shows the team's range telemetry.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -35,7 +35,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

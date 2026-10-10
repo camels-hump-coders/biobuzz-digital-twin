@@ -447,8 +447,21 @@ function buildManifest() {
     perception: { level: state.perception.level, faults: state.perception.level === "faults" ? state.perception.faults : undefined, tagCovers: state.tagCovers, tagNoiseIn: state.tagNoiseIn, note: PERCEPTION_LEVELS.find((l) => l.id === state.perception.level)?.note, unsupported: UNSUPPORTED_PERCEPTION },
     clock: { mode: "wall", note: "TeamCode timers are JVM wall clock; the twin steps physics per browser frame and sends sensors at 50 Hz. Check the run's simulated/wall ratio and packet holds before trusting a timing result." },
     bindings: { file: link.bindings?.path, errors: link.bound.errors, ignored: new URLSearchParams(location.search).get("nobind") === "1" },
+    warnings: manifestWarnings(),
     effective,
   };
+}
+/** Configuration smells worth a line in the manifest: a role carried by several devices (a saved map that holds both a
+ * stock preset's names and the robot's real names), so a reader knows which device the twin's role lookups may pick. */
+function manifestWarnings(): string[] {
+  const out: string[] = [];
+  const byRole = new Map<string, string[]>();
+  for (const d of state.hardware.devices) if (d.role && d.role !== "other") byRole.set(d.role, [...(byRole.get(d.role) ?? []), d.name]);
+  for (const [role, names] of byRole) if (names.length > 1) {
+    const live = names.filter((n) => actuatorModel.touched.has(n) || Math.abs(link.actuators[n]?.power ?? 0) > 0);
+    out.push(`role ${role} is on ${names.length} devices (${names.join(", ")})${live.length ? `; the OpMode drives ${live.join(", ")}` : ""}: remove the ones this robot does not have`);
+  }
+  return out;
 }
 /** The breakaway the current robot and profile imply, without waiting for a TeamCode step (panel readout, manifest). */
 function breakawayNow(): { straight: number; turn: number } {

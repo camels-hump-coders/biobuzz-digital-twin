@@ -1,0 +1,42 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "FRAME-REAR: the same route with the saved rear shooter: the chassis reverses, the field motion is identical",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": false,
+      "matchAuto.startPosition": "LOADING_ZONE",
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.drivePower": 0.15,
+      "matchAuto.collectGarden": false,
+      "matchAuto.timeoutSeconds": 10,
+      "matchAuto.returnReserveSeconds": 3
+    }
+  },
+  "start": {
+    "xIn": 60,
+    "zIn": 0,
+    "headingDeg": -90
+  },
+  "opponents": false,
+  "durationS": 1.5,
+  "inputs": [],
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Route forward : SHOOTER-FIRST \\(rear chassis\\)",
+      "Match auto : DRIVE_OUT"
+    ],
+    "poseNear": {
+      "xIn": 51,
+      "zIn": 0,
+      "tolIn": 5
+    },
+    "movedAtLeastIn": 3
+  },
+  "notes": "Handoff P0 FRAME (the team's auto-shooter-first-rear). MatchDriveFrame swaps and negates the wheel commands for a rear shooter; the robot must end at the same field point as FRAME-FRONT with its turn sense preserved.",
+  "twinSettings": true,
+  "physics": "ideal"
+}

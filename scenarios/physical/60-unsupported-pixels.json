@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
   "name": "UNSUPPORTED: a test that claims pixel-level perception is reported as unsupported, never run as ideal",
-  "notes": "Handoff \u00a75 capability discovery. The twin has no camera frames; coverage.perception pixels must produce the verdict UNSUPPORTED without starting the OpMode.",
+  "notes": "Handoff §5 capability discovery. The twin has no camera frames; coverage.perception pixels must produce the verdict UNSUPPORTED without starting the OpMode.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -32,7 +32,7 @@
   "start": {
     "xIn": 63,
     "zIn": -36,
-    "headingDeg": 90
+    "headingDeg": -90
   },
   "opponents": false,
   "opponentsScore": false,

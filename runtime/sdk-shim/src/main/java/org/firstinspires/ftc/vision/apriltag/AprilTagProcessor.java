@@ -55,6 +55,8 @@ public class AprilTagProcessor implements VisionProcessor {
             d.id = o.id; d.hamming = 0; d.decisionMargin = 80f;
             d.center = new AprilTagDetection.Point(o.cx, o.cy);
             d.metadata = library.lookupTag(o.id);
+            // a tag the library does not know has no size, so the SDK gives it no pose (metadata, ftcPose and rawPose null)
+            if (d.metadata == null) { d.frameAcquisitionNanoTime = o.nanos; singles.add(d); continue; }
             double k = distanceUnit.fromInches(1);
             double a = angleUnit.fromDegrees(1);
             d.ftcPose = new AprilTagPoseFtc(o.x * k, o.y * k, o.z * k, o.yaw * a, o.pitch * a, o.roll * a, o.range * k, o.bearing * a, o.elevation * a);
@@ -67,10 +69,12 @@ public class AprilTagProcessor implements VisionProcessor {
             d.frameAcquisitionNanoTime = o.nanos;
             singles.add(d);
         }
-        // Group into the season's clusters (SDK 12 behaviour): one detection per cluster, pose = mean of its tags
+        // Group into the season's clusters (SDK 12 behaviour): one detection per cluster whose library metadata names it.
+        // A custom library built with the Builder (individual 3.25 in tags, as TeamCode does to run its own consensus)
+        // carries no clusters, so its tags come back as AprilTagSingleDetections, as on the robot.
         java.util.Map<String, AprilTagClusterDetection> clusters = new java.util.LinkedHashMap<>();
         for (AprilTagSingleDetection s : singles) {
-            AprilTagClusterMetadata cm = AprilTagGameDatabase.clusterFor(s.id);
+            AprilTagClusterMetadata cm = s.metadata == null ? null : s.metadata.cluster;
             if (cm == null || emitSingles || SimHooks.forceSingles()) { out.add(s); continue; }
             AprilTagClusterDetection c = clusters.get(cm.name);
             if (c == null) { c = new AprilTagClusterDetection(); c.metadata = cm; c.frameAcquisitionNanoTime = s.frameAcquisitionNanoTime; c.ftcPose = new AprilTagPoseFtc(); c.robotPose = s.robotPose; clusters.put(cm.name, c); out.add(c); }
@@ -79,14 +83,27 @@ public class AprilTagProcessor implements VisionProcessor {
         for (AprilTagClusterDetection c : clusters.values()) {
             int n = c.tagsDetected.size();
             AprilTagPoseFtc p = c.ftcPose;
-            for (AprilTagSingleDetection s : c.tagsDetected) { p.x += s.ftcPose.x / n; p.y += s.ftcPose.y / n; p.z += s.ftcPose.z / n; p.yaw += s.ftcPose.yaw / n; p.pitch += s.ftcPose.pitch / n; p.roll += s.ftcPose.roll / n; c.center.x += s.center.x / n; c.center.y += s.center.y / n; }
+            // The cluster pose is the SDK's cluster ORIGIN (opening plane, 5.6 in above and 7.19 in in front of the
+            // sticker strip), recovered from every visible tag as t - R * offset(id) and averaged, so a partly visible
+            // cluster still reports the same point. Rotation: the first tag's (the strip is rigid).
+            double ox = 0, oy = 0, oz = 0;
+            for (AprilTagSingleDetection s : c.tagsDetected) {
+                double[] off = AprilTagGameDatabase.tagOffsetIn(s.id);
+                double k = distanceUnit.fromInches(1);
+                org.firstinspires.ftc.robotcore.external.matrices.MatrixF R = s.rawPose.R;
+                ox += (s.rawPose.x - k * (R.get(0, 0) * off[0] + R.get(0, 1) * off[1] + R.get(0, 2) * off[2])) / n;
+                oy += (s.rawPose.y - k * (R.get(1, 0) * off[0] + R.get(1, 1) * off[1] + R.get(1, 2) * off[2])) / n;
+                oz += (s.rawPose.z - k * (R.get(2, 0) * off[0] + R.get(2, 1) * off[1] + R.get(2, 2) * off[2])) / n;
+                p.yaw += s.ftcPose.yaw / n; p.pitch += s.ftcPose.pitch / n; p.roll += s.ftcPose.roll / n; c.center.x += s.center.x / n; c.center.y += s.center.y / n;
+            }
+            c.rawPose = new AprilTagPoseRaw(); c.rawPose.x = ox; c.rawPose.y = oy; c.rawPose.z = oz; c.rawPose.R = c.tagsDetected.get(0).rawPose.R;
+            // ftcPose from the raw origin: OpenCV (x right, y down, z forward) -> FTC (x right, y forward, z up)
+            p.x = ox; p.y = oz; p.z = -oy;
             p.range = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
             double xm = distanceUnit.toMeters(p.x), ym = distanceUnit.toMeters(p.y), zm = distanceUnit.toMeters(p.z);
             p.bearing = angleUnit.fromDegrees(Math.toDegrees(Math.atan2(-xm, ym)));
             p.elevation = angleUnit.fromDegrees(Math.toDegrees(Math.atan2(zm, Math.hypot(xm, ym))));
             c.percentClusterFound = (int) Math.round(100.0 * n / Math.max(1, c.metadata.tagIds.length));
-            c.rawPose = c.tagsDetected.get(0).rawPose; // representative
-            c.rawPose = new AprilTagPoseRaw(); c.rawPose.x = distanceUnit.fromMeters(xm); c.rawPose.y = -distanceUnit.fromMeters(zm); c.rawPose.z = distanceUnit.fromMeters(ym); c.rawPose.R = c.tagsDetected.get(0).rawPose.R;
             c.id = c.metadata.tagIds[0];
         }
         return out;
