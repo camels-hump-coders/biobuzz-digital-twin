@@ -47,7 +47,9 @@ with the approach gain (ramp from 3.75 in at 0.12), not with the leg power. No s
 the garden the chassis is now held by the row's outer balls (outside the intake mouth, squeezed on the wall) and the
 code's new collect watchdog collects where it was held: 3 POLLEN aboard at PARKED on tiles, 2 on ideal; STALL-OK's
 no-stall check therefore covers the route up to the shot. GARDEN-CONTACT (0.3 approach power) trips `STALL_SETTLE` 1.3 s
-into the leg and the robot ends with 4 POLLEN; at 0.6 the chassis shoved the single-ball column aside instead. Three twin
+into the leg and the robot ends with 4 POLLEN; at 0.6 the chassis shoved the single-ball column aside instead. A third
+team commit (`be1c527`, approach gain 0.08) brought the encoder readings to 13.7–14.0 in and 21.7–22.2 in (overshoot
+1.4–2.2 in) with the leg times unchanged at 1.0 s and 1.2 s; all five runs pass, including the rewritten `auto-30s-range-blocked`. Three twin
 faults surfaced and were fixed on the way: a running intake with room was being held by balls it was swallowing, a
 squeezed ball knocked the chain behind it loose, and a quarter-second block latch let the encoders creep against a pile
 that stops real wheels dead. Of the team's twelve scenarios eleven pass; `auto-30s-range-blocked` still fails on its own
