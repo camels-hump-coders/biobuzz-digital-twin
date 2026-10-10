@@ -23,7 +23,8 @@
       "matchAuto.collectGarden": true,
       "matchAuto.collectOutIn": 0,
       "matchAuto.shootSpotAlongWallIn": 20,
-      "matchAuto.collectBudgetSeconds": 8
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.pauseAimTimers": false
     },
     "biobuzz/controller-profile.json": {
       "servos.windmill.continuousRotationVerified": true

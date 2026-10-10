@@ -26,7 +26,8 @@
       "matchAuto.collectBudgetSeconds": 8,
       "tagTracking.shotRangeIn": 54,
       "tagTracking.rangeToleranceIn": 6,
-      "matchAuto.feedSeconds": 1.0
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.pauseAimTimers": false
     },
     "biobuzz/controller-profile.json": {
       "servos.windmill.continuousRotationVerified": true

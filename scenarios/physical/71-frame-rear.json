@@ -12,7 +12,8 @@
       "matchAuto.drivePower": 0.15,
       "matchAuto.collectGarden": false,
       "matchAuto.timeoutSeconds": 10,
-      "matchAuto.returnReserveSeconds": 3
+      "matchAuto.returnReserveSeconds": 3,
+      "matchAuto.pauseAimTimers": false
     }
   },
   "start": {

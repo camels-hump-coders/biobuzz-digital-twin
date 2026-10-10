@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
   "name": "GARDEN-CONTACT: the along-wall leg runs the full hopper into balls stacked on the wall — the squeezed balls hold the chassis, the shafts stall, the approach watchdog trips",
-  "notes": "SG-005 (team ledger 2026-10-10, commit 8ce91a5): the operator saw the robot back into garden balls and stall before firing. The code caps the along-wall leg short of the twin's own garden row (collectReachIn minus the pollen gap), so three POLLEN are placed in the leg's path, stacked against the audience wall where the leg ends, with four preloads aboard (the intake cannot take them). Balls squeezed between chassis and wall refuse the motion (match.refuse), the estimated tiles grip (tractionMu 1.2) stalls the shafts rather than spinning the wheels, and the code's encoder watchdog (< 0.25 in in 1 s) must settle and aim from there. Collision-grounded, not a friction fault; the pile is placed, not measured.",
+  "notes": "SG-005 (team ledger 2026-10-10, commit 8ce91a5): the operator saw the robot back into garden balls and stall before firing. The code caps the along-wall leg short of the twin's own garden row (collectReachIn minus the pollen gap), so three POLLEN are placed in the leg's path, stacked toward the audience wall about four inches before the leg's end (a pile ending on the wall would stop the chassis within the leg's own tolerance and the leg would simply finish), with four preloads aboard (the intake cannot take them). Balls squeezed between chassis and wall refuse the motion (match.refuse), the estimated tiles grip (tractionMu 1.2) stalls the shafts rather than spinning the wheels, and the code's encoder watchdog (< 0.25 in in 1 s) must settle and aim from there. Collision-grounded, not a friction fault; the pile is placed, not measured.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -56,24 +56,24 @@
         "withinS": 6
       },
       {
-        "after": "contact",
+        "after": "Match auto : DRIVE_ALONG_WALL",
         "event": "Match auto : STALL_SETTLE",
-        "withinS": 3
+        "withinS": 8
       }
     ]
   },
   "balls": [
     {
       "xIn": 50,
-      "zIn": -70.4
+      "zIn": -66.4
     },
     {
       "xIn": 50,
-      "zIn": -67.15
+      "zIn": -63.15
     },
     {
       "xIn": 50,
-      "zIn": -63.9
+      "zIn": -59.9
     }
   ]
 }

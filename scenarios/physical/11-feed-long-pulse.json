@@ -25,7 +25,8 @@
       "matchAuto.shootSpotAlongWallIn": 20,
       "matchAuto.collectBudgetSeconds": 8,
       "matchAuto.feedSeconds": 1.0,
-      "matchAuto.recoverSeconds": 0.6
+      "matchAuto.recoverSeconds": 0.6,
+      "matchAuto.pauseAimTimers": false
     },
     "biobuzz/controller-profile.json": {
       "servos.windmill.continuousRotationVerified": true
