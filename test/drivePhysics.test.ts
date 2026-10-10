@@ -60,6 +60,19 @@ describe("drive physics", () => {
     expect(r.volts).toBeLessThan(12.6);
     expect(r.volts).toBeGreaterThan(12.3);
   });
+  it("rolling, a power split curves: the sideways share of the wheel motion scrubs, not the whole pivot threshold", () => {
+    const split = (l: number, r: number) => ({ left: { u: l, brake: true }, right: { u: r, brake: true } });
+    const kin = (l: number, r: number) => ((15.3 / 2) * (r + l)) / (r - l); // inches, kinematic radius
+    for (const [l, r] of [[0.14, 0.45], [0.3, 0.6], [0.5, 0.8], [0.24, 0.8]]) {
+      const b = run({ vFwd: 0, omega: 0 }, split(l, r), tiles, 2).body;
+      expect(b.omega).toBeGreaterThan(0.3); // it turns at all (the old model drove straight under 3:1 and 2:1 splits)
+      const radiusIn = b.vFwd / b.omega / 0.0254;
+      expect(radiusIn / kin(l, r)).toBeGreaterThan(1.0);
+      expect(radiusIn / kin(l, r)).toBeLessThan(1.6); // scrub widens the arc, within the band the tiles estimate implies
+    }
+    // the pivot breakaway is untouched: 14 % still stalls in place
+    expect(run({ vFwd: 0, omega: 0 }, turn(0.14)).body.omega).toBe(0);
+  });
   it("friction stops the chassis instead of reversing it", () => {
     let body = run({ vFwd: 0, omega: 0 }, straight(0.3), tiles, 1).body;
     const r = run(body, { left: { u: 0, brake: false }, right: { u: 0, brake: false } }, tiles, 5);

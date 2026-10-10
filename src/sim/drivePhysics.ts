@@ -155,15 +155,21 @@ export function stepDrive(body: DriveBody, cmd: { left: SideCommand; right: Side
       const next = vFwd + a * h;
       vFwd = Math.sign(next) !== Math.sign(vFwd) && vFwd !== 0 && Math.abs(fDrive) < rollF ? 0 : next; // friction stops, never reverses
     }
-    // rotation
+    // rotation. At a standstill the wheels must be dragged sideways to pivot, so the full scrub torque is the
+    // breakaway (what stalled the 14 % turn). Rolling, the wheels mostly roll along their own direction and only
+    // the sideways share of their motion scrubs: resistance = kinetic scrub x lateral / total wheel motion, with no
+    // separate threshold, so a 2:1 power split curves instead of driving straight.
     const tDrive = (fR - fL) * halfTrack;
     const scrubStatic = (prof.scrubMu * w * p.wheelbaseM) / 4;
-    if (Math.abs(omega) < 1e-3 && Math.abs(tDrive) <= scrubStatic) { omega = 0; }
+    const rolling = Math.abs(vFwd) > 0.03;
+    if (!rolling && Math.abs(omega) < 1e-3 && Math.abs(tDrive) <= scrubStatic) { omega = 0; }
     else {
-      const resist = scrubStatic * (Math.abs(omega) < 1e-3 ? 1 : prof.kineticRatio) * Math.sign(omega || tDrive);
+      const lat = (Math.abs(omega) * p.wheelbaseM) / 2;
+      const share = rolling ? lat / Math.sqrt(lat * lat + vFwd * vFwd) : 1;
+      const resist = scrubStatic * (Math.abs(omega) < 1e-3 && !rolling ? 1 : prof.kineticRatio) * share * Math.sign(omega || tDrive);
       const alpha = (tDrive - resist) / inertia;
       const next = omega + alpha * h;
-      omega = Math.sign(next) !== Math.sign(omega) && omega !== 0 && Math.abs(tDrive) < scrubStatic * prof.kineticRatio ? 0 : next;
+      omega = !rolling && Math.sign(next) !== Math.sign(omega) && omega !== 0 && Math.abs(tDrive) < scrubStatic * prof.kineticRatio ? 0 : next;
     }
     void a;
   }
