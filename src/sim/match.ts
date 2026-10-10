@@ -334,17 +334,20 @@ export class Match {
         b.pos.x += ax.u.x * pen; b.pos.z += ax.u.z * pen;
         // a running intake with room swallows a ball squeezed against the wall; a stopped or full one is held by it
         const canTake = ag.intakeActive && ag.inventory.pollen + ag.inventory.nectar < ag.caps.capacity && (b.kind === "pollen" ? ag.caps.pollen : ag.caps.nectar && b.alliance === ag.alliance);
+        let held = false;
         if (canTake) { const lim = m(FIELD.sizeIn) / 2 - b.radius; b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim); }
-        else this.refuse(ag, b, ax.u.x, ax.u.z);
+        else held = this.refuse(ag, b, ax.u.x, ax.u.z);
         const vn = Math.max(vx * ax.u.x + vz * ax.u.z, 0);
         b.vel.x = ax.u.x * Math.max(vn + 0.05, 0.1) + vx * 0.3; b.vel.z = ax.u.z * Math.max(vn + 0.05, 0.1) + vz * 0.3;
-        b.settled = false; b.restFor = 0; b.contactAge = 1; b.mesh.position.copy(b.pos);
+        b.settled = false; b.restFor = 0; b.contactAge = 1;
+        if (held) { b.vel.set(0, 0, 0); b.settled = true; } // squeezed, not rolling: it must not knock the chain loose
+        b.mesh.position.copy(b.pos);
         continue;
       }
       const push = chassisPush(ag.pose, ag.footprint, { x: b.pos.x, z: b.pos.z }, b.radius);
       if (!push) continue;
       b.pos.x += push.dx; b.pos.z += push.dz;
-      this.refuse(ag, b, push.nx, push.nz); // the wall is solid: a ball squeezed between chassis and wall stays inside, and holds the chassis
+      const held = this.refuse(ag, b, push.nx, push.nz); // the wall is solid: a ball squeezed between chassis and wall stays inside, and holds the chassis
       // the ball is inside the chassis volume right now: the sweep must not collide with the chassis's own interior faces
       const group = ag.carryGroup.parent as THREE.Object3D | null;
       if (group) { b.launcher = group; b.launcherIgnoreUntil = b.age + 0.15; }
@@ -353,6 +356,7 @@ export class Match {
       const speed = Math.max(vn + 0.1, PUSH_SPEED_MIN);
       b.vel.x = push.nx * speed + vx * 0.3; b.vel.z = push.nz * speed + vz * 0.3;
       b.settled = false; b.restFor = 0; b.contactAge = 1;
+      if (held) { b.vel.set(0, 0, 0); b.settled = true; } // squeezed against the wall or a pinned chain: it stays put instead of knocking the chain apart
       b.mesh.position.copy(b.pos);
     }
   }
@@ -360,7 +364,7 @@ export class Match {
   /** A ball the chassis just pushed along (nx, nz) may have nowhere to go: the perimeter wall, or another floor ball
    *  that is itself against the wall. Clamp it there and charge the refused travel to the agent, which the drive model
    *  turns into a blocked chassis (stalled shafts or spinning wheels by traction), not a ball through the wall. */
-  private refuse(ag: Agent, b: LiveBall, nx: number, nz: number) {
+  private refuse(ag: Agent, b: LiveBall, nx: number, nz: number): boolean {
     const lim = m(FIELD.sizeIn) / 2 - b.radius;
     const bx = b.pos.x, bz = b.pos.z;
     b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim);
@@ -368,9 +372,10 @@ export class Match {
     // a chain of balls ahead: the pushed ball can only travel as far as the balls in front of it can, down to the wall
     const free = this.freeAlong(b, nx, nz, 0);
     if (free < 0) { refused = Math.max(refused, -free); b.pos.x += nx * free; b.pos.z += nz * free; }
-    if (refused <= 1e-4) return;
+    if (refused <= 1e-4) return false;
     const cur = ag.blocked, mag = Math.hypot(cur?.x ?? 0, cur?.z ?? 0);
     ag.blocked = { x: refused > mag ? nx * refused : cur!.x, z: refused > mag ? nz * refused : cur!.z, balls: (cur?.balls ?? 0) + 1 };
+    return true;
   }
   /** How far ball `b` can still move along (nx, nz) before the perimeter or a ball already in its way stops it;
    *  negative when it is already overlapping something that cannot give way (the amount it must come back). */
@@ -382,7 +387,7 @@ export class Match {
       if (o === b || o.inCell || o.carried || o.pos.y > 0.25) continue;
       const dx = o.pos.x - b.pos.x, dz = o.pos.z - b.pos.z, along = dx * nx + dz * nz, perp = Math.abs(dx * nz - dz * nx);
       const touch = b.radius + o.radius;
-      if (along <= 0 || perp >= touch * 0.9 || along >= touch + 0.02) continue; // only balls directly ahead and (nearly) touching
+      if (along <= 0 || perp >= touch * 0.9 || along >= touch + 0.08) continue; // balls directly ahead within a small gap: the gap is free travel, the rest is theirs
       free = Math.min(free, along - touch + Math.max(0, this.freeAlong(o, nx, nz, depth + 1)));
     }
     return free;
