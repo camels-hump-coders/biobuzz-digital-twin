@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "COLLECT-MISS: the shooter end is turned to the garden instead of the intake \u2014 same states, nothing collected",
-  "notes": "Handoff G08 / P0 COLLECT. intakeHeadingDeg 0 instead of 180 points the wrong end at the garden. The telemetry sequence still visits ALIGN_GARDEN, TURN_TO_GARDEN and COLLECT, so a state-sequence assertion would pass; the transfer check must fail: no POLLEN may be picked in the garden corner within 10 s of COLLECT (a NECTAR released into the LOADING ZONE after a tip, or a stray ball on the floor, is not garden collection). This fixture is EXPECTED to fail on that check.",
+  "name": "COLLECT-MISS: the intake runs but sweeps empty floor 24 in out from the garden \u2014 same states, nothing collected",
+  "notes": "Handoff G08 / P0 COLLECT. collectOutIn 24 lines the robot up two feet out from the wall before TURN_TO_GARDEN, so the running intake drives through empty floor; the telemetry sequence still visits ALIGN_GARDEN, TURN_TO_GARDEN and COLLECT, so a state-sequence assertion would pass, but no POLLEN may be picked in the garden corner within 10 s of COLLECT (a NECTAR released into the LOADING ZONE after a tip, or a stray ball, is not garden collection). This fixture is EXPECTED to fail on that check. (Turning the wrong end to the garden was tried first: the rear intake still brushed a corner ball while turning, which is itself a finding.)",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -21,11 +21,10 @@
       "matchAuto.flowerGraceIn": 4,
       "tagTracking.adaptivePower": true,
       "matchAuto.collectGarden": true,
-      "matchAuto.collectOutIn": 0,
+      "matchAuto.collectOutIn": 24,
       "matchAuto.shootSpotAlongWallIn": 20,
       "matchAuto.collectBudgetSeconds": 8,
-      "matchAuto.feedSeconds": 1.0,
-      "matchAuto.intakeHeadingDeg": 0
+      "matchAuto.feedSeconds": 1.0
     },
     "biobuzz/controller-profile.json": {
       "servos.windmill.continuousRotationVerified": true

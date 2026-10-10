@@ -126,3 +126,11 @@ Run against the local team repo with `twinSettings: true`:
 | DEADLINE | physical feed timing, 28 s | collection skipped, documented |
 
 The ideal fast tests keep running with `physics: "ideal"` and are labelled so in their manifest.
+
+**Outcome (2026-10-09, local TeamCode bedfe9c):** 9 pass, 3 fail, 1 unsupported, all at 1.0× real time. The three
+failures are the ones the fixtures exist to show: TAG-COVER (the saved 17° camera never sees enough raised-cell tags
+from the spot; the green run was aiming at the lowered cell), SEARCH (the local no-shot timer bug: 48 s in AIM_SHOOT
+with stale frames), BIND (setup refused because the bound 72 in beat the scenario's 54 in). COLLECT-MISS fails by
+design once the intake sweeps empty floor. Two pre-existing twin faults surfaced on the way and were fixed: a settings
+file saved with Auto-RPM omits the launcher RPM and froze the first frame after START (NaN arc), and the harness clicked
+a panel INIT button the workspaces hide. See `scenarios/physical/README.md` for the per-fixture evidence.
