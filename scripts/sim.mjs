@@ -19,6 +19,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { lineReader, startupTracker, browserLaunch } from "./sim-startup.mjs";
+import { selectHostPort } from "./sim-ports.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cfgPath = join(root, ".biobuzz.local.json");
@@ -30,7 +31,16 @@ const saved = existsSync(cfgPath) ? JSON.parse(readFileSync(cfgPath, "utf8")) : 
 let team = flag("--team", saved.team);
 const exclude = flag("--exclude", saved.exclude ?? "");
 const port = flag("--port", "5173");
-const hostPort = flag("--host-port", "8765");
+let hostPort;
+try {
+  hostPort = await selectHostPort(flag("--host-port", "8765"), has("--host-port"));
+} catch (error) {
+  console.error(`sim: ${error.message}`);
+  process.exit(1);
+}
+if (!has("--host-port") && hostPort !== "8765") {
+  console.log(`sim: default runtime/API ports are occupied; using ${hostPort}/${Number(hostPort) + 1}.`);
+}
 const watch = !has("--no-watch");
 const openBrowser = !has("--no-browser") && process.env.BROWSER?.toLowerCase() !== "none";
 const panels = !has("--no-panels"); // the real FTC Panels dashboard on 8001/8002; off for secondary hosts such as twin-test

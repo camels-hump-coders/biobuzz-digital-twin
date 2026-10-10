@@ -21,7 +21,7 @@ public class Main {
         AgentApi.start(link, Integer.parseInt(System.getProperty("agentPort", String.valueOf(port + 1)))); // agents inspect/steer the live session
         link.run(); // blocks while serving; returns only after stop() or a fatal socket error
         System.err.println("sim-host: server loop ended; exiting");
-        System.exit(0); // never leave Panels / scheduler threads keeping a server-less JVM alive
+        System.exit(link.started ? 0 : 1); // failed binds must fail the Gradle task; never leave a server-less JVM alive
     }
 
     private static volatile SimLink current;
