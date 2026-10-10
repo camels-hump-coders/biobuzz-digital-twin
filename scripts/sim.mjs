@@ -128,6 +128,12 @@ if (team) {
 }
 const allExcludes = [...(exclude ? exclude.split(",") : []), ...autoExcluded].filter(Boolean);
 if (team) gradleArgs.push(`-PteamCode=${team}`);
+// the team repo's identity for run manifests (which TeamCode a result belongs to): path, commit, dirty flag
+if (team) {
+  const info = { path: team, revision: "unknown", dirty: false };
+  try { info.revision = execSync("git rev-parse --short HEAD", { cwd: team, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); info.dirty = execSync("git status --porcelain", { cwd: team, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().length > 0; } catch { /* not a git checkout */ }
+  gradleArgs.push(`-PsimTeamInfo=${JSON.stringify(info)}`);
+}
 if (allExcludes.length) gradleArgs.push(`-PteamExclude=${allExcludes.join(",")}`);
 if (simDir && existsSync(simDir)) gradleArgs.push(`-PteamSim=${simDir}`);
 if (assetsDir && existsSync(assetsDir)) gradleArgs.push(`-PsimAssets=${assetsDir}`);

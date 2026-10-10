@@ -39,3 +39,29 @@ describe("actuator model", () => {
     expect(feederFires(cfg, [{ name: "hood", from: 0, to: 1 }])).toBe(0);
   });
 });
+
+import { camelsHumpHardwareConfig } from "../src/runtime/hardwareConfig";
+import { PHYSICS_PROFILES } from "../src/sim/drivePhysics";
+describe("actuator model with drive physics (tank, tiles profile)", () => {
+  const hw = camelsHumpHardwareConfig(); // right side mirrored: code REVERSEs the left motor, so forward = negative power on both
+  const tiles = { profile: PHYSICS_PROFILES.tiles, massKg: 11 };
+  const turnCmd = (p: number) => ({ "Left Drive": cmd(-p, true), "Right Drive": cmd(p) }); // the team's turnTo: left=-turn, right=+turn
+  const steps = (cmds: any, n: number, m = createActuatorModel()) => { let r; for (let i = 0; i < n; i++) r = stepActuators(m, hw, cmds, 0.02, "tank", 0, 0.096, 15.3 * 0.0254, 13.5 * 0.0254, tiles); return { r: r!, m }; };
+  it("a 14 % turn stalls: no yaw, encoders stuck, current reported", () => {
+    const { r, m } = steps(turnCmd(0.14), 75);
+    expect(Math.abs(r.vel.yawRate)).toBeLessThan(1e-9);
+    const s = motorSensors(m, hw);
+    expect(s["Left Drive"].vel).toBe(0);
+    expect(s["Left Drive"].amps).toBeGreaterThan(1.2);
+    expect([...m.stalled].sort()).toEqual(["Left Drive", "Right Drive"]);
+    expect(m.breakaway.turn).toBeGreaterThan(0.14);
+  });
+  it("a 30 % turn turns and the ideal profile ignores friction", () => {
+    const { r } = steps(turnCmd(0.3), 75);
+    expect(Math.abs(r.vel.yawRate)).toBeGreaterThan(0.3);
+    let r2; const m = createActuatorModel();
+    for (let i = 0; i < 75; i++) r2 = stepActuators(m, hw, turnCmd(0.14), 0.02, "tank", 0, 0.096, 15.3 * 0.0254, 13.5 * 0.0254, { profile: PHYSICS_PROFILES.ideal, massKg: 11 });
+    expect(Math.abs(r2!.vel.yawRate)).toBeGreaterThan(0.1);
+    expect(m.stalled.size).toBe(0);
+  });
+});

@@ -1,0 +1,52 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "DEADLINE: physical feed timing inside the 28 s match budget \u2014 a separate verdict from the 60 s diagnostic",
+  "notes": "Handoff G09 / P0 DEADLINE. Four 1.0 s pulses with 0.6 s recovery and a 10 s return reserve inside 28 s. Launches must still happen and the robot must end overlapping its LOADING ZONE; collection is whatever the budget allows. Do not widen the window to make this green.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 28,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 5,
+      "matchAuto.feedSeconds": 1.0
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 34,
+  "inputs": [],
+  "physics": "ideal",
+  "expect": {
+    "noErrors": true,
+    "launches": ">=3",
+    "footprintInside": {
+      "zone": "loading",
+      "require": "overlap"
+    },
+    "outputsZeroAfterStop": true
+  }
+}

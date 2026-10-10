@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import posthog from "@posthog/rollup-plugin";
 import { VitePWA } from "vite-plugin-pwa";
 
@@ -26,8 +27,13 @@ export default defineConfig(({ mode }) => {
   // https://digital-twin.camelshumpcoders.org/ uses the root (see .github/workflows/pages.yml).
   const base = process.env.BASE_PATH ?? "/";
 
+  // the twin's own source identity for run manifests: short commit plus "-dirty" when the working tree differs
+  let twinRev = "unknown";
+  try { twinRev = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim() + (execSync("git status --porcelain", { encoding: "utf8" }).trim() ? "-dirty" : ""); } catch { /* not a checkout */ }
+
   return {
     base,
+    define: { __TWIN_REV__: JSON.stringify(twinRev) },
     plugins: [
       posthog({
         personalApiKey: process.env.POSTHOG_API_KEY!,

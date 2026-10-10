@@ -1,0 +1,62 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "Route on ideal physics: the old green run (labelled ideal; a pass here is not physical evidence)",
+  "notes": "The same route with the kinematic drive: every command moves the robot. Kept as the fast route/controller check the handoff allows, with its scope in the manifest (physics ideal). Physical outcome checks are on: at least one ball must physically reach the flywheel and at least one POLLEN must enter the robot.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "ideal",
+  "coverage": {
+    "physics": "ideal"
+  },
+  "expect": {
+    "noErrors": true,
+    "noStall": true,
+    "telemetrySequence": [
+      "Match auto : DRIVE_OUT",
+      "Match auto : TURN_ALONG_WALL",
+      "Match auto : DRIVE_ALONG_WALL",
+      "Match auto : AIM_SHOOT"
+    ],
+    "launches": ">=1",
+    "collectedAtLeast": 1,
+    "footprintInside": {
+      "zone": "loading",
+      "require": "overlap"
+    },
+    "outputsZeroAfterStop": true
+  }
+}

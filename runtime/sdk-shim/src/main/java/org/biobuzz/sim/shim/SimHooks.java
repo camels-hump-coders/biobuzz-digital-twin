@@ -16,7 +16,7 @@ public final class SimHooks {
         /** optional exact tag->camera rotation, row-major 3x3 in OpenCV camera axes */
         public double[] R;
     }
-    public interface TagSource { List<TagObservation> tags(String cameraName); long lastSensorNanos(); }
+    public interface TagSource { List<TagObservation> tags(String cameraName); long lastSensorNanos(); /** the twin wants individual-tag detections instead of SDK clusters */ default boolean forceSingles() { return false; } }
 
     /** Called when TeamCode asks the HardwareMap for a device that is not configured. */
     public interface MissingDeviceListener { /** return a device to register under that name, or null */ com.qualcomm.robotcore.hardware.HardwareDevice missing(String name, String requestedType); }
@@ -33,4 +33,5 @@ public final class SimHooks {
     public static void setTagSource(TagSource s) { tagSource = s; }
     public static List<TagObservation> tags(String cameraName) { TagSource s = tagSource; return s == null ? Collections.emptyList() : s.tags(cameraName); }
     public static long lastSensorNanos() { TagSource s = tagSource; return s == null ? 0 : s.lastSensorNanos(); }
+    public static boolean forceSingles() { TagSource s = tagSource; return s != null && s.forceSingles(); }
 }

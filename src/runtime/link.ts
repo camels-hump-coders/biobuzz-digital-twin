@@ -15,17 +15,21 @@ export interface TagPacket {
   robotX: number; robotY: number; robotYaw: number;
   /** tag->camera rotation, row-major 3x3, OpenCV camera axes (x right, y down, z forward); tag z points into the tag */
   R: number[];
+  /** how old the frame already is when sent (a camera-latency fault); the host backdates frameAcquisitionNanoTime */
+  ageMs?: number;
 }
 
 export interface SensorPacket {
   type: "sensors";
-  motors: Record<string, { pos: number; vel: number }>;
+  motors: Record<string, { pos: number; vel: number; amps?: number }>;
   imu: { yaw: number; pitch: number; roll: number; yawRate: number };
   distances: Record<string, number>;
   tags: Record<string, TagPacket[]>;
   gamepad1: GamepadPacket;
   gamepad2: GamepadPacket;
   battery: number;
+  /** perception level flags for the shim (singles: individual-tag detections instead of SDK clusters) */
+  perception?: { singles: boolean };
 }
 
 export class RuntimeLink {
@@ -67,6 +71,8 @@ export class RuntimeLink {
   panelsUrl?: string;
   /** local HTTP API on the host for agents (AgentApi.java); requests arrive here as {type:"agent"} and are answered by main */
   agentUrl?: string;
+  /** the TeamCode checkout the host compiled (path, revision, dirty) and the host process, for run manifests */
+  hostInfo?: { path?: string; revision?: string; dirty?: boolean; hostPid?: number };
   onAgent: (action: string, params: Record<string, unknown>) => Promise<{ result?: unknown; contentType?: string }> = async () => { throw new Error("no agent handler"); };
   private retryTimer?: number;
   private reconnect = false;
@@ -102,7 +108,7 @@ export class RuntimeLink {
         if (this.servoTransitions.length > 200) this.servoTransitions.splice(0, this.servoTransitions.length - 200);
         break;
       }
-      case "opmodes": this.opModes = msg.opModes ?? []; this.panelsUrl = msg.panelsUrl || undefined; this.agentUrl = msg.agentUrl || undefined; this.onChange(); break;
+      case "opmodes": this.opModes = msg.opModes ?? []; this.panelsUrl = msg.panelsUrl || undefined; this.agentUrl = msg.agentUrl || undefined; this.hostInfo = { ...(msg.team ?? {}), hostPid: msg.hostPid }; this.onChange(); break;
       case "agent": { // an agent asked the host something only the browser session knows or can do
         const id = msg.id as string;
         this.onAgent(String(msg.action ?? ""), (msg.params ?? {}) as Record<string, unknown>)

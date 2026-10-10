@@ -1,0 +1,49 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "FEED: 1.0 s windmill pulses at 20 % \u2014 every pulse delivers a ball",
+  "notes": "Handoff G04 / P0 FEED. The pulse the operator found to work: 1.0 s at 20 % after a 2 s spin-up. Four pulses, four preloaded POLLEN, so at least three launches are expected inside the window.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.recoverSeconds": 0.6
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "ideal",
+  "expect": {
+    "noErrors": true,
+    "feederPulses": ">=3",
+    "launches": ">=3"
+  }
+}

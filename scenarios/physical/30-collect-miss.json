@@ -1,0 +1,52 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "COLLECT-MISS: the shooter end is turned to the garden instead of the intake \u2014 same states, nothing collected",
+  "notes": "Handoff G08 / P0 COLLECT. intakeHeadingDeg 0 instead of 180 points the wrong end at the garden. The telemetry sequence still visits ALIGN_GARDEN, TURN_TO_GARDEN and COLLECT, so a state-sequence assertion would pass; the inventory transfer check must fail. This fixture is EXPECTED to fail on collectedAtLeast.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.intakeHeadingDeg": 0
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "ideal",
+  "expect": {
+    "noErrors": true,
+    "telemetrySequence": [
+      "Match auto : TURN_TO_GARDEN",
+      "Match auto : COLLECT"
+    ],
+    "collectedAtLeast": 1
+  }
+}

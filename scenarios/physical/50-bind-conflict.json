@@ -1,0 +1,54 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "BIND: a scenario asks for the real 54 in fixed shot while twin bindings are active \u2014 setup must refuse",
+  "notes": "Handoff G02/G05 / P0 BIND. assetOverrides set tagTracking.shotRangeIn 54 and adaptivePower false, but twin-bindings.json binds shotRangeIn to the twin's solver calibration, which wins. requireEffective makes that a setup failure naming the effective value and its source (bound) instead of silently testing the twin's calibration. EXPECTED to fail at setup; 51 is the corrected form.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": false,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "tagTracking.shotRangeIn": 54,
+      "tagTracking.rangeToleranceIn": 6,
+      "matchAuto.feedSeconds": 1.0
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 20,
+  "inputs": [],
+  "physics": "ideal",
+  "requireEffective": {
+    "robot-profile.json": {
+      "tagTracking.shotRangeIn": 54,
+      "tagTracking.adaptivePower": false
+    }
+  },
+  "expect": {
+    "noErrors": true
+  }
+}

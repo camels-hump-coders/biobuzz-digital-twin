@@ -18,6 +18,10 @@ import { classifyTelemetryLine, splitTelemetryLine } from "./telemetryFormat";
 import { calibrationRows, type CalForm, type SimImpactLike } from "./calibration";
 import type { FitResult } from "../ballistics/calibration";
 import { MOTOR_ROLES, SERVO_ROLES, defaultHardwareConfig, camelsHumpHardwareConfig, type DeviceKind } from "../runtime/hardwareConfig";
+import { PHYSICS_PROFILES, SCRUB_MU_BAND, type PhysicsProfileKind } from "../sim/drivePhysics";
+import { transitSeconds } from "../sim/feeder";
+import { PERCEPTION_LEVELS } from "../runtime/visionFaults";
+import { APRILTAG } from "../field/fieldSpec";
 import posthog from "../posthog";
 import { posthogLogger } from "../posthog-logger";
 
@@ -310,7 +314,10 @@ export class Panel {
     if (ms > 120) this.recorder?.event(Date.now(), "note", `slow panel render ${ms.toFixed(0)} ms`);
   }
   /** panel sections in display order: everyday controls first, housekeeping last */
-  private static readonly ORDER = ["Runtime — run your TeamCode", "Field & target", "Timeline & logs", "Robot", "Launcher", "Cameras", "Shooter calibration", "Hardware map", "TeamCode settings (assets)", "View & overlays", "Sound", "Settings & session"];
+  private static readonly ORDER = ["Runtime — run your TeamCode", "Field & target", "Timeline & logs", "Robot", "Launcher", "Cameras", "Shooter calibration", "Hardware map", "Physics & feeding", "Camera faults", "TeamCode settings (assets)", "View & overlays", "Sound", "Settings & session"];
+  /** main.ts: the run manifest (effective robot, physics, perception and settings with provenance) and the drive breakaway */
+  manifest?: () => Record<string, unknown>;
+  breakaway?: () => { straight: number; turn: number };
   private renderInner() {
     // remember open/closed
     this.root.querySelectorAll("details").forEach((d) => this.openState.set((d as HTMLElement).dataset.title ?? d.querySelector("summary")!.textContent!, d.open));
@@ -459,6 +466,22 @@ export class Panel {
       if (link.statusError) rtRows.push(el("pre", { class: "note full", style: "white-space:pre-wrap;color:#ff8888" }, link.statusError));
       for (const n of link.notes) rtRows.push(el("div", { class: "note full", style: "color:#f2c200" }, n));
       rtRows.push(adv(el("div", { class: "note full" }, `Hardware map: ${st.hardware.devices.length} devices (${st.hardware.devices.map((d) => d.name).join(", ")}). Names must match your hardwareMap.get() calls; see the Hardware map panel for presets.`)));
+      // the effective configuration: what this robot IS at INIT, and where every TeamCode setting came from (handoff G01/G02)
+      if (this.manifest) {
+        const m = this.manifest() as any;
+        const eff = (m.effective ?? {}) as Record<string, Record<string, { value: unknown; source: string }>>;
+        const counts = { packaged: 0, manual: 0, bound: 0 };
+        const rowsOut: HTMLElement[] = [];
+        for (const [path, keys] of Object.entries(eff)) {
+          const changed = Object.entries(keys).filter(([, v]) => v.source !== "packaged");
+          for (const [, v] of Object.entries(keys)) (counts as any)[v.source]++;
+          if (changed.length) rowsOut.push(el("div", { class: "note full" }, el("b", {}, path.replace(/^.*\//, "")), ": ", changed.map(([k, v]) => `${k} = ${JSON.stringify(v.value)} (${v.source === "bound" ? "⇐ bound" : "override"})`).join(" · ")));
+        }
+        const r = m.robot ?? {};
+        rowsOut.unshift(el("div", { class: "note full" }, `Robot at INIT: ${r.preset} · ${r.drivetrain} ${r.lengthIn}×${r.widthIn} in, ${r.massKg} kg · intake ${r.intake?.side} (${r.intake?.kind}) · launcher yaw ${r.launcher?.yawOffsetDeg}°, hood ${r.launcher?.elevationDeg}° · ${(r.cameras ?? []).map((c: any) => `${c.name} ${c.forwardIn} in fwd, ${c.heightIn} in up, pitch ${-c.pitchDegDown}° up, yaw ${c.yawDeg}°`).join("; ")} · mirrored ${r.hardware?.mirroredSide} · physics ${m.physics?.kind} (${m.physics?.provenance}) · camera ${m.perception?.level}${(m.perception?.tagCovers ?? []).length ? ` · covers ${m.perception.tagCovers.join(", ")}` : ""} · twin ${m.twin?.revision}${m.team?.revision ? ` · TeamCode ${m.team.revision}${m.team.dirty ? "-dirty" : ""}` : ""}`));
+        rtRows.push(el("details", { class: "full", open: "" }, el("summary", {}, `Effective configuration · ${counts.packaged} packaged, ${counts.manual} overridden, ${counts.bound} bound`), ...rowsOut,
+          el("div", { class: "row full", style: "gap:6px" }, el("button", { onclick: () => { navigator.clipboard?.writeText(JSON.stringify(this.manifest!(), null, 2)); this.toast("Manifest copied"); } }, "Copy manifest JSON"), el("span", { class: "note" }, "Same as GET /api/manifest. Recorded at every INIT in the timeline and in twin-test reports."))));
+      }
       this.telemetryEl = el("div", { class: "full telemetry-box" }, el("div", { class: "tel-line tel-empty" }, "(telemetry)"));
       rtRows.push(this.telemetryEl);
     }
@@ -741,6 +764,74 @@ export class Panel {
     hwRows.push(el("div", { class: "row full" }, el("button", { onclick: () => { st.hardware = defaultHardwareConfig(); change("hardware"); } }, "StarterBot names"), el("button", { title: "Hardware names/ports/polarity of the Camels Hump StarterBot, and the 6WD chassis preset (96 mm wheels, tank drive)", onclick: () => { st.hardware = camelsHumpHardwareConfig(); if (st.robotPresetId !== "starterbot6wd") { st.robotPresetId = "starterbot6wd"; st.robot = clonePreset("starterbot6wd"); st.selectedCameraId = st.robot.cameras[0]?.id ?? ""; } st.robot.drivetrain = "tank"; change("hardware"); change("robot"); } }, "Camels Hump tank bot names")));
     hwRows.push(adv(num("AprilTag noise (1σ)", () => st.tagNoiseIn, (v) => { st.tagNoiseIn = v; change("hardware"); }, { unit: "in", min: 0, max: 5, step: 0.1 })));
     addSection(section("Hardware map", open("Hardware map", false), ...hwRows));
+
+    // --- Physics & feeding: what a motor command does to this robot on this surface, and what a feeder pulse does to a ball
+    {
+      const ph = st.physics;
+      const setProfile = (k: string) => { if (k in PHYSICS_PROFILES) st.physics = { ...PHYSICS_PROFILES[k as Exclude<PhysicsProfileKind, "custom">] }; else st.physics = { ...st.physics, kind: "custom", provenance: "user" }; change("sim"); };
+      const knob = (label: string, key: keyof typeof ph, opts: { min: number; max: number; step: number; unit?: string }) => num(label, () => ph[key] as number, (v) => { (ph as any)[key] = v; ph.kind = "custom"; ph.provenance = "user"; change("sim"); }, opts);
+      const b = this.breakaway?.() ?? { straight: 0, turn: 0 };
+      hints.set("Physics & feeding", `${ph.kind}${ph.provenance === "estimated" ? " (estimate)" : ""}`);
+      const fd = st.feed;
+      addSection(section("Physics & feeding", open("Physics & feeding", false),
+        el("div", { class: "sub" }, "Drive under TeamCode"),
+        sel("Surface profile", [{ value: "ideal", label: "Ideal: no friction, every command moves (fast tests)" }, { value: "tiles", label: "Foam tiles, 6WD gecko wheels (estimate from the 2026-10-08 session)" }, { value: "custom", label: "Custom" }], () => ph.kind, setProfile),
+        el("div", { class: "note full" }, ph.kind === "ideal"
+          ? "Kinematic drive: a command always turns the wheels at that fraction of free speed. Current is a guess (2 A × power). Nothing can stall."
+          : `Motor torque/speed model (goBILDA 5203 datasheet) against rolling resistance, static breakaway and skid-steer turning scrub. For this robot a turn command below about ${Math.round(b.turn * 100)} % and a straight command below about ${Math.round(b.straight * 100)} % do not move it: the encoders stay still and each motor draws its stall current at that command, as the real robot did at 14 % (≈ 1.4 A). ${ph.kind === "tiles" ? `Scrub ${ph.scrubMu} is an estimate inside the ${SCRUB_MU_BAND[0]}–${SCRUB_MU_BAND[1]} band that fits the session (14 % stalled, 20 % crept, 25 % smooth); sweep it before trusting a finishing power.` : "Custom values: you are responsible for their provenance."} Mecanum chassis get the breakaway and current, not the skid-steer scrub.`),
+        adv(knob("Rolling resistance", "rollingMu", { min: 0, max: 0.2, step: 0.005 }),
+        knob("Static breakaway", "staticMu", { min: 0, max: 0.4, step: 0.01 }),
+        knob("Turning scrub", "scrubMu", { min: 0, max: 1, step: 0.01 }),
+        knob("Kinetic / static", "kineticRatio", { min: 0.3, max: 1, step: 0.05 }),
+        knob("Battery", "batteryVolts", { min: 10, max: 14, step: 0.1, unit: "V" }),
+        knob("Battery resistance", "batteryOhms", { min: 0, max: 0.3, step: 0.01, unit: "Ω" }),
+        el("div", { class: "note full" }, "Friction values are fractions of the robot's weight (Robot → Mass). The HUD says \"Not moving: …\" with the command, the current and the breakaway whenever TeamCode commands the drive without the shafts turning for half a second; the timeline records a stall event, and twin-test can assert noStall.")),
+        el("div", { class: "sub" }, "Feeder transit"),
+        el("div", { class: "note full" }, `A feeder command moves one ball along a ${(fd.throatM / IN).toFixed(1)} in throat at ${fd.feedMps.toFixed(2)} m/s × |power| (deadband ${Math.round(fd.deadband * 100)} %): at 20 % a ball needs ${transitSeconds(fd, 0.2).toFixed(2)} s to reach the flywheel, so a 0.4 s pulse leaves it ${Math.round((0.4 / transitSeconds(fd, 0.2)) * 100)} % of the way and the next pulse continues from there. Nothing launches on a pulse alone; an empty hopper feeds nothing; the flywheel loses ${Math.round(fd.rpmDropFrac * 100)} % per launch. ${fd.provenance === "estimated" ? "Estimate bracketed by the session's 0.4 s failure and 1.0 s success." : "Your values."}`),
+        num("Throat length", () => fd.throatM / IN, (v) => { fd.throatM = v * IN; fd.provenance = "user"; change("sim"); }, { unit: "in", min: 0.5, max: 12, step: 0.25 }),
+        num("Feed speed at 100 %", () => fd.feedMps, (v) => { fd.feedMps = v; fd.provenance = "user"; change("sim"); }, { unit: "m/s", min: 0.05, max: 3, step: 0.05 }),
+        adv(num("Deadband", () => fd.deadband * 100, (v) => { fd.deadband = v / 100; fd.provenance = "user"; change("sim"); }, { unit: "%", min: 0, max: 50, step: 1 }),
+        num("Positional stroke", () => fd.strokeS, (v) => { fd.strokeS = v; fd.provenance = "user"; change("sim"); }, { unit: "s", min: 0.05, max: 2, step: 0.05 }),
+        num("RPM lost per launch", () => fd.rpmDropFrac * 100, (v) => { fd.rpmDropFrac = v / 100; fd.provenance = "user"; change("sim"); }, { unit: "%", min: 0, max: 50, step: 1 }),
+        num("Min launch RPM", () => fd.minLaunchRpm, (v) => { fd.minLaunchRpm = v; fd.provenance = "user"; change("sim"); }, { min: 0, max: 6000, step: 50 })),
+      ));
+    }
+
+    // --- Camera faults: what the OpMode's AprilTag processor reports, downstream of the true geometry
+    {
+      const pc = st.perception, f = pc.faults;
+      hints.set("Camera faults", pc.level === "ideal" && !st.tagCovers.length ? "ideal" : `${pc.level}${st.tagCovers.length ? ` · ${st.tagCovers.length} covered` : ""}`);
+      const fnum = (label: string, key: keyof typeof f, opts: { min: number; max: number; step: number; unit?: string }, scale = 1) => num(label, () => (f[key] as number) * scale, (v) => { (f as any)[key] = v / scale; change("sim"); }, opts);
+      const misread = el("input", { type: "text", "aria-label": "Misread ids", value: Object.entries(f.misreadIds).map(([a, b]) => `${a}>${b}`).join(", "), placeholder: "44>45, 42>45" }) as HTMLInputElement;
+      misread.onchange = () => { const out: Record<string, number> = {}; for (const part of misread.value.split(/[,\s]+/)) { const m = /^(\d+)[>:=](\d+)$/.exec(part); if (m) out[m[1]] = +m[2]; } f.misreadIds = out; change("sim"); };
+      const dup = el("input", { type: "text", "aria-label": "Duplicate ids", value: f.duplicateIds.join(", "), placeholder: "45" }) as HTMLInputElement;
+      dup.onchange = () => { f.duplicateIds = dup.value.split(/[,\s]+/).map(Number).filter((n) => Number.isFinite(n) && n > 0); change("sim"); };
+      const coverRows: HTMLElement[] = [];
+      const groups: [string, readonly number[]][] = [["Red scoring", APRILTAG.clusters.redScoring], ["Red audience", APRILTAG.clusters.redAudience], ["Blue audience", APRILTAG.clusters.blueAudience], ["Blue scoring", APRILTAG.clusters.blueScoring]];
+      for (const [name, ids] of groups) {
+        const all = ids.every((i) => st.tagCovers.includes(i));
+        coverRows.push(el("div", { class: "row full", style: "align-items:center;gap:6px;flex-wrap:wrap" }, el("span", { style: "min-width:7.5em" }, `${name} ${ids[0]}–${ids[ids.length - 1]}`),
+          ...ids.map((id) => { const c = el("input", { type: "checkbox", "aria-label": `cover tag ${id}`, ...(st.tagCovers.includes(id) ? { checked: "" } : {}) }) as HTMLInputElement; c.onchange = () => { st.tagCovers = c.checked ? [...new Set([...st.tagCovers, id])] : st.tagCovers.filter((x) => x !== id); change("sim"); }; return el("label", { style: "display:inline-flex;align-items:center;gap:2px" }, c, String(id)); }),
+          el("button", { onclick: () => { st.tagCovers = all ? st.tagCovers.filter((x) => !ids.includes(x)) : [...new Set([...st.tagCovers, ...ids])]; change("sim"); } }, all ? "Uncover cell" : "Cover cell")));
+      }
+      addSection(section("Camera faults", open("Camera faults", false),
+        sel("Perception level", PERCEPTION_LEVELS.map((l) => ({ value: l.id, label: l.label })), () => pc.level, (v) => { pc.level = v as any; change("sim"); }),
+        el("div", { class: "note full" }, `${PERCEPTION_LEVELS.find((l) => l.id === pc.level)?.note ?? ""}. Pixel decoding is not available: the twin has no camera frames, and a run that asks for it is reported as unsupported.`),
+        ...(pc.level === "faults" ? [
+          fnum("Dropout", "dropoutProb", { unit: "%", min: 0, max: 100, step: 1 }, 100),
+          fnum("Latency", "latencyMs", { unit: "ms", min: 0, max: 2000, step: 10 }),
+          fnum("Pose noise", "poseNoiseIn", { unit: "in", min: 0, max: 12, step: 0.1 }),
+          fnum("Blur above", "blurAboveDps", { unit: "°/s", min: 0, max: 720, step: 10 }),
+          fnum("Min tag size", "minPixels", { unit: "px", min: 0, max: 200, step: 1 }),
+          el("label", {}, "Misread ids"), misread,
+          el("label", {}, "Duplicate ids"), dup,
+          el("div", { class: "note full" }, "Faults are decoder faults: the stickers keep their true ids and poses, and the report names each fault when it engages. A misread 44>45 puts tag 44's pose into the cluster under id 45; with the SDK-style clusters this contaminates the cell's mean pose exactly as the robot saw it. Latency keeps the frame's true acquisition time, so a 500 ms delay is a 500 ms old frame to your freshness check."),
+        ] : []),
+        el("div", { class: "sub" }, "Tag covers (physical plates over the stickers)"),
+        ...coverRows,
+        el("div", { class: "note full" }, "Covering the lowered cell's tags reproduces the operator's experiment: the raised cell's cluster is then seen on its own. A covered tag is occluded, not remapped; the camera list in the HUD shows it as not visible."),
+      ));
+    }
 
     // --- Robot: starter profiles, build, look
     const r = st.robot;

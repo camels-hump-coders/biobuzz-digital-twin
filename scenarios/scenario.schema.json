@@ -154,6 +154,87 @@
         "scoreAtLeast": {
           "type": "number",
           "description": "Our alliance's match score at the end must be at least this (Table 10-2 scoring)."
+        },
+        "launches": {
+          "type": "string",
+          "description": "comparison on balls that physically reached the flywheel during the run (not feeder pulses)"
+        },
+        "feederPulses": {
+          "type": "string",
+          "description": "comparison on feeder command rising edges during the run"
+        },
+        "collectedAtLeast": {
+          "type": "number",
+          "description": "game pieces that entered the robot through the intake during the run (inventory transfer, not a telemetry state)"
+        },
+        "stalls": {
+          "type": "string",
+          "description": "comparison on drive stall episodes (command without shaft motion for 0.5 s)"
+        },
+        "noStall": {
+          "type": "boolean"
+        },
+        "outputsZeroAfterStop": {
+          "type": "boolean",
+          "description": "every commanded motor power / target velocity is zero within 1 s of STOP"
+        },
+        "footprintInside": {
+          "description": "zone name (loading = ours, loadingRed, loadingBlue) or {xMinIn,xMaxIn,zMinIn,zMaxIn}; require: overlap (default) | center | all (every chassis corner inside)",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "zone": {
+                  "type": "string"
+                },
+                "xMinIn": {
+                  "type": "number"
+                },
+                "xMaxIn": {
+                  "type": "number"
+                },
+                "zMinIn": {
+                  "type": "number"
+                },
+                "zMaxIn": {
+                  "type": "number"
+                },
+                "require": {
+                  "enum": [
+                    "overlap",
+                    "center",
+                    "all"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "eventWithin": {
+          "type": "array",
+          "description": "after the first telemetry match of `after`, an event (kind: launch, stall, feed, fault, status, error, \u2026 or a regex on event text / telemetry) must happen within withinS seconds",
+          "items": {
+            "type": "object",
+            "required": [
+              "after",
+              "event",
+              "withinS"
+            ],
+            "properties": {
+              "after": {
+                "type": "string"
+              },
+              "event": {
+                "type": "string"
+              },
+              "withinS": {
+                "type": "number"
+              }
+            }
+          }
         }
       }
     },
@@ -168,6 +249,199 @@
         "boolean"
       ],
       "description": "Run the robot the human runs: true loads TeamCode/twin-settings.json from the team repo (the file the twin's Session section saves), or give a path relative to --team. Its robot, intake side, cameras, launcher, hardware map, calibration and asset overrides are applied first; the scenario's alliance, opponents, starts and assetOverrides override, and robotPreset/hardwarePreset (if given) replace the file's robot."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "recorded in the report; camera-fault draws are seeded by the twin, ballistic dispersion is not (see README)"
+    },
+    "physics": {
+      "description": "drive physics under TeamCode: a profile name or a full profile object (kind, rollingMu, staticMu, scrubMu, kineticRatio, batteryVolts, batteryOhms). Omit to use the saved settings (new sessions: tiles).",
+      "oneOf": [
+        {
+          "enum": [
+            "ideal",
+            "tiles"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "ideal",
+                "tiles",
+                "custom"
+              ]
+            },
+            "rollingMu": {
+              "type": "number"
+            },
+            "staticMu": {
+              "type": "number"
+            },
+            "scrubMu": {
+              "type": "number"
+            },
+            "kineticRatio": {
+              "type": "number"
+            },
+            "batteryVolts": {
+              "type": "number"
+            },
+            "batteryOhms": {
+              "type": "number"
+            }
+          }
+        }
+      ]
+    },
+    "feed": {
+      "type": "object",
+      "description": "feeder transit knobs (partial): throatM, feedMps, deadband, strokeS, rpmDropFrac, minLaunchRpm",
+      "properties": {
+        "throatM": {
+          "type": "number"
+        },
+        "feedMps": {
+          "type": "number"
+        },
+        "deadband": {
+          "type": "number"
+        },
+        "strokeS": {
+          "type": "number"
+        },
+        "rpmDropFrac": {
+          "type": "number"
+        },
+        "minLaunchRpm": {
+          "type": "number"
+        }
+      }
+    },
+    "perception": {
+      "description": "what the OpMode's AprilTag processor reports: a level name or {level, faults}",
+      "oneOf": [
+        {
+          "enum": [
+            "ideal",
+            "faults",
+            "singles"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "level": {
+              "enum": [
+                "ideal",
+                "faults",
+                "singles"
+              ]
+            },
+            "faults": {
+              "type": "object",
+              "properties": {
+                "dropoutProb": {
+                  "type": "number"
+                },
+                "latencyMs": {
+                  "type": "number"
+                },
+                "poseNoiseIn": {
+                  "type": "number"
+                },
+                "misreadIds": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "description": "physical id -> decoded id, e.g. {\"44\": 45}"
+                },
+                "duplicateIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "blurAboveDps": {
+                  "type": "number"
+                },
+                "minPixels": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "tagCovers": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "description": "AprilTag ids physically covered by a plate (world truth; the ids stay installed)"
+    },
+    "coverage": {
+      "type": "object",
+      "description": "what the test claims to cover; a level the twin cannot provide (perception pixels) makes the whole scenario UNSUPPORTED instead of silently running ideal",
+      "properties": {
+        "perception": {
+          "type": "string"
+        },
+        "physics": {
+          "type": "string"
+        }
+      }
+    },
+    "requireEffective": {
+      "type": "object",
+      "description": "asset path (or file name) -> dotted key -> value that must be the EFFECTIVE value at INIT (after bindings and overrides); otherwise the scenario fails at setup with the actual value and its source",
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "faults": {
+      "type": "array",
+      "description": "event-relative fault injections applied through the agent setter and restored after durationS",
+      "items": {
+        "type": "object",
+        "required": [
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "object",
+            "properties": {
+              "t": {
+                "type": "number",
+                "description": "simulated seconds after START"
+              },
+              "telemetry": {
+                "type": "string",
+                "description": "regex: fires when a telemetry line first matches"
+              }
+            }
+          },
+          "durationS": {
+            "type": "number"
+          },
+          "perception": {
+            "type": "object"
+          },
+          "tagCovers": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "physics": {},
+          "feed": {
+            "type": "object"
+          }
+        }
+      }
     }
   }
 }

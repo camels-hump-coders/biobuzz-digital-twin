@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Latest sensor snapshot from the browser and the actuator commands to send back. Thread-safe via volatile swaps. */
 public class SimState implements SimHooks.TagSource {
-    public static class MotorSensor { public double position, velocity; }
+    public static class MotorSensor { public double position, velocity, amps; }
     public static class Snapshot {
         public long nanos = System.nanoTime();
         public Map<String, MotorSensor> motors = new HashMap<>();
@@ -19,6 +19,8 @@ public class SimState implements SimHooks.TagSource {
         public Map<String, List<SimHooks.TagObservation>> tags = new HashMap<>();
         public JsonObject gamepad1, gamepad2;
         public double batteryVolts = 12.6;
+        /** the twin asked for every tag as an AprilTagSingleDetection (perception level "singles") */
+        public boolean singles;
     }
     private volatile Snapshot snapshot = new Snapshot();
     /** actuator commands keyed by device name; written by device shims, read by the link */
@@ -31,7 +33,7 @@ public class SimState implements SimHooks.TagSource {
         if (msg.has("motors")) for (Map.Entry<String, JsonElement> e : msg.getAsJsonObject("motors").entrySet()) {
             MotorSensor m = new MotorSensor();
             JsonObject o = e.getValue().getAsJsonObject();
-            m.position = o.get("pos").getAsDouble(); m.velocity = o.get("vel").getAsDouble();
+            m.position = o.get("pos").getAsDouble(); m.velocity = o.get("vel").getAsDouble(); m.amps = o.has("amps") ? o.get("amps").getAsDouble() : Math.abs(m.velocity) > 1 ? 0.5 : 0;
             s.motors.put(e.getKey(), m);
         }
         if (msg.has("imu")) { JsonObject i = msg.getAsJsonObject("imu"); s.imuYawDeg = i.get("yaw").getAsDouble(); s.imuPitchDeg = i.get("pitch").getAsDouble(); s.imuRollDeg = i.get("roll").getAsDouble(); s.imuYawRateDps = i.has("yawRate") ? i.get("yawRate").getAsDouble() : 0; }
@@ -47,7 +49,8 @@ public class SimState implements SimHooks.TagSource {
                 ob.range = o.get("range").getAsDouble(); ob.bearing = o.get("bearing").getAsDouble(); ob.elevation = o.get("elevation").getAsDouble();
                 ob.robotX = o.get("robotX").getAsDouble(); ob.robotY = o.get("robotY").getAsDouble(); ob.robotYaw = o.get("robotYaw").getAsDouble();
                 if (o.has("R") && o.get("R").isJsonArray() && o.getAsJsonArray("R").size() == 9) { ob.R = new double[9]; for (int k = 0; k < 9; k++) ob.R[k] = o.getAsJsonArray("R").get(k).getAsDouble(); }
-                ob.nanos = s.nanos;
+                // a camera-latency fault delivers an older frame: its acquisition stamp is that much older than this packet
+                ob.nanos = o.has("ageMs") ? s.nanos - (long) (o.get("ageMs").getAsDouble() * 1e6) : s.nanos;
                 list.add(ob);
             }
             s.tags.put(e.getKey(), list);
@@ -55,6 +58,7 @@ public class SimState implements SimHooks.TagSource {
         if (msg.has("gamepad1")) s.gamepad1 = msg.getAsJsonObject("gamepad1");
         if (msg.has("gamepad2")) s.gamepad2 = msg.getAsJsonObject("gamepad2");
         if (msg.has("battery")) s.batteryVolts = msg.get("battery").getAsDouble();
+        if (msg.has("perception") && msg.get("perception").isJsonObject()) s.singles = msg.getAsJsonObject("perception").has("singles") && msg.getAsJsonObject("perception").get("singles").getAsBoolean();
         snapshot = s;
     }
 
@@ -67,6 +71,7 @@ public class SimState implements SimHooks.TagSource {
         return all;
     }
     @Override public long lastSensorNanos() { return snapshot.nanos; }
+    @Override public boolean forceSingles() { return snapshot.singles; }
 
     public JsonObject actuatorMessage() {
         JsonObject m = new JsonObject();

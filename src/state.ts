@@ -8,6 +8,9 @@ import { defaultHardwareConfig, type HardwareConfig } from "./runtime/hardwareCo
 import { defaultCalibration, type CalibrationSession } from "./ballistics/calibration";
 import { DEFAULT_AUDIO, type AudioSettings } from "./sim/audio";
 import { type AiTier, coerceTier } from "./sim/aiTiers";
+import { PHYSICS_PROFILES, type PhysicsProfile } from "./sim/drivePhysics";
+import { DEFAULT_FEED, type FeedSettings } from "./sim/feeder";
+import { DEFAULT_PERCEPTION, NO_FAULTS, type PerceptionSettings } from "./runtime/visionFaults";
 
 export type ViewMode = "orbit" | "top" | "chase" | "robot";
 
@@ -89,6 +92,14 @@ export interface AppState {
   infiniteAmmo: boolean;
   /** manual driving: keep the intake running whenever there is room (off: press I to toggle it, hold K to run it) */
   autoIntake: boolean;
+  /** drive physics under TeamCode: surface friction, turning scrub, motor torque/current and battery (src/sim/drivePhysics.ts) */
+  physics: PhysicsProfile;
+  /** feeder transit: how a feeder command becomes (or fails to become) a launched ball (src/sim/feeder.ts) */
+  feed: FeedSettings;
+  /** what the OpMode's camera reports: ideal geometry, parameterised faults, or individual tags (src/runtime/visionFaults.ts) */
+  perception: PerceptionSettings;
+  /** AprilTag ids physically covered by a plate (world truth: the sticker is still installed, the camera cannot see it) */
+  tagCovers: number[];
 }
 
 export function defaultState(): AppState {
@@ -137,6 +148,10 @@ export function defaultState(): AppState {
     autoIntake: false,
     autoTransition: true,
     audio: { ...DEFAULT_AUDIO },
+    physics: { ...PHYSICS_PROFILES.tiles },
+    feed: { ...DEFAULT_FEED },
+    perception: { level: "ideal", faults: { ...NO_FAULTS, misreadIds: {}, duplicateIds: [] } },
+    tagCovers: [],
   };
 }
 
@@ -218,7 +233,13 @@ function migrate(s: any): AppState {
       for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
-      return { ...defaultState(), ...s, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, aiTier: coerceTier(s.aiTier), matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
+      // 2026-10-09: drive physics, feeder transit and camera faults; older saves get the estimated tiles profile, the
+      // estimated feeder and an ideal camera, which is what the handoff asks a fresh session to expose
+      const physics: PhysicsProfile = s.physics?.kind && s.physics.kind !== "custom" && PHYSICS_PROFILES[s.physics.kind as "ideal" | "tiles"] ? { ...PHYSICS_PROFILES[s.physics.kind as "ideal" | "tiles"], ...s.physics } : s.physics?.kind === "custom" ? { ...PHYSICS_PROFILES.tiles, ...s.physics, provenance: "user" } : { ...PHYSICS_PROFILES.tiles };
+      const feed: FeedSettings = { ...DEFAULT_FEED, ...(s.feed ?? {}) };
+      const perception: PerceptionSettings = { level: ["ideal", "faults", "singles"].includes(s.perception?.level) ? s.perception.level : DEFAULT_PERCEPTION.level, faults: { ...NO_FAULTS, misreadIds: {}, duplicateIds: [], ...(s.perception?.faults ?? {}) } };
+      const tagCovers: number[] = Array.isArray(s.tagCovers) ? s.tagCovers.map(Number).filter((n: number) => Number.isFinite(n)) : [];
+      return { ...defaultState(), ...s, physics, feed, perception, tagCovers, overlays: { ...defaultState().overlays, ...(s.overlays ?? {}) }, noise: { ...DEFAULT_NOISE, ...(s.noise ?? {}) }, hardware: s.hardware?.devices ? { mirroredSide: "left", ...s.hardware } : defaultHardwareConfig(), starts: { ...defaultStarts(), ...(s.starts ?? {}) }, calibration: s.calibration?.setup ? { ...defaultCalibration(), ...s.calibration, setup: { ...defaultCalibration().setup, ...s.calibration.setup } } : defaultCalibration(s.robot?.launcher?.exitHeightM ?? 0.31), audio: { ...DEFAULT_AUDIO, ...(s.audio ?? {}) }, aiTier: coerceTier(s.aiTier), matchPhase: undefined, matchClock: undefined, matchTransition: undefined, matchRequest: undefined };
     }
   }
 }

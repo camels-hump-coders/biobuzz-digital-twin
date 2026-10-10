@@ -1,0 +1,59 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "STALL: the far-side route on foam tiles (estimate) \u2014 finishing turns at the 14 % floor stall, as on the robot",
+  "notes": "Handoff G03. The local TeamCode finishes turns with MIN_TURN 0.14 and a 0.20 near-target cap; on the tiles profile the turning breakaway is about 18 %, so a turn that reaches its last degrees at the floor stops with stuck encoders and a stall current. This fixture is EXPECTED to show stall events; it fails if the physics never stalls. Compare with 01-route-ideal.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "tiles",
+  "coverage": {
+    "physics": "tiles"
+  },
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Match auto : TURN_ALONG_WALL"
+    ],
+    "stalls": ">=1",
+    "eventWithin": [
+      {
+        "after": "Match auto : TURN_ALONG_WALL",
+        "event": "stall",
+        "withinS": 10
+      }
+    ]
+  }
+}

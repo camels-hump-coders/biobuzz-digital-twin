@@ -71,7 +71,7 @@ public class AprilTagProcessor implements VisionProcessor {
         java.util.Map<String, AprilTagClusterDetection> clusters = new java.util.LinkedHashMap<>();
         for (AprilTagSingleDetection s : singles) {
             AprilTagClusterMetadata cm = AprilTagGameDatabase.clusterFor(s.id);
-            if (cm == null || emitSingles) { out.add(s); continue; }
+            if (cm == null || emitSingles || SimHooks.forceSingles()) { out.add(s); continue; }
             AprilTagClusterDetection c = clusters.get(cm.name);
             if (c == null) { c = new AprilTagClusterDetection(); c.metadata = cm; c.frameAcquisitionNanoTime = s.frameAcquisitionNanoTime; c.ftcPose = new AprilTagPoseFtc(); c.robotPose = s.robotPose; clusters.put(cm.name, c); out.add(c); }
             c.tagsDetected.add(s);

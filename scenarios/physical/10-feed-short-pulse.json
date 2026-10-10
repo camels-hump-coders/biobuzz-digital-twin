@@ -1,0 +1,49 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "FEED: 0.4 s windmill pulses at 20 % \u2014 pulses are counted, launches are fewer",
+  "notes": "Handoff G04 / P0 FEED. With the estimated throat (0.69 s at 20 %), a 0.4 s pulse leaves the ball 58 % of the way; the next pulse continues from there, so four pulses launch at most two balls and never four. The old twin launched one ball per pulse edge.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 0.4,
+      "matchAuto.recoverSeconds": 0.6
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "ideal",
+  "expect": {
+    "noErrors": true,
+    "feederPulses": ">=3",
+    "launches": "<=2"
+  }
+}

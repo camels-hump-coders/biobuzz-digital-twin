@@ -37,7 +37,9 @@ export interface SceneSnapshot {
 }
 /** One INIT→STOP of an OpMode, or one Start→Stop of a keyboard match: what the run slider scrubs through. */
 export interface Run { start: number; end?: number; opMode: string }
-export interface Event { t: number; kind: "status" | "error" | "log" | "button" | "shot" | "foul" | "note" | "hardware"; text: string }
+/** `stall`: drive motors commanded without progress; `feed`: feeder pulses and ball transit; `launch`: a ball left the robot;
+ *  `fault`: a camera fault engaged or a tag cover changed; `manifest`: the effective configuration at INIT */
+export interface Event { t: number; kind: "status" | "error" | "log" | "button" | "shot" | "foul" | "note" | "hardware" | "stall" | "feed" | "launch" | "fault" | "manifest"; text: string; data?: Record<string, unknown> }
 
 export class Recorder {
   samples: Sample[] = [];
@@ -70,8 +72,8 @@ export class Recorder {
     if (s.buttons !== this.lastButtons) { if (s.buttons) this.event(s.t, "button", `pressed ${s.buttons}`); this.lastButtons = s.buttons; }
     if (s.shots.fired !== this.lastShots) { if (this.lastShots >= 0) this.event(s.t, "shot", `shot fired (${s.shots.fired} total, ${s.shots.hit} in)`); this.lastShots = s.shots.fired; }
   }
-  event(t: number, kind: Event["kind"], text: string) {
-    this.events.push({ t, kind, text });
+  event(t: number, kind: Event["kind"], text: string, data?: Record<string, unknown>) {
+    this.events.push(data ? { t, kind, text, data } : { t, kind, text });
     if (this.events.length > this.maxEvents) this.events.splice(0, this.events.length - this.maxEvents);
   }
   clear() { this.samples = []; this.events = []; this.runs = []; this.cursor = undefined; this.lastButtons = ""; this.lastStatus = ""; this.lastMatch = ""; this.lastShots = -1; }

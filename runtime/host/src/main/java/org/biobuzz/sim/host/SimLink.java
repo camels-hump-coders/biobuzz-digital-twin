@@ -251,6 +251,10 @@ public class SimLink extends WebSocketServer {
         m.add("opModes", arr);
         if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);
         if (!AgentApi.URL.isEmpty()) m.addProperty("agentUrl", AgentApi.URL);
+        // which TeamCode this host compiled (path, commit, dirty), for the browser's run manifest
+        String ti = System.getProperty("sim.teamInfo", "");
+        if (!ti.isBlank()) { try { m.add("team", JsonParser.parseString(ti).getAsJsonObject()); } catch (Exception ignored) {} }
+        m.addProperty("hostPid", ProcessHandle.current().pid());
         return m;
     }
 

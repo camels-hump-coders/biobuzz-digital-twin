@@ -1,0 +1,68 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "TAG-MIX: lower-cell tags decoded as upper ids while aiming \u2014 a contaminated cluster, stickers untouched",
+  "notes": "Handoff G06 / P0 TAG-MIX. From AIM_SHOOT, tags 40 and 41 (lowered cell) are reported as 45 and 44 for 8 s: the SDK-style BLUE SCORING cluster then blends raised and lowered poses, as the robot saw it. The id map is not changed anywhere. What the local TeamCode does with the blend (reject on height/tilt, or shoot at a false target) is what this fixture exposes; read launches and the Target telemetry in the report. Fault events mark exactly when the misreads engaged.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "ideal",
+  "perception": {
+    "level": "faults"
+  },
+  "faults": [
+    {
+      "at": {
+        "telemetry": "Match auto : AIM_SHOOT"
+      },
+      "durationS": 8,
+      "perception": {
+        "faults": {
+          "misreadIds": {
+            "40": 45,
+            "41": 44
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Match auto : AIM_SHOOT"
+    ]
+  }
+}

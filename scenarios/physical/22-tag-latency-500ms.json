@@ -1,0 +1,69 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "SEARCH: camera frames arrive 500 ms late from AIM_SHOOT \u2014 no fresh target, so the shooting leg must end on its bound",
+  "notes": "Handoff G07 / P0 SEARCH. A 500 ms delivery delay keeps each frame's true acquisition time, so the OpMode's 0.30 s freshness check sees stale frames and must not fire. The leg should give up within the no-shot bound (5 s plus settle) and move on to TURN_BACK. The local TeamCode's no-shot timer only counts while at a wall or range-blocked, so this fixture is expected to FAIL until that fix (handoff c8d5ed0) is pulled.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.drivePower": 0.4,
+      "matchAuto.turnPower": 0.4,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "tagTracking.adaptivePower": true,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 63,
+    "zIn": -36,
+    "headingDeg": 90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "durationS": 60,
+  "inputs": [],
+  "physics": "ideal",
+  "perception": {
+    "level": "faults"
+  },
+  "faults": [
+    {
+      "at": {
+        "telemetry": "Match auto : AIM_SHOOT"
+      },
+      "perception": {
+        "faults": {
+          "latencyMs": 500
+        }
+      }
+    }
+  ],
+  "expect": {
+    "noErrors": true,
+    "launches": "==0",
+    "eventWithin": [
+      {
+        "after": "Match auto : AIM_SHOOT",
+        "event": "Match auto : TURN_BACK",
+        "withinS": 8
+      }
+    ]
+  }
+}

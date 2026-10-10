@@ -81,6 +81,12 @@ export interface HudData {
   /** transient advice (intake off, flywheel stopped, powered motor without a role, low frame rate); a 2-line slot is always reserved */
   notice?: string;
   noticeBad?: boolean;
+  /** TeamCode is commanding the drive without the shafts turning: command, current and the breakaway it would need */
+  notMoving?: string;
+  /** feeder transit: where the staged ball is in the throat, or why nothing is feeding; plus the three counters */
+  feeder?: string;
+  feederPulses?: number;
+  launches?: number;
 }
 
 export class Hud {
@@ -149,6 +155,7 @@ export class Hud {
     else if (next === 'intake') { title = 'Collect a ball'; advice = `Press I to switch the intake feeder on (K runs it while held). Then drive the intake side (green bar) onto a loose ball or under a FLOWER: the side wheels pull it in. You carry ${d.carrying}.`; primary = '<button data-hud-action="intake">Intake on · I</button>'; }
     const html = `
       ${d.launchBlocked ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Shot needs attention</strong><p>${d.launchBlocked}</p></section>` : ''}
+      ${d.notMoving ? `<section class="robot-alert shot-blocked" role="alert"><strong>⚠ Not moving</strong><p>${escape(d.notMoving)}</p></section>` : ''}
       ${d.rejected ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · ${d.rejected.split(' (')[0]}</strong><p>This robot does not take ${d.rejected}. The wheels push it away instead.</p></section>` : ''}
       ${d.nectarReleased ? `<section class="robot-alert" role="status"><strong>NECTAR entered</strong><p>Your hive tipped, so the human player dropped one reserve NECTAR into your LOADING ZONE (one per tip, five per match).</p></section>` : ''}
       ${d.pickupFull ? `<section class="robot-alert intake-blocked" role="status"><strong>⚠ Not collected · carrying ${d.pickupFull}</strong><p>The robot is full (it starts with 4 POLLEN preloaded). Shoot to make room, then collect.</p></section>` : ''}
@@ -189,6 +196,7 @@ export class Hud {
         <tr><td>Flight</td><td>${f(d.flightTime, 2)} s · apex ${f(d.apexIn, 0)} in</td></tr>
         <tr><td>Lowest-energy</td><td>${d.bestAngleDeg === undefined ? "no feasible angle in hood range" : `${f(d.bestAngleDeg, 1)}° @ ${f(d.bestSpeed, 2)} m/s (${f(d.bestRpm, 0)} RPM)`}</td></tr>
         <tr><td>Fired / hit</td><td>${d.shotsFired} / ${d.shotsHit}</td></tr>
+        <tr><td>Feeder</td><td>${d.feederPulses ?? 0} pulses · ${d.launches ?? d.shotsFired} launched · ${d.shotsHit} scored${d.feeder ? ` · ${escape(d.feeder)}` : ""}</td></tr>
       </table>`)}
       ${fold("match", `Match & field · ${d.tipping ?? d.cellLoad.replace(/ = .*$/, "")} · ${d.tips} tip${d.tips === 1 ? "" : "s"}`, `<table>
         <tr><td>Our up cell</td><td class="${d.tipping ? "warn" : ""}">${d.tipping ?? d.cellLoad} · ${d.tips} tip${d.tips === 1 ? "" : "s"} (${d.tips * 20} pts)</td></tr>

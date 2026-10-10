@@ -24,6 +24,12 @@ public final class Devices {
         }
         private double rawPos() { SimState.MotorSensor m = st.snapshot().motors.get(name); return m == null ? 0 : m.position; }
         private double rawVel() { SimState.MotorSensor m = st.snapshot().motors.get(name); return m == null ? 0 : m.velocity; }
+        /** the twin's motor model: stall current at a command the chassis cannot follow, free current when spinning freely */
+        @Override public double getCurrent(CurrentUnit unit) { SimState.MotorSensor m = st.snapshot().motors.get(name); double a = m == null ? Math.abs(power) * 2.0 : m.amps; return unit == CurrentUnit.MILLIAMPS ? a * 1000 : a; }
+        @Override public boolean isOverCurrent() { return getCurrent(CurrentUnit.AMPS) > alertAmps; }
+        private double alertAmps = 9.0;
+        @Override public double getCurrentAlert(CurrentUnit unit) { return unit == CurrentUnit.MILLIAMPS ? alertAmps * 1000 : alertAmps; }
+        @Override public void setCurrentAlert(double current, CurrentUnit unit) { alertAmps = unit == CurrentUnit.MILLIAMPS ? current / 1000 : current; }
         private double sgn() { return dir == Direction.REVERSE ? -1 : 1; }
         @Override public void setDirection(Direction d) { dir = d; push(); }
         @Override public Direction getDirection() { return dir; }
