@@ -134,3 +134,46 @@ with stale frames), BIND (setup refused because the bound 72 in beat the scenari
 design once the intake sweeps empty floor. Two pre-existing twin faults surfaced on the way and were fixed: a settings
 file saved with Auto-RPM omits the launcher RPM and froze the first frame after START (NaN arc), and the harness clicked
 a panel INIT button the workspaces hide. See `scenarios/physical/README.md` for the per-fixture evidence.
+
+## 9. Follow-up with the updated TeamCode (2026-10-10, team checkout `6e7a398`)
+
+The team pulled the handoff's later work: `CellObservations` / `TagClusterConsensus`, `MatchDriveFrame`, the stationary
+shot and camera-layout OpModes, a 25 % finishing floor (30 % near-target cap), 40 % search, 1.0 s feed pulses, the fixed
+54 ± 6 in shot, the fixed-spot no-shot timer, and a saved twin robot that is the physical one (6WD, intake front, shooter
+and camera rear, camera 35° up). Three things in the twin followed from reading it.
+
+**The shim ignored the tag library (fixed).** `DriverControl` now builds its `AprilTagProcessor` with
+`CellObservations.individualLibrary()` (IDs 30–45 as plain 3.25 in tags) so the robot receives `AprilTagSingleDetection`s
+and runs its own consensus. The shim grouped by id whatever the library, so that code path never ran in the twin (the
+handoff said so: "synthetic cluster passthrough bypasses the individual-tag path"). Now a tag carries its season cluster
+only when its metadata comes from the game database; a Builder-made library yields singles with their own poses and
+timestamps; a tag outside the library has no pose. `singles` as a perception level still forces singles for any library.
+
+**The cluster pose was the wrong point (fixed).** The SDK library places each tag at
+(x = −6.5/−2.75/2.75/6.5 by `(id − 30) % 4`, y = 7.1874, z = −5.622) inches from the cluster origin in the tag's own axes
+(x right, y down, z into the face; the team's `docs/LOCALIZATION.md` states the same). `test/tagClusterOrigin.test.ts`
+shows the twin's four stickers on every cell recover one common origin with these offsets, and that origin lies in the
+plane of the cell opening, 1.5 in below the opening centre: for the raised cell 58.2 in above the floor. The shim used to
+report the sticker-strip centre, 7.19 in behind the opening and 5.6 in lower (49.8 in). A cluster's `rawPose`/`ftcPose`
+is now the SDK origin, averaged over the visible tags, so a half-visible cluster reports the same point. **For the team:**
+the robot's physical capture read the raised cell at 59.8 in, which the twin now reproduces (telemetry `h 58 in`), while
+`HiveTargeting.CLUSTER_BEHIND_OPENING = 9.938 − 2.75` still treats the origin as the strip centre; the 38.7 in range the
+code computed against a 45 in tape measure on 2026-10-08 is consistent with that constant being applied to an origin that
+is already at the opening. Re-derive it against the SDK origin (the twin's manifest and `test/tagClusterOrigin.test.ts`
+give the numbers); the twin's own geometric range at the spot is 63.7 in where the code reports 62.
+
+**Fixtures.** Every `twinSettings` fixture now starts the saved robot facing the wall (chassis −90°, shooter into the
+field). STALL split into 00 (25 % floor, must not stall) and 02 (turn capped at 15 %, must stall). New: 23 TAG-MIX
+through the robot's consensus (the lowered cell's 40/41 decode as 44/45: four raised tags beat two impostors, the route
+shoots), 24 TAG-TIE (pairwise-swapped raised ids give two incompatible two-tag groups 18 in apart: ambiguous, no shot,
+bounded leg), 70/71 FRAME (the team's front/rear shooter-first drive-outs), 80 STOP (stopped after the third launch, all
+outputs zero). A first TAG-TIE built from the lowered cell's tags fired anyway: those stickers leave the camera's view
+while the robot turns and one clean frame starts the shot. The manifest now lists roles carried by several devices (the
+saved map holds both the stock names and the robot's).
+
+**Outcome against `6e7a398`:** see `scenarios/physical/README.md`. TAG-COVER passes with the 35° camera (it failed with the
+17° one), SEARCH ends in 7.2 s (48 s before), 00 turns without a stall at 25 %, 02 stalls at 15 %, TAG-MIX shoots through
+the consensus, TAG-TIE is ambiguous and does not fire, FRAME front/rear end at the same field point, STOP is clean.
+COLLECT-MISS and BIND fail by design; pixels are unsupported. The team's own `auto-full-plan-diagnostic`,
+`auto-40-real-shot-range` and `stationary-single-shot` pass unchanged; `auto-30s-far-side-collect-session` skips the
+garden for time inside 30 s with 1.0 s pulses, as the team's docs already record.

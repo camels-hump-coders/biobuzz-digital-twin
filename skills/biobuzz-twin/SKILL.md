@@ -109,7 +109,9 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
   `minPixels`); `tagCovers: [38, 39, 40, 41]` (physical plates; ids stay installed); event-relative `faults`
   (`[{at: {telemetry: "AIM_SHOOT"} | {t: 8}, durationS, perception, tagCovers, physics, feed}]`). `coverage` states
   what the test claims; `perception: "pixels"` is UNSUPPORTED (no camera frames) and the run says so instead of
-  running ideal. `requireEffective: {"robot-profile.json": {"tagTracking.shotRangeIn": 54}}` fails setup when a
+  running ideal. Detections follow SDK 12: an `AprilTagProcessor` on the game library gets clusters whose pose is
+  the SDK cluster origin (opening plane, 5.6 in above the strip); one built with `setTagLibrary` on a custom
+  individual-tag library gets single detections, so a team's own consensus code runs in the twin. `requireEffective: {"robot-profile.json": {"tagTracking.shotRangeIn": 54}}` fails setup when a
   binding or a stale profile wins over the scenario, naming the effective value and its source.
 - **Read the verdict, not just pass.** Each check is `pass | fail | inconclusive | unsupported`; the scenario verdict
   is printed last. `inconclusive` means infrastructure (ran under 0.8× real time, seconds of held sensor packets, a

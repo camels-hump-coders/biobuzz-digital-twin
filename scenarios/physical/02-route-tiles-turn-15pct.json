@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "STALL-OK: the far-side route on foam tiles (estimate) — the 25 % finishing floor turns without stalling",
-  "notes": "Handoff G03 / P0 STALL, revised setting. TeamCode since 4298d51 finishes turns at a 25 % floor (30 % near-target cap); on the tiles profile the turning breakaway is about 18 %, so every turn must complete with no stall episode. Compare 02-route-tiles-turn-15pct, which caps the turn at the old 15 % and stalls like the robot did.",
+  "name": "STALL: the same route with the turn capped at 15 % on foam tiles — the finishing turn stalls, as on the robot",
+  "notes": "Handoff G03 / P0 STALL, old setting. TeamCode's finishing floor is min(MIN_TURN, turnPower), so a 15 % turn cap reproduces the 14 % command that stalled the physical robot at 81°: on the tiles profile (breakaway about 18 %) the turn stops with frozen encoders and a stall current, and the auto runs out its time budget. This fixture is EXPECTED to show stall events; it fails if the physics never stalls.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -16,7 +16,7 @@
       "matchAuto.loadingZoneDistanceIn": 64,
       "matchAuto.returnReserveSeconds": 10,
       "matchAuto.drivePower": 0.4,
-      "matchAuto.turnPower": 0.4,
+      "matchAuto.turnPower": 0.15,
       "matchAuto.flowerDepthIn": 7,
       "matchAuto.flowerGraceIn": 4,
       "tagTracking.adaptivePower": true,
@@ -44,10 +44,16 @@
   },
   "expect": {
     "noErrors": true,
-    "telemetrySequence": [
-      "Match auto : TURN_ALONG_WALL",
-      "Match auto : DRIVE_ALONG_WALL"
+    "telemetryIncludes": [
+      "Match auto : TURN_ALONG_WALL"
     ],
-    "noStall": true
+    "stalls": ">=1",
+    "eventWithin": [
+      {
+        "after": "Match auto : TURN_ALONG_WALL",
+        "event": "stall",
+        "withinS": 10
+      }
+    ]
   }
 }

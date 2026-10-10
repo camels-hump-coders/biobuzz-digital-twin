@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "TAG-TIE: raised 44/45 covered while the lowered 40/41 decode as 44/45 — two against two, no confident target, no shot",
-  "notes": "Handoff G06 / P0 TAG-TIE. Two incompatible, equally supported groups (42+43 on the raised cell versus the impostor 44+45 on the lowered cell) must be reported as ambiguous: no blended pose, no firing, and the fixed-spot no-shot bound must end the leg.",
+  "name": "TAG-TIE: the raised cell's ids decode pairwise swapped (42↔44, 43↔45) — two equally supported, incompatible groups, no confident target, no shot",
+  "notes": "Handoff G06 / P0 TAG-TIE. The four raised stickers are all seen, but the decoder swaps 42↔44 and 43↔45, so each pair recovers a cluster origin 9 in to one side of the truth: two consistent two-tag groups 18 in apart, equally supported. TagClusterConsensus must report 'ambiguous competing tag groups' for every frame, the aim must never start, and the fixed-spot no-shot bound must end the leg. (A first version of this fixture used the lowered cell's 40/41 as the impostors: the robot fired anyway, because the lowered stickers leave the camera's view while it turns and one clean frame is enough to start the shot. That is worth knowing, and it is why the tie must be built from tags that stay in view.)",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -44,8 +44,10 @@
     "level": "faults",
     "faults": {
       "misreadIds": {
-        "40": 44,
-        "41": 45
+        "42": 44,
+        "44": 42,
+        "43": 45,
+        "45": 43
       }
     }
   },
@@ -63,10 +65,6 @@
       }
     ]
   },
-  "tagCovers": [
-    44,
-    45
-  ],
   "coverage": {
     "perception": "faults"
   }

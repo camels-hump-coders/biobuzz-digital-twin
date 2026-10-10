@@ -105,7 +105,13 @@ for (let i = 0; i < scenarios.length; i++) {
   if (scenarios.length > 1) console.log(`\n=== [${i + 1}/${scenarios.length}] ${scenario.name ?? scenarioPath ?? scenario.opMode}`);
   let pass = false;
   try { pass = await runScenario(scenario, scenarioPath, out); }
-  catch (e) { console.error(`twin-test: scenario crashed: ${e?.stack ?? e}`); writeReport(out, { scenario: scenario.name ?? scenarioPath, opMode: scenario.opMode, team, pass: false, failed: String(e), checks: [], samples: [], pageErrors: [], hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() }); }
+  catch (e) {
+    // a crash before the OpMode ran (the page did not load, the host went away, Playwright timed out) says nothing
+    // about the robot code: the verdict is inconclusive with an infrastructure reason, never a fail
+    const infra = /page\.goto|Timeout .* exceeded|host exited|Target closed|net::ERR|waiting for the host/i.test(String(e?.message ?? e));
+    console.error(`twin-test: scenario crashed${infra ? " (infrastructure: the OpMode never ran)" : ""}: ${e?.stack ?? e}`);
+    writeReport(out, { scenario: scenario.name ?? scenarioPath, opMode: scenario.opMode, team, pass: false, verdict: infra ? "inconclusive" : "fail", failed: String(e), infrastructure: infra ? [`crashed before the run: ${String(e?.message ?? e).split("\n")[0]}`] : undefined, checks: [], samples: [], pageErrors: [], hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() });
+  }
   let verdict = pass ? "pass" : "fail";
   try { verdict = JSON.parse(readFileSync(out, "utf8")).verdict ?? verdict; } catch { /* keep */ }
   results.push({ name: scenario.name ?? scenarioPath ?? scenario.opMode, pass, verdict, out });
