@@ -38,6 +38,16 @@ missed each of them.
 | 70-frame-front / 71-frame-rear | the shooter-first drive-out with a front and with the saved rear shooter | pass: both end at the same field point |
 | 80-stop-mid-feed | STOP while the feeder is pulsing | pass: every commanded output zero after STOP |
 
+**Speed raise (team commit `d8dd552`, drive/turn 0.8, spot legs 0.6, approach gain 0.12), same day:** 20 pass, 1 unsupported,
+3 fail by design; the fixtures now take the drive and turn powers from the team's profile instead of pinning 0.4. On the
+tiles profile the 12 in departure takes 0.9 s instead of 1.3 s (15.0 in travelled, 3 in over target, was 1.5 over), the
+90° turn 1.0 s instead of 1.5 s and settles inside the 3° tolerance without hunting, the 20 in along-wall leg 1.1 s instead
+of 1.7 s (23.4 in, 3.4 over, was 1.1 over); no new stall, the route still shoots, collects and parks. GARDEN-CONTACT at
+the 0.6 leg power holds the chassis for 0.3 s and then shoves the single-ball column aside with no stall, so that fixture
+pins the 0.3 approach power the physical stall happened at. Of the team's ten scenarios eight pass; `auto-30s-far-side-collect`
+(three pollen picked, the code still says "collection took too long") and `auto-30s-range-blocked` (expects a 50 in
+drive-out the fixed 12 in departure no longer makes) fail identically with the powers pinned back to 0.4.
+
 Every match fixture sets `matchAuto.pauseAimTimers: false` explicitly: the team's bundled profile now ships the practice
 clock on, and twin-test warns (`warnings` in the report, `timing.practiceTimers`) when a fixture inherits it, because a
 paused aim deadline invalidates every "leg ends within N s" expectation.
