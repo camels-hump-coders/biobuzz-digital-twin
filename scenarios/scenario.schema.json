@@ -172,7 +172,23 @@
           "description": "comparison on drive stall episodes (command without shaft motion for 0.5 s)"
         },
         "noStall": {
-          "type": "boolean"
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "before": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "before"
+              ]
+            }
+          ],
+          "description": "true: no stall event during the run; {before: regex}: none before that telemetry line first appears"
         },
         "outputsZeroAfterStop": {
           "type": "boolean",

@@ -403,7 +403,13 @@ async function runScenario(scenario, scenarioPath, out) {
     if (e.feederPulses) checks.push({ check: `feederPulses ${e.feederPulses}`, pass: cmp(e.feederPulses, delta("feederPulses")), detail: `${delta("feederPulses")} feeder pulses commanded` });
     if (e.collectedAtLeast !== undefined) checks.push({ check: `collected ≥ ${e.collectedAtLeast} (inventory delta)`, pass: delta("picks") >= e.collectedAtLeast, detail: `${delta("picks")} game pieces entered the robot` });
     if (e.stalls) checks.push({ check: `stalls ${e.stalls}`, pass: cmp(e.stalls, delta("stalls")), detail: `${delta("stalls")} stall episodes` });
-    if (e.noStall) { const st = eventsAll.filter((x) => x.kind === "stall"); checks.push({ check: "no drive stall", pass: st.length === 0, detail: st.length ? st[0].text : "" }); }
+    if (e.noStall) {
+      // true: no stall at all; {before: regex}: none before that telemetry first appears (a route turn must not stall; a
+      // later garden pile holding the chassis is a different question)
+      const until = typeof e.noStall === "object" && e.noStall.before ? firstSeen(e.noStall.before) : undefined;
+      const st = eventsAll.filter((x) => x.kind === "stall" && (until === undefined || evT(x) < until));
+      checks.push({ check: until !== undefined ? `no drive stall before /${e.noStall.before}/` : "no drive stall", pass: st.length === 0 && !(typeof e.noStall === "object" && e.noStall.before && until === undefined), detail: st.length ? st[0].text : typeof e.noStall === "object" && e.noStall.before && until === undefined ? `/${e.noStall.before}/ never appeared` : "" });
+    }
     if (e.contacts) { const ct = eventsAll.filter((x) => x.kind === "contact"); checks.push({ check: `contacts ${e.contacts}`, pass: cmp(e.contacts, ct.length), detail: ct.length ? `${ct.length}: ${ct[0].text}` : "no loose-ball contact held the chassis" }); }
     // the flywheel never commanded: "no shot was even attempted" is a claim about outputs, not about states
     if (e.flywheelMaxPower) { const peak = final?.flywheelPeakPower ?? Math.max(0, ...samples.map((x) => x.flywheelPower ?? 0)); checks.push({ check: `flywheel peak power ${e.flywheelMaxPower}`, pass: cmp(e.flywheelMaxPower, +peak.toFixed(3)), detail: `peak commanded ${Math.round(peak * 100)} %` }); }

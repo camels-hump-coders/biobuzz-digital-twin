@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
   "name": "STALL-OK: the far-side route on foam tiles (estimate) — the 25 % finishing floor turns without stalling",
-  "notes": "Handoff G03 / P0 STALL, revised setting. TeamCode since 4298d51 finishes turns at a 25 % floor (30 % near-target cap); on the tiles profile the turning breakaway is about 18 %, so every turn must complete with no stall episode. Compare 02-route-tiles-turn-15pct, which caps the turn at the old 15 % and stalls like the robot did.",
+  "notes": "Handoff G03 / P0 STALL, revised setting. TeamCode since 4298d51 finishes turns at a 25 % floor (30 % near-target cap); on the tiles profile the turning breakaway is about 18 %, so every turn must complete with no stall episode. Compare 02-route-tiles-turn-15pct, which caps the turn at the old 15 % and stalls like the robot did. The no-stall check covers the route out to the shot: in the garden the chassis is now held by the row's outer balls (those outside the intake mouth, squeezed on the wall), which the code's collect watchdog handles by collecting where it was held.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -47,6 +47,8 @@
       "Match auto : TURN_ALONG_WALL",
       "Match auto : DRIVE_ALONG_WALL"
     ],
-    "noStall": true
+    "noStall": {
+      "before": "Match auto : AIM_SHOOT"
+    }
   }
 }
