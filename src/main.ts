@@ -17,7 +17,7 @@ import { Recorder, type Run, type Sample, type SceneSnapshot } from "./runtime/r
 import type { ScriptedRobot } from "./sim/opponents";
 import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
-import { BALL, FIELD, m } from "./field/fieldSpec";
+import { BALL, FIELD, m, ZONES } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
 import { Input } from "./sim/input";
 import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, maxYawRate, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
@@ -475,7 +475,7 @@ function capabilities() {
     feed: { transit: true, positionalStroke: true, jams: false },
     clock: { mode: "wall", fixedStep: false, pauseUnderOpMode: false },
     assertions: ["noErrors", "shotsFired", "shotsHit", "launches", "feederPulses", "collectedAtLeast", "footprintInside", "outputsZeroAfterStop", "eventWithin", "noStall", "fouls", "telemetryIncludes", "telemetryFinalIncludes", "telemetrySequence", "movedAtLeastIn", "poseNear", "scoreAtLeast"],
-    events: ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest"],
+    events: ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest", "pick"],
     api: ["manifest", "capabilities", "twin(physics, feed, perception, tagCovers)"],
   };
 }
@@ -1450,6 +1450,7 @@ function frame(now: number) {
     launcher: { efficiency: l.efficiency, wheelDiameterMm: Math.round(l.wheelDiameterM * 1000), maxRpm: l.maxRpm, spinFraction: l.spinFraction },
     note: "requiredPower = required RPM / the flywheel motor's free RPM in the Hardware map (what setPower needs with no load); heightErrorIn is for the current commanded RPM",
   };
+  notePicks();
   hud.update({
     notMoving, feeder: feederNote, feederPulses, launches: shotsFired,
     poseIn: replaySample ? { x: replaySample.pose.xIn, z: replaySample.pose.zIn, headingDeg: replaySample.pose.headingDeg } : { x: mToIn(state.pose.x), z: mToIn(state.pose.z), headingDeg: rad2deg(state.pose.heading) },
@@ -1670,6 +1671,23 @@ function stepFeeders(dt: number) {
     if (fs.ballPosM !== undefined) feederNote = `${dev.name}: ball ${Math.round((fs.ballPosM / state.feed.throatM) * 100)} % along the throat`;
     else if (fs.reason) feederNote = `${dev.name}: ${fs.reason}`;
   }
+}
+/** A game piece entered our robot: record what and where (the garden corner, a FLOWER, or the open floor / zone), so a
+ *  collection check can ask for a POLLEN picked in the garden rather than any transfer (handoff G08). */
+let lastPickInv = { pollen: -1, nectar: -1 };
+function notePicks() {
+  const inv = playerAgent.inventory;
+  if (lastPickInv.pollen < 0) { lastPickInv = { ...inv }; return; }
+  for (const kind of ["pollen", "nectar"] as const) {
+    const gained = inv[kind] - lastPickInv[kind];
+    if (gained <= 0) continue;
+    const xIn = state.pose.x / IN, zIn = state.pose.z / IN;
+    const g = state.alliance === "red" ? ZONES.gardenRedTape : ZONES.gardenBlueTape;
+    const nearGarden = xIn >= g.xMin - 14 && xIn <= g.xMax + 14 && zIn >= g.zMin - 14 && zIn <= g.zMax + 14;
+    const where = nearGarden ? "in the garden" : "on the floor";
+    for (let i = 0; i < gained; i++) recorder.event(Date.now(), "pick", `picked ${kind.toUpperCase()} ${where} at (${xIn.toFixed(0)}, ${zIn.toFixed(0)}) in · carrying ${inv.pollen} + ${inv.nectar}`, { kind, where: nearGarden ? "garden" : "floor", xIn: +xIn.toFixed(1), zIn: +zIn.toFixed(1), inventory: { ...inv } });
+  }
+  lastPickInv = { ...inv };
 }
 /** Drive motors commanded without progress for half a second: say so (HUD) and record it (events), once per episode. */
 function updateStallWatchdog(dt: number) {

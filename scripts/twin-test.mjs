@@ -106,12 +106,16 @@ for (let i = 0; i < scenarios.length; i++) {
   let pass = false;
   try { pass = await runScenario(scenario, scenarioPath, out); }
   catch (e) { console.error(`twin-test: scenario crashed: ${e?.stack ?? e}`); writeReport(out, { scenario: scenario.name ?? scenarioPath, opMode: scenario.opMode, team, pass: false, failed: String(e), checks: [], samples: [], pageErrors: [], hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() }); }
-  results.push({ name: scenario.name ?? scenarioPath ?? scenario.opMode, pass, out });
+  let verdict = pass ? "pass" : "fail";
+  try { verdict = JSON.parse(readFileSync(out, "utf8")).verdict ?? verdict; } catch { /* keep */ }
+  results.push({ name: scenario.name ?? scenarioPath ?? scenario.opMode, pass, verdict, out });
 }
 await browser.close();
 if (results.length > 1) {
   console.log(`\ntwin-test: ${results.filter((r) => r.pass).length}/${results.length} passed`);
-  for (const r of results) console.log(`  ${r.pass ? "✓" : "✗"} ${r.name}  (${r.out})`);
+  for (const r of results) console.log(`  ${{ pass: "✓", fail: "✗", inconclusive: "~", unsupported: "?" }[r.verdict] ?? "✗"} ${r.verdict !== "pass" && r.verdict !== "fail" ? `[${r.verdict}] ` : ""}${r.name}  (${r.out})`);
+  const counts = results.reduce((a, r) => { a[r.verdict] = (a[r.verdict] ?? 0) + 1; return a; }, {});
+  console.log(`twin-test: verdicts ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}`);
 }
 const allPass = results.every((r) => r.pass);
 console.log(allPass ? "PASS" : "FAIL");
@@ -158,6 +162,8 @@ async function runScenario(scenario, scenarioPath, out) {
   if (scenario.feed) seed.feed = { ...(fileSettings.feed ?? {}), ...scenario.feed };
   if (scenario.perception) seed.perception = typeof scenario.perception === "string" ? { level: scenario.perception } : { ...(fileSettings.perception ?? {}), ...scenario.perception, faults: { ...(fileSettings.perception?.faults ?? {}), ...(scenario.perception.faults ?? {}) } };
   if (scenario.tagCovers) seed.tagCovers = scenario.tagCovers;
+  // any other twin setting (capacity, infiniteAmmo, tipMassG, aiTier, autoTransition, …): the same keys the settings file holds
+  if (scenario.twin && typeof scenario.twin === "object") Object.assign(seed, scenario.twin);
   // coverage the twin cannot provide is an UNSUPPORTED verdict before anything runs
   const caps = { perception: ["ideal", "faults", "singles"], physics: ["ideal", "tiles", "custom"] };
   const wantPerception = scenario.coverage?.perception, wantPhysics = scenario.coverage?.physics;
@@ -297,11 +303,16 @@ async function runScenario(scenario, scenarioPath, out) {
     const wallS = wallStartMs ? (Date.now() - wallStartMs) / 1000 : 0;
     const simS = final && startSnapshot ? Math.max(0, now) : 0;
     const ratio = wallS > 0 ? simS / wallS : 1;
-    const held = (hostEnd?.sensors?.heldFramesEver ?? 0) - (hostStart?.sensors?.heldFramesEver ?? 0);
+    const held = (hostEnd?.sensors?.heldFramesLive ?? hostEnd?.sensors?.heldFramesEver ?? 0) - (hostStart?.sensors?.heldFramesLive ?? hostStart?.sensors?.heldFramesEver ?? 0);
+    // sensor gaps that happened under a live OpMode during this scenario (gaps while IDLE / STOPPED are page loads between
+    // scenarios and touched no robot); the team's shot cycle aborts on a loop gap over 300 ms, so such a gap changes the
+    // robot's behaviour and the run is not evidence either way
+    const gapsBefore = hostStart?.sensors?.gapsLive?.length ?? 0;
+    const liveGaps = (hostEnd?.sensors?.gapsLive ?? []).slice(gapsBefore).filter((g) => (g.status === "RUNNING" || g.status === "INIT") && g.gapMs > 300);
     // infrastructure: the machine could not keep the run at real time, so timing-dependent robot behaviour is not evidence
     const infra = [];
     if (duration > 0 && simS > 1 && ratio < 0.8) infra.push(`ran at ${ratio.toFixed(2)}x real time (under 0.8x)`);
-    if (held > 40) infra.push(`host re-stamped ${held} stalled sensor packets (browser stalls)`);
+    if (liveGaps.length > 2 || liveGaps.some((g) => g.gapMs > 1000)) infra.push(`${liveGaps.length} sensor gap${liveGaps.length === 1 ? "" : "s"} over 300 ms while the OpMode ran (longest ${Math.max(...liveGaps.map((g) => g.gapMs))} ms)`);
     if (pageErrors.length) infra.push(`the page threw: ${pageErrors[0]}`);
     if (failed && /stalled\?|did not answer|Execution context/.test(String(failed))) infra.push(String(failed));
     const physical = (c) => (infra.length && c.check !== "noErrors" && !c.verdict ? { ...c, pass: false, verdict: "inconclusive", detail: `${c.detail ? c.detail + " · " : ""}infrastructure: ${infra.join("; ")}` } : { verdict: c.pass ? "pass" : "fail", ...c });
@@ -357,7 +368,7 @@ async function runScenario(scenario, scenarioPath, out) {
     for (const w of e.eventWithin ?? []) {
       // after the first telemetry match of `after`, an event of kind/regex `event` must occur within `withinS` (bounded fallbacks)
       const t0 = firstSeen(w.after);
-      const kinds = ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest"];
+      const kinds = ["status", "error", "log", "button", "shot", "foul", "note", "hardware", "stall", "feed", "launch", "fault", "manifest", "pick"];
       const match = (ev) => (kinds.includes(w.event) ? ev.kind === w.event : new RegExp(w.event).test(ev.text));
       const hit = t0 === undefined ? undefined : eventsAll.find((ev) => match(ev) && evT(ev) >= t0 - 0.5);
       const telemetryHit = t0 === undefined || kinds.includes(w.event) ? undefined : firstSeen(w.event);
@@ -370,7 +381,7 @@ async function runScenario(scenario, scenarioPath, out) {
     const pass = judged.every((c) => c.verdict === "pass") && !failed;
     const verdict = pass ? "pass" : judged.some((c) => c.verdict === "unsupported") && judged.every((c) => c.verdict !== "fail") ? "unsupported" : infra.length && judged.every((c) => c.verdict !== "fail") ? "inconclusive" : "fail";
     const events = eventsAll.map((ev) => ({ t: +evT(ev).toFixed(2), kind: ev.kind, text: ev.text, ...(ev.data ? { data: ev.data } : {}) }));
-    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, twinSettings: settingsFile, pass, verdict, failed, infrastructure: infra.length ? infra : undefined, timing: { simulatedS: +simS.toFixed(1), wallS: +wallS.toFixed(1), ratio: +ratio.toFixed(2), heldSensorPackets: held, maxSensorGapMs: hostEnd?.sensors?.maxGapMsEver, clock: "wall" }, checks: judged, manifest, faults: faultLog.length ? faultLog : undefined, events, start: startSnapshot, final, samples, telemetryChanges, pageErrors, pageErrorStacks, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
+    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, twinSettings: settingsFile, pass, verdict, failed, infrastructure: infra.length ? infra : undefined, timing: { simulatedS: +simS.toFixed(1), wallS: +wallS.toFixed(1), ratio: +ratio.toFixed(2), heldSensorPackets: held, liveGapsOver300Ms: liveGaps, clock: "wall" }, checks: judged, manifest, faults: faultLog.length ? faultLog : undefined, events, start: startSnapshot, final, samples, telemetryChanges, pageErrors, pageErrorStacks, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
     writeReport(out, rep);
     if (pageErrorStacks.length) console.log(`  page error stack:\n    ${pageErrorStacks[0].replace(/\n/g, "\n    ")}`);
     const mark = { pass: "✓", fail: "✗", inconclusive: "~", unsupported: "?" };
@@ -380,7 +391,7 @@ async function runScenario(scenario, scenarioPath, out) {
     if (infra.length) console.log(`  ~ infrastructure: ${infra.join("; ")}`);
     if (final) {
       console.log(`  final: ${final.status}${final.error ? " " + final.error.split("\n")[0] : ""} · pose (${final.poseIn.x}, ${final.poseIn.z}) in @ ${final.poseIn.headingDeg}° · ${delta("feederPulses")} pulses, ${delta("launches")} launched, ${final.shotsHit} scored · collected ${delta("picks")} · ${delta("stalls")} stalls · carrying ${final.carrying?.pollen} pollen + ${final.carrying?.nectar} nectar · ${ratio.toFixed(2)}x real time`);
-      const notable = events.filter((ev) => ["stall", "launch", "feed", "fault", "error"].includes(ev.kind)).slice(0, 12);
+      const notable = events.filter((ev) => ["stall", "launch", "feed", "fault", "error", "pick"].includes(ev.kind)).slice(0, 14);
       if (notable.length) console.log(`  events:\n    ${notable.map((ev) => `${ev.t}s [${ev.kind}] ${ev.text}`).join("\n    ")}${events.length > notable.length ? `\n    (… ${events.length} events in the report)` : ""}`);
       console.log(`  telemetry (final):\n    ${(final.telemetry ?? []).join("\n    ")}`);
     }

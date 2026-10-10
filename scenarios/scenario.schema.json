@@ -215,7 +215,7 @@
         },
         "eventWithin": {
           "type": "array",
-          "description": "after the first telemetry match of `after`, an event (kind: launch, stall, feed, fault, status, error, \u2026 or a regex on event text / telemetry) must happen within withinS seconds",
+          "description": "after the first telemetry match of `after`, an event (kind: launch, stall, feed, fault, pick, status, error, \u2026 or a regex on event text / telemetry, e.g. \"picked POLLEN in the garden\") must happen within withinS seconds",
           "items": {
             "type": "object",
             "required": [
@@ -442,6 +442,10 @@
           }
         }
       }
+    },
+    "twin": {
+      "type": "object",
+      "description": "any other twin setting from the settings file (capacity, infiniteAmmo, tipMassG, aiTier, autoTransition, canPollen, \u2026), merged into the browser's settings before the page loads"
     }
   }
 }

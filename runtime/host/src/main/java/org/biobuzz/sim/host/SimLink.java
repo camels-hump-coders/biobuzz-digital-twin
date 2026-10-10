@@ -322,7 +322,11 @@ public class SimLink extends WebSocketServer {
         m.addProperty("browserConnected", hasBrowser());
         m.addProperty("browserClients", clients.size());
         m.addProperty("ignoredSensorPacketsFromOtherClients", ignoredSensorPackets);
-        JsonObject ss = sensorStats.deepCopy(); if (lastSensorNanos != 0) ss.addProperty("sinceLastPacketMs", Math.round((System.nanoTime() - lastSensorNanos) / 1e6)); m.add("sensors", ss);
+        JsonObject ss = sensorStats.deepCopy(); if (lastSensorNanos != 0) ss.addProperty("sinceLastPacketMs", Math.round((System.nanoTime() - lastSensorNanos) / 1e6));
+        // live counters (the 10 s window above lags): what a harness needs to classify THIS run's gaps, with the OpMode
+        // status each gap happened under (a gap between scenarios, while IDLE or STOPPED, did not touch any robot)
+        synchronized (sensorLock) { ss.addProperty("heldFramesLive", heldFrames); ss.addProperty("gapsOver300msLive", sensorGapsOver300); ss.addProperty("gapsOver100msLive", sensorGapsOver100); ss.add("gapsLive", gapLog.deepCopy()); }
+        m.add("sensors", ss);
         m.add("opModes", opModesMessage().get("opModes"));
         if (panels) m.addProperty("panelsUrl", PanelsBoot.URL);
         m.addProperty("agentUrl", AgentApi.URL);

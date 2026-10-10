@@ -40,10 +40,12 @@
   "durationS": 60,
   "inputs": [],
   "physics": "ideal",
-  "capacity": 2,
   "expect": {
     "noErrors": true,
     "feederPulses": ">=3",
     "launches": "<=2"
+  },
+  "twin": {
+    "capacity": 2
   }
 }

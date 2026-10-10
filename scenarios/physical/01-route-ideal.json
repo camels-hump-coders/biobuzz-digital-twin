@@ -57,6 +57,13 @@
       "zone": "loading",
       "require": "overlap"
     },
-    "outputsZeroAfterStop": true
+    "outputsZeroAfterStop": true,
+    "eventWithin": [
+      {
+        "after": "Match auto : COLLECT",
+        "event": "picked POLLEN in the garden",
+        "withinS": 10
+      }
+    ]
   }
 }
