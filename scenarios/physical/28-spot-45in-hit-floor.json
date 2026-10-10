@@ -1,0 +1,98 @@
+{
+  "$schema": "../scenario.schema.json",
+  "name": "SPOT-45-HIT-FLOOR: the same 45 in spot with table rows that carry hit probabilities — 30 % at 40 in, 40 % at 48 in — is refused by the 50 % floor; the gate names it, the flywheel never spins, the leg ends on the bound",
+  "notes": "Companion to SPOT-45. The twin's solver rows now carry a Monte Carlo hit probability; once the team saves such a table the robot gates on it. Here the packaged table is overridden with rows whose probability is below 0.5 up to 48 in and above it from 60 in, so at 45 in the interpolated probability is about 35 %: no shot, 'Shot gate : hit probability … below the 50% minimum', flywheel 0 %, AIM_SHOOT ends on the 5 s no-shot bound. Bindings off so the override is what the code reads.",
+  "opMode": "BioBuzz: Auto 30s + Drive",
+  "alliance": "blue",
+  "twinSettings": true,
+  "assetOverrides": {
+    "biobuzz/robot-profile.json": {
+      "matchAuto.enabled": true,
+      "tagTracking.autoShootEnabled": true,
+      "matchAuto.driveOutIn": 6,
+      "matchAuto.timeoutSeconds": 60,
+      "matchAuto.startPosition": "FAR_SIDE",
+      "matchAuto.loadingZoneSide": "LEFT",
+      "matchAuto.loadingZoneDistanceIn": 64,
+      "matchAuto.returnReserveSeconds": 10,
+      "matchAuto.flowerDepthIn": 7,
+      "matchAuto.flowerGraceIn": 4,
+      "matchAuto.collectGarden": true,
+      "matchAuto.collectOutIn": 0,
+      "matchAuto.shootSpotAlongWallIn": 20,
+      "matchAuto.collectBudgetSeconds": 8,
+      "matchAuto.feedSeconds": 1.0,
+      "matchAuto.pauseAimTimers": false,
+      "tagTracking.adaptivePower": true,
+      "tagTracking.powerTable": [
+        {
+          "rangeIn": 40,
+          "power": 0.425,
+          "hitProbability": 0.3
+        },
+        {
+          "rangeIn": 48,
+          "power": 0.42,
+          "hitProbability": 0.4
+        },
+        {
+          "rangeIn": 60,
+          "power": 0.426,
+          "hitProbability": 0.8
+        },
+        {
+          "rangeIn": 72,
+          "power": 0.441,
+          "hitProbability": 0.78
+        },
+        {
+          "rangeIn": 84,
+          "power": 0.46,
+          "hitProbability": 0.62
+        },
+        {
+          "rangeIn": 96,
+          "power": 0.482,
+          "hitProbability": 0.45
+        }
+      ],
+      "tagTracking.minHitProbability": 0.5
+    },
+    "biobuzz/controller-profile.json": {
+      "servos.windmill.continuousRotationVerified": true
+    }
+  },
+  "start": {
+    "xIn": 48,
+    "zIn": -36,
+    "headingDeg": -90
+  },
+  "opponents": false,
+  "opponentsScore": false,
+  "ignoreBindings": true,
+  "physics": "ideal",
+  "perception": "ideal",
+  "durationS": 30,
+  "requireEffective": {
+    "biobuzz/robot-profile.json": {
+      "tagTracking.minHitProbability": 0.5,
+      "matchAuto.pauseAimTimers": false
+    }
+  },
+  "expect": {
+    "noErrors": true,
+    "telemetryIncludes": [
+      "Shot gate : hit probability .* below the 50% minimum",
+      "Match auto : AIM_SHOOT"
+    ],
+    "flywheelMaxPower": "==0",
+    "launches": "==0",
+    "eventWithin": [
+      {
+        "after": "Match auto : AIM_SHOOT",
+        "event": "Match auto : TURN_BACK",
+        "withinS": 8
+      }
+    ]
+  }
+}

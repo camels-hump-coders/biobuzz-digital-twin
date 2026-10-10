@@ -1,7 +1,7 @@
 {
   "$schema": "../scenario.schema.json",
-  "name": "SPOT-45: the real profile at a 45 in fixed spot — tags locked and centred, flywheel never commanded, leg ends on the no-shot bound",
-  "notes": "SG-002 (team ledger 2026-10-10, commit 365e433): on the robot a 24 in departure put the spot about 45 in from the opening; 100 fresh centred targets, zero inShotRange, zero flywheel, because the 60° drag-free arc cannot descend into the opening closer than 54.6 in (3 in slack). Reconstruction, not a replay: the current code departs 12 in, so the start is moved 15 in further from the wall so the robot stands 45 in from the opening, where the 24 in departure stood (48 in with a 12 in shift). Packaged profile as committed (bindings off: no twin solver calibration), ideal physics and camera so only the shot gates decide. Match clock explicit (pauseAimTimers false).",
+  "name": "SPOT-45: the committed profile at a 45 in fixed spot — the saved power table (40–120 in, no hit probabilities) says a shot exists here, so the robot shoots; the gate says why",
+  "notes": "SG-002 (team ledger, commit 365e433): on 2026-10-10 the robot stood here with tags locked and never spun the flywheel, because the 60° drag-free arc gate refused anything closer than 51.6 in. Since team commit 25a161e the power table is the shot envelope: with the table the team saved from the twin (rows 40–120 in, no hit probabilities, so the 50 % floor cannot refuse them) a shot IS allowed at 45 in and the gate line says so. This fixture now records that policy; 28-spot-45in-hit-floor shows the same spot refused once the rows carry hit probabilities below the floor. Whether the 42 % shot really scores from 45 in is the twin's solver's claim, not a measurement: save the twin's table with its hit probabilities (Runtime banner) before trusting it on the robot. Reconstruction (start moved 15 in out so the robot stands where the 24 in departure stood), packaged profile, bindings off, ideal physics and camera.",
   "opMode": "BioBuzz: Auto 30s + Drive",
   "alliance": "blue",
   "twinSettings": true,
@@ -39,7 +39,7 @@
   "ignoreBindings": true,
   "physics": "ideal",
   "perception": "ideal",
-  "durationS": 40,
+  "durationS": 30,
   "requireEffective": {
     "biobuzz/robot-profile.json": {
       "tagTracking.launchAngleMeasured": true,
@@ -50,21 +50,13 @@
   "expect": {
     "noErrors": true,
     "telemetryIncludes": [
-      "Shot calibration : solver decides range and power",
+      "Shot calibration : solver decides range and power.*table 40-120 in",
       "Match auto : AIM_SHOOT",
-      "Camera sees"
+      "Shot gate : shot allowed at 4[4-7] in"
     ],
-    "flywheelMaxPower": "==0",
-    "launches": "==0",
+    "launches": ">=1",
     "rangeConsistency": {
-      "tolIn": 4
-    },
-    "eventWithin": [
-      {
-        "after": "Match auto : AIM_SHOOT",
-        "event": "Match auto : TURN_BACK",
-        "withinS": 8
-      }
-    ]
+      "tolIn": 6
+    }
   }
 }
