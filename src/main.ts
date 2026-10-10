@@ -359,6 +359,7 @@ let lastFaultsApplied = "";
 /** A loose-ball contact that held the chassis last frame(s): which way is blocked (route forward +1 / back −1) and until
  * when the latch holds (a quarter second after the last refused push, so one free frame cannot creep through it). */
 let contactBlock: { fwdSign: 1 | -1; balls: number; untilMs: number; episode: boolean } | undefined;
+let lastContactEvent: { fwdSign: 1 | -1; atMs: number } | undefined;
 const physicsInput = () => ({ profile: state.physics, massKg: state.robot.massKg ?? 11, block: (contactBlock && performance.now() < contactBlock.untilMs ? contactBlock.fwdSign : 0) as -1 | 0 | 1 });
 let imuYawRef = 0; // IMU yaw is reported relative to the heading at connect time
 function hardwareDevices() {
@@ -1757,7 +1758,10 @@ function applyBallContact() {
     const fwdSign: 1 | -1 = along >= 0 ? 1 : -1;
     if (fwdSign === contactBlock?.fwdSign && contactBlock.episode) { contactBlock.untilMs = nowMs + 250; contactBlock.balls = Math.max(contactBlock.balls, bp.balls); }
     else {
+      const sameEpisode = lastContactEvent && lastContactEvent.fwdSign === fwdSign && nowMs - lastContactEvent.atMs < 2000; // one event per episode, not per frame the watchdog lets go
       contactBlock = { fwdSign, balls: bp.balls, untilMs: nowMs + 250, episode: true };
+      if (sameEpisode) return;
+      lastContactEvent = { fwdSign, atMs: nowMs };
       if (Math.sign(actuatorModel.body.vFwd) === fwdSign) actuatorModel.body.vFwd = 0;
       const t = worldTruth();
       recorder.event(Date.now(), "contact", `chassis held by ${bp.balls} loose ball${bp.balls === 1 ? "" : "s"} against the wall while driving ${fwdSign > 0 ? "forward" : "backward"} at (${t.pose.xIn}, ${t.pose.zIn}) in · physics ${state.physics.kind}: ${state.physics.kind === "ideal" ? "kinematic stop (encoders keep counting)" : `grip ${state.physics.tractionMu ?? 1.2} decides stall vs wheel spin`}`, { balls: bp.balls, fwdSign, pose: t.pose, physics: state.physics.kind });

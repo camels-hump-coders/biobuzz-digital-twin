@@ -177,3 +177,60 @@ the consensus, TAG-TIE is ambiguous and does not fire, FRAME front/rear end at t
 COLLECT-MISS and BIND fail by design; pixels are unsupported. The team's own `auto-full-plan-diagnostic`,
 `auto-40-real-shot-range` and `stationary-single-shot` pass unchanged; `auto-30s-far-side-collect-session` skips the
 garden for time inside 30 s with 1.0 s pulses, as the team's docs already record.
+
+## 10. The team's simulator-gap ledger (2026-10-10, team checkout `a962746`, SG-001 … SG-010)
+
+The team now keeps `SIMULATOR_GAPS.md`, an incident ledger with ten open gaps and acceptance criteria. Their code moved
+again (solver-required autonomous, a 60° measured profile, a fixed 12 in departure, a pre-shot stall watchdog with
+`STALL_SETTLE`, a practice flag `matchAuto.pauseAimTimers` that the bundled profile ships **on**, detector decimation 1).
+What the twin added, gap by gap; what it declines, and why.
+
+**SG-001, the profile the robot saved (P0).** On the hub the code reads the profile it last *saved* (SQLite row 1), not
+the packaged asset; a profile saved by an older build has none of the keys added since, so the committed 60° did
+nothing while `launchAngleMeasured` was absent. The team's sim stub of `RobotDashboard` re-reads the asset at every INIT,
+so the twin had no way to express that. Now: `state.persistedAssets` (per asset, the whole saved document) travels with
+the overrides to the host, and the shim's `AssetManager` serves it in place of the packaged file as the base the
+overrides merge into, so a key it lacks reaches the code missing and the parser fallback applies. `effectiveConfig.ts`
+reports every key as `packaged | persisted | manual | bound | missing` (schema keys no source carries, distinct from
+`null` and `false`) plus `manifest.profile` (`clean-install` vs `persisted`, the missing keys, and whether bindings
+supply any shot-calibration key: `synthetic (twin bindings)` vs `as configured`). Scenarios: `persisted: {asset: {base:
+"packaged" | "rev:<sha>" | "file:<path>", drop, set}}`, `requireEffective … "<missing>"`, `bindingsPolicy: "reject"`
+(a bound calibration fails setup; `reject-all` for any bound key). Panel: *Saved hub profile (upgrade case)* under
+TeamCode settings; the Runtime readout lists the missing keys in amber.
+
+**SG-002, 45 in and no flywheel (P0).** The world truth is now beside the telemetry: `__twin.truth()` gives the robot
+centre and launcher exit distance to the target opening, the bearing and the opening height, and every twin-test sample
+carries it; `rangeConsistency` compares the code's `Target / range` line with it, `flywheelMaxPower` makes "the flywheel
+never spun" a claim about outputs. The reconstruction (SPOT-45, real packaged profile, bindings off, the start moved so
+the robot stands where the 24 in departure stood) and the measurement the ledger asked for (SPOT-12, the current
+departure) are fixtures. The gate breakdown itself (which of eligible / fresh / aligned / solver / range / power / ready
+blocked the shot) is in the team's status JSON, not in telemetry; the twin cannot add gates to their code.
+
+**SG-003, perception.** `fpsCap` holds each processed frame until the detector's next one, so acquisition stamps age as
+on the robot (12 fps at decimation 1); the latency queue now keeps the last delivered frame instead of an empty one.
+There is no preview JPEG in the twin, so no second, throttled age exists to confuse with the detector's; the
+capabilities say so. Ideal / faults / singles stay labelled; pixels stay unsupported.
+
+**SG-004, SG-006.** Already modelled (§2, §3); the ledger's "never make 14 % universally fail" is the scrub band and the
+breakaway readout. Jams remain `jams: false` in the capabilities: no evidence to fit one to.
+
+**SG-005, garden contact (P1).** The twin pushed loose balls out of the chassis with no reaction, through the wall if
+need be. Now a ball the chassis pushes against the perimeter, or against a chain of balls that ends on it, refuses the
+motion (`match.refuse`, chain-aware); the refused travel comes back out of the pose and the drive model takes an
+immovable contact: translation into it is impossible and a new `tractionMu` (1.2 for gecko wheels on foam, an estimate)
+decides stalled shafts with a rising current (the StarterBot) or wheels spinning in place with the encoders counting.
+`contact` events carry the ball count and position. Scenarios can place loose balls (`balls`). GARDEN-CONTACT runs the
+along-wall leg into three POLLEN stacked on the wall with the hopper full and expects the code's own
+`STALL_SETTLE`. The team's code caps that leg short of the twin's garden row, which is why the pile is placed.
+
+**SG-007, clocks.** One documented contract (runtime/README.md → *Clock contract*): wall clock everywhere, acquisition
+stamps never re-stamped, held packets and sub-real-time runs reported and classified inconclusive. twin-test warns when
+an autonomous fixture inherits `pauseAimTimers = true` from the profile instead of setting it, and reports which clock
+ran. PRACTICE-CLOCK shows the pause keeps aiming past every match bound while STOP still zeroes everything. Fixed-step
+execution and pause under an OpMode remain out of scope (§6).
+
+**SG-008, SG-010.** `travelBetween` asserts measured displacement and heading change between two telemetry moments,
+`telemetryBefore` puts a deadline on a state; FRAME front/rear and the collection, footprint and score checks were
+already there. **SG-009.** Reports carry a `runId`, the scenario path and seed, TeamCode and twin revisions with dirty
+flags, the manifest, and the warnings above.
+

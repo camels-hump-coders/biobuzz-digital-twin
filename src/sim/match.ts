@@ -332,7 +332,10 @@ export class Match {
         const ax = mouthAxes(ag.pose, ag.intakeGeom);
         const pen = line - mf.u;
         b.pos.x += ax.u.x * pen; b.pos.z += ax.u.z * pen;
-        this.refuse(ag, b, ax.u.x, ax.u.z);
+        // a running intake with room swallows a ball squeezed against the wall; a stopped or full one is held by it
+        const canTake = ag.intakeActive && ag.inventory.pollen + ag.inventory.nectar < ag.caps.capacity && (b.kind === "pollen" ? ag.caps.pollen : ag.caps.nectar && b.alliance === ag.alliance);
+        if (canTake) { const lim = m(FIELD.sizeIn) / 2 - b.radius; b.pos.x = clamp(b.pos.x, -lim, lim); b.pos.z = clamp(b.pos.z, -lim, lim); }
+        else this.refuse(ag, b, ax.u.x, ax.u.z);
         const vn = Math.max(vx * ax.u.x + vz * ax.u.z, 0);
         b.vel.x = ax.u.x * Math.max(vn + 0.05, 0.1) + vx * 0.3; b.vel.z = ax.u.z * Math.max(vn + 0.05, 0.1) + vz * 0.3;
         b.settled = false; b.restFor = 0; b.contactAge = 1; b.mesh.position.copy(b.pos);
