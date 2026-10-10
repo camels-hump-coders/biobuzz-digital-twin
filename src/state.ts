@@ -231,6 +231,10 @@ function migrate(s: any): AppState {
       if (s.robot) s.robot.look = { color: s.robot.look?.color ?? s.robot.color ?? 0xe8e8e8 }; // the decal / number plate of 2026-10-08 was dropped the same day
       // migration: the StarterBot shooter camera default pitch was a guess (8 deg up); the team measured 35 deg up
       for (const c of s.robot?.cameras ?? []) if (c.name === "Shooter camera" && c.pitchDeg === -8 && c.yawDeg === 180) c.pitchDeg = -35;
+      // the settings file omits the commanded RPM (and hood angle) while Auto-RPM / Auto-hood are on: they are outputs.
+      // Loading such a file must not leave NaN behind (a NaN exit speed made the first trajectory tube throw and froze the
+      // frame loop at START, handoff G02 "omitted auto-RPM restoration")
+      if (s.robot?.launcher) { const l = s.robot.launcher; if (!Number.isFinite(l.rpm)) l.rpm = 0; if (!Number.isFinite(l.elevationDeg)) l.elevationDeg = Number.isFinite(l.elevationMinDeg) ? l.elevationMinDeg : 55; }
       // an earlier build switched Auto-RPM off permanently whenever TeamCode ran; restore the default
       if (s.autoRpm === false && !s.autoRpmUserSet) s.autoRpm = true; // 3 NECTAR + 3 POLLEN weigh 198.6 g; tip just under that
       // 2026-10-09: drive physics, feeder transit and camera faults; older saves get the estimated tiles profile, the

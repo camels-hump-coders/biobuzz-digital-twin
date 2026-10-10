@@ -124,8 +124,8 @@ async function runScenario(scenario, scenarioPath, out) {
   const sampleEvery = scenario.sampleEveryS ?? 1;
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await context.newPage();
-  const pageErrors = [];
-  page.on("pageerror", (e) => pageErrors.push(e.message));
+  const pageErrors = [], pageErrorStacks = [];
+  page.on("pageerror", (e) => { pageErrors.push(e.message); pageErrorStacks.push(String(e.stack ?? e.message).split("\n").slice(0, 8).join("\n")); });
   // twinSettings: run the robot the human runs. The file the Session section saves (robot preset and dimensions,
   // intake side, cameras, launcher, hardware map with free RPMs and mirrored side, calibration, asset overrides) is
   // applied first; the scenario's own fields then override, and its assetOverrides sit on top of the file's.
@@ -370,8 +370,9 @@ async function runScenario(scenario, scenarioPath, out) {
     const pass = judged.every((c) => c.verdict === "pass") && !failed;
     const verdict = pass ? "pass" : judged.some((c) => c.verdict === "unsupported") && judged.every((c) => c.verdict !== "fail") ? "unsupported" : infra.length && judged.every((c) => c.verdict !== "fail") ? "inconclusive" : "fail";
     const events = eventsAll.map((ev) => ({ t: +evT(ev).toFixed(2), kind: ev.kind, text: ev.text, ...(ev.data ? { data: ev.data } : {}) }));
-    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, twinSettings: settingsFile, pass, verdict, failed, infrastructure: infra.length ? infra : undefined, timing: { simulatedS: +simS.toFixed(1), wallS: +wallS.toFixed(1), ratio: +ratio.toFixed(2), heldSensorPackets: held, maxSensorGapMs: hostEnd?.sensors?.maxGapMsEver, clock: "wall" }, checks: judged, manifest, faults: faultLog.length ? faultLog : undefined, events, start: startSnapshot, final, samples, telemetryChanges, pageErrors, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
+    const rep = { scenario: scenario.name ?? scenarioPath ?? scenario.opMode, opMode: scenario.opMode, team, twinSettings: settingsFile, pass, verdict, failed, infrastructure: infra.length ? infra : undefined, timing: { simulatedS: +simS.toFixed(1), wallS: +wallS.toFixed(1), ratio: +ratio.toFixed(2), heldSensorPackets: held, maxSensorGapMs: hostEnd?.sensors?.maxGapMsEver, clock: "wall" }, checks: judged, manifest, faults: faultLog.length ? faultLog : undefined, events, start: startSnapshot, final, samples, telemetryChanges, pageErrors, pageErrorStacks, hostLogTail: simLog.split("\n").slice(-30), generatedAt: new Date().toISOString() };
     writeReport(out, rep);
+    if (pageErrorStacks.length) console.log(`  page error stack:\n    ${pageErrorStacks[0].replace(/\n/g, "\n    ")}`);
     const mark = { pass: "✓", fail: "✗", inconclusive: "~", unsupported: "?" };
     console.log(`\ntwin-test: ${rep.scenario}`);
     if (failed) console.log(`  ✗ ${failed}`);

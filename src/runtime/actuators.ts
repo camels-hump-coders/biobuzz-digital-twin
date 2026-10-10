@@ -36,10 +36,13 @@ export interface ActuatorModel {
   stalled: Set<string>;
   /** breakaway command fractions for the current robot and profile (straight, turning in place) */
   breakaway: { straight: number; turn: number };
+  /** drive motors the OpMode has ever commanded with non-zero power: the ones actually on the chain (a saved hardware
+   *  map may also carry a stock preset's unused drive motors, which the host registers and reports at zero power) */
+  touched: Set<string>;
 }
 
 export function createActuatorModel(): ActuatorModel {
-  return { motors: new Map(), servos: new Map(), fired: [], body: { vFwd: 0, omega: 0 }, currents: new Map(), volts: 12, stalled: new Set(), breakaway: { straight: 0, turn: 0 } };
+  return { motors: new Map(), servos: new Map(), fired: [], body: { vFwd: 0, omega: 0 }, currents: new Map(), volts: 12, stalled: new Set(), breakaway: { straight: 0, turn: 0 }, touched: new Set() };
 }
 
 /** What the drive physics needs from the robot: the surface/battery profile and the chassis mass. */
@@ -93,9 +96,12 @@ export function stepActuators(
         // the browser receives the raw (direction-adjusted) command; targetVel already has direction applied by the shim
       }
       const side = sideOf(dev.role);
-      if (useSides && side) {
-        // side command: the mean of its motors (they share one chain); the shaft speed is assigned after the step
-        const s = sideCmd[side]; s.devices.push(dev); s.u = (s.u * (s.devices.length - 1) + u) / s.devices.length; s.brake = c?.brake ?? true;
+      if (side && c && Math.abs(u) > 1e-6) model.touched.add(dev.name);
+      if (useSides && side && c && model.touched.has(dev.name)) {
+        // side command: the mean of its COMMANDED motors (they share one chain); a drive-role device the OpMode never
+        // touched (a stock preset's leftovers in a saved hardware map) is not on the chain and must not dilute the
+        // command. The shaft speed is assigned after the step.
+        const s = sideCmd[side]; s.devices.push(dev); s.u = (s.u * (s.devices.length - 1) + u) / s.devices.length; s.brake = c.brake ?? true;
         continue;
       }
       st.revPerSec += (target - st.revPerSec) * Math.min(1, dt / TAU);

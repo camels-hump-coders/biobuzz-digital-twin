@@ -75,6 +75,7 @@ export class Overlays {
     this.actual.visible = this.show.actualArc;
     if (!shot) return;
     const pts = shot.samples.filter((_, i) => i % 5 === 0).map((s) => s.pos);
+    if (pts.some((p) => !Number.isFinite(p.x + p.y + p.z))) return; // a NaN arc would throw inside three's curve code
     if (pts.length < 2) return;
     const color = shot.hit ? 0xffcc33 : 0xff8800;
     const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
@@ -142,6 +143,7 @@ export class Overlays {
     if (!shot) return;
     const alpha = aimed ? 1 : 0.35;
     const pts = shot.samples.filter((_, i) => i % 5 === 0).map((s) => s.pos);
+    if (pts.some((p) => !Number.isFinite(p.x + p.y + p.z))) return; // a NaN arc would throw inside three's curve code
     this.trajectory.add(lineFrom(pts, shot.hit ? 0x33ff88 : 0xff5533, alpha));
     // tube for visibility
     const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, p.y, p.z)));

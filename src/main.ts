@@ -453,7 +453,11 @@ function buildManifest() {
 /** The breakaway the current robot and profile imply, without waiting for a TeamCode step (panel readout, manifest). */
 function breakawayNow(): { straight: number; turn: number } {
   const r = state.robot, dp = driveParams();
-  const drive = state.hardware.devices.filter((d) => d.kind === "motor" && ["left", "right", "frontLeft", "frontRight", "backLeft", "backRight"].includes(d.role ?? ""));
+  // the drive motors the OpMode actually commands when one is live; otherwise the roles that fit the chassis (a saved
+  // hardware map can carry both a tank pair and a stock preset's four corner motors)
+  const sides = ["left", "right"], corners = ["frontLeft", "frontRight", "backLeft", "backRight"];
+  let drive = state.hardware.devices.filter((d) => d.kind === "motor" && [...sides, ...corners].includes(d.role ?? "") && actuatorModel.touched.has(d.name));
+  if (!drive.length) { const pair = state.hardware.devices.filter((d) => d.kind === "motor" && sides.includes(d.role ?? "")); const four = state.hardware.devices.filter((d) => d.kind === "motor" && corners.includes(d.role ?? "")); drive = r.drivetrain === "tank" ? (pair.length ? pair : four) : (four.length ? four : pair); }
   const perSide = Math.max(1, Math.ceil(drive.length / 2));
   const b = breakawayCommands({ massKg: r.massKg ?? 11, trackWidthM: dp.trackWidthM, wheelbaseM: dp.wheelbaseM, wheelRadiusM: r.wheelDiameterM / 2, motorsPerSide: perSide, motor: motorSpecFor(drive[0]?.freeRpm ?? r.wheelRpm, GOBILDA_5203_312) }, state.physics);
   // a mecanum chassis gets the straight breakaway in every direction (no skid-steer scrub is modelled for it)
@@ -733,7 +737,7 @@ link.onChange = () => {
     // START on TeamCode: the keyboard drives gamepad1 straight away, no click on the field needed first
     if (link.status === "RUNNING") workspace.focusKeyboard("TeamCode started: keyboard is gamepad1. Press Tab for gamepad2.");
     if ((link.status === "INIT" || link.status === "RUNNING") && recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } // a new run: back to live
-    if (link.status === "INIT") { resetBoard(); for (const f of feeders.values()) { f.ballPosM = undefined; f.strokeLeftS = 0; f.last = 0; f.reason = undefined; } stallFor.clear(); stallActive = false; latencyQueues.clear(); recorder.event(Date.now(), "manifest", `INIT ${link.currentOpMode}: ${manifestSummary()}`, buildManifest()); }
+    if (link.status === "INIT") { resetBoard(); for (const [name, f] of feeders) { f.ballPosM = undefined; f.strokeLeftS = 0; f.reason = undefined; const dev = state.hardware.devices.find((d) => d.name === name); f.last = dev?.kind === "servo" ? (link.actuators[name]?.position ?? 0.5) : 0; } stallFor.clear(); stallActive = false; latencyQueues.clear(); actuatorModel.touched.clear(); recorder.event(Date.now(), "manifest", `INIT ${link.currentOpMode}: ${manifestSummary()}`, buildManifest()); }
     else if (link.status === "RUNNING") startMatch();
     else if (lastLinkStatus === "RUNNING") stopMatch();
     lastLinkStatus = link.status;
@@ -1638,8 +1642,9 @@ function stepFeeders(dt: number) {
   feederNote = undefined;
   for (const dev of state.hardware.devices) {
     if ((dev.kind !== "crservo" && dev.kind !== "servo") || dev.role !== "feeder") continue;
-    let fs = feeders.get(dev.name); if (!fs) { fs = createFeederState(); feeders.set(dev.name, fs); }
     const a = link.actuators[dev.name];
+    let fs = feeders.get(dev.name);
+    if (!fs) { fs = createFeederState(); feeders.set(dev.name, fs); if (dev.kind === "servo") fs.last = a?.position ?? 0.5; } // a servo's resting position is not a rising edge
     const hopper = state.infiniteAmmo ? 99 : playerAgent.inventory.pollen + playerAgent.inventory.nectar;
     const th = dev.fireThreshold ?? 0.5;
     let value = dev.kind === "crservo" ? (a?.power ?? 0) : (a?.position ?? fs.last);
