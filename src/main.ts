@@ -358,9 +358,13 @@ const frameCadences = new Map<string, FrameCadence>();
 let lastFaultsApplied = "";
 /** A loose-ball contact that held the chassis last frame(s): which way is blocked (route forward +1 / back −1) and until
  * when the latch holds (a quarter second after the last refused push, so one free frame cannot creep through it). */
-let contactBlock: { fwdSign: 1 | -1; balls: number; untilMs: number; episode: boolean } | undefined;
+let contactBlock: { fwdSign: 1 | -1; balls: number; untilMs: number; episode: boolean; at: Pose } | undefined;
 let lastContactEvent: { fwdSign: 1 | -1; atMs: number } | undefined;
-const physicsInput = () => ({ profile: state.physics, massKg: state.robot.massKg ?? 11, block: (contactBlock && performance.now() < contactBlock.untilMs ? contactBlock.fwdSign : 0) as -1 | 0 | 1 });
+/** The block holds while the chassis is still where the contact held it (it has not backed off 5 mm or turned 10°):
+ * otherwise one free frame every quarter second lets the drive creep and the encoders count against a pile that, on
+ * the robot, stops the wheels dead. */
+const contactHolds = () => !!contactBlock && (performance.now() < contactBlock.untilMs || (Math.hypot(state.pose.x - contactBlock.at.x, state.pose.z - contactBlock.at.z) < 0.005 && Math.abs(wrapAngle(state.pose.heading - contactBlock.at.heading)) < (10 * Math.PI) / 180));
+const physicsInput = () => ({ profile: state.physics, massKg: state.robot.massKg ?? 11, block: (contactHolds() ? contactBlock!.fwdSign : 0) as -1 | 0 | 1 });
 let imuYawRef = 0; // IMU yaw is reported relative to the heading at connect time
 function hardwareDevices() {
   return state.hardware.devices.map((d) => ({ name: d.name, kind: d.kind, ticksPerRev: d.ticksPerRev ?? 537.7, port: d.port ?? 0 }));
@@ -1272,7 +1276,7 @@ function frame(now: number) {
   // other robots are not static obstacles: contact with them is a pushing contest, resolved below
   const others: Obstacle[] = [];
   const prevPose = state.pose;
-  if (contactBlock && performance.now() < contactBlock.untilMs) { // kinematic drive (ideal profile, keyboard): no travel into the contact either
+  if (contactHolds()) { // kinematic drive (ideal profile, keyboard): no travel into the contact either
     const f = forwardVector(state.pose.heading), into = vel.vx * f.x + vel.vz * f.z;
     if (Math.sign(into) === contactBlock.fwdSign) vel = { ...vel, vx: vel.vx - f.x * into, vz: vel.vz - f.z * into };
   }
@@ -1756,17 +1760,17 @@ function applyBallContact() {
     robot.setPose(state.pose); playerAgent.pose = state.pose;
     const f = forwardVector(state.pose.heading), along = f.x * bp.x + f.z * bp.z;
     const fwdSign: 1 | -1 = along >= 0 ? 1 : -1;
-    if (fwdSign === contactBlock?.fwdSign && contactBlock.episode) { contactBlock.untilMs = nowMs + 250; contactBlock.balls = Math.max(contactBlock.balls, bp.balls); }
+    if (fwdSign === contactBlock?.fwdSign && contactBlock.episode) { contactBlock.untilMs = nowMs + 250; contactBlock.at = { ...state.pose }; contactBlock.balls = Math.max(contactBlock.balls, bp.balls); }
     else {
       const sameEpisode = lastContactEvent && lastContactEvent.fwdSign === fwdSign && nowMs - lastContactEvent.atMs < 2000; // one event per episode, not per frame the watchdog lets go
-      contactBlock = { fwdSign, balls: bp.balls, untilMs: nowMs + 250, episode: true };
+      contactBlock = { fwdSign, balls: bp.balls, untilMs: nowMs + 250, episode: true, at: { ...state.pose } };
       if (sameEpisode) return;
       lastContactEvent = { fwdSign, atMs: nowMs };
       if (Math.sign(actuatorModel.body.vFwd) === fwdSign) actuatorModel.body.vFwd = 0;
       const t = worldTruth();
       recorder.event(Date.now(), "contact", `chassis held by ${bp.balls} loose ball${bp.balls === 1 ? "" : "s"} against the wall while driving ${fwdSign > 0 ? "forward" : "backward"} at (${t.pose.xIn}, ${t.pose.zIn}) in · physics ${state.physics.kind}: ${state.physics.kind === "ideal" ? "kinematic stop (encoders keep counting)" : `grip ${state.physics.tractionMu ?? 1.2} decides stall vs wheel spin`}`, { balls: bp.balls, fwdSign, pose: t.pose, physics: state.physics.kind });
     }
-  } else if (contactBlock && nowMs >= contactBlock.untilMs) contactBlock = undefined;
+  } else if (contactBlock && !contactHolds()) contactBlock = undefined;
 }
 /** Drive motors commanded without progress for half a second: say so (HUD) and record it (events), once per episode. */
 function updateStallWatchdog(dt: number) {
