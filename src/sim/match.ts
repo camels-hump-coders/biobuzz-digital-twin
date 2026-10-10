@@ -66,6 +66,12 @@ export interface Agent {
   carryGroup: THREE.Group;
 }
 
+/** Unit vector from a FLOWER into the field: the only side a robot can put its intake under the cage from. */
+export function flowerFacing(fi: number): { x: number; z: number } {
+  const w = FLOWER.positions[fi]?.wall;
+  return w === "N" ? { x: 0, z: 1 } : w === "S" ? { x: 0, z: -1 } : w === "E" ? { x: -1, z: 0 } : { x: 1, z: 0 };
+}
+
 export class Match {
   hives: Record<Alliance, HiveSim>;
   nectarSupply: Record<Alliance, number> = { red: 5, blue: 5 };
@@ -554,6 +560,15 @@ export class Match {
         r.target = undefined; return false;
       }
       r.target = { x: best.x, z: best.z };
+      if (best.flower !== undefined) {
+        // enter the cage square to the wall: line up on the flower's axis in front of it, then drive straight in. A
+        // diagonal approach parks a chassis corner on the cage with the axis about 3 in outside the intake edge, where
+        // no feeder part can touch the bottom POLLEN and the robot just stands there until its patience runs out.
+        const n = flowerFacing(best.flower);
+        const dx = r.pose.x - best.x, dz = r.pose.z - best.z;
+        const lateral = Math.abs(dx * n.z - dz * n.x);
+        if (lateral > m(2.5)) r.target = { x: best.x + n.x * m(16), z: best.z + n.z * m(16) };
+      }
       // at the source: the intake works; give up after the tier's patience if nothing comes in
       if (bestD < m(12)) {
         if (brain.sourceSince === undefined || held !== brain.heldAtSource) { brain.sourceSince = this.time; brain.heldAtSource = held; }
