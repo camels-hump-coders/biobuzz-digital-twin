@@ -186,7 +186,7 @@ async function runScenario(scenario, scenarioPath, out) {
   const finish = async (failed) => {
     await page.evaluate(() => window.__twin.input.clearInjected()).catch(() => {});
     final = final ?? (await snapshot().catch(() => undefined));
-    await page.click('#panel button:has-text("STOP")').catch(() => {});
+    await page.evaluate(() => window.__twin.link.onAgent("match", { action: "stop" })).catch(() => {});
     await page.waitForFunction(() => ["STOPPED", "IDLE", "ERROR", "DISCONNECTED"].includes(window.__twin.link.status), null, { timeout: 5_000 }).catch(() => {});
     // commanded outputs after STOP: the host must zero them within a control cycle (the simulated flywheel may still coast)
     outputsAfterStop = await page.waitForFunction(() => Object.values(window.__twin.link.actuators).every((d) => !(Math.abs(d.power ?? 0) > 1e-6) && !(Math.abs(d.targetVel ?? 0) > 1e-6)), null, { timeout: 1_000 }).then(() => ({ zero: true })).catch(async () => ({ zero: false, nonZero: await page.evaluate(() => Object.entries(window.__twin.link.actuators).filter(([, d]) => Math.abs(d.power ?? 0) > 1e-6 || Math.abs(d.targetVel ?? 0) > 1e-6).map(([n, d]) => `${n}=${d.power ?? d.targetVel}`)).catch(() => []) }));
@@ -201,9 +201,10 @@ async function runScenario(scenario, scenarioPath, out) {
   if (scenario.robotPreset) await page.evaluate((id) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === id)); if (s) { s.value = id; s.dispatchEvent(new Event("change")); } }, scenario.robotPreset);
   if (scenario.hardwarePreset) await page.evaluate((hp) => { const label = hp === "camelsHump" ? "Camels Hump" : "StarterBot names"; [...document.querySelectorAll("#panel button")].find((b) => b.textContent.includes(label))?.click(); }, scenario.hardwarePreset);
   await page.waitForTimeout(400);
-  // INIT (parks everything at the start positions), then our custom start pose if given, then START
-  await page.evaluate((name) => { const s = [...document.querySelectorAll("#panel select")].find((x) => [...x.options].some((o) => o.value === name)); s.value = name; s.dispatchEvent(new Event("change")); }, scenario.opMode);
-  await page.click('#panel button:has-text("INIT")');
+  // INIT (parks everything at the start positions), then our custom start pose if given, then START. Driver-Station
+  // actions go through the agent API's "match" action (the same code the bottom bar's buttons run), not through panel
+  // buttons: the workspaces hide the panel's own INIT row, and a selector on a hidden control hangs the run
+  await page.evaluate((name) => window.__twin.link.onAgent("match", { action: "init", opMode: name }), scenario.opMode);
   await page.waitForFunction(() => ["INIT", "ERROR"].includes(window.__twin.link.status), null, { timeout: 20_000 }).catch(() => {});
   const status = await page.evaluate(() => ({ status: window.__twin.link.status, error: window.__twin.link.statusError }));
   if (status.status !== "INIT") return finish(`INIT did not complete: ${status.status} ${status.error}`);
@@ -225,7 +226,7 @@ async function runScenario(scenario, scenarioPath, out) {
   eventsFrom = await page.evaluate(() => window.__twin.recorder.events.length).catch(() => 0);
   hostStart = await hostStatus();
   startSnapshot = await snapshot();
-  await page.click('#panel button:has-text("START")');
+  await page.evaluate(() => window.__twin.link.onAgent("match", { action: "start" }));
   await page.waitForFunction(() => window.__twin.link.status === "RUNNING", null, { timeout: 10_000 }).catch(() => {});
   simStart = await page.evaluate(() => window.__twin.match.now());
   const wallStart = Date.now();
