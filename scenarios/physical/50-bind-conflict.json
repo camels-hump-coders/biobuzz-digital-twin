@@ -15,8 +15,6 @@
       "matchAuto.loadingZoneSide": "LEFT",
       "matchAuto.loadingZoneDistanceIn": 64,
       "matchAuto.returnReserveSeconds": 10,
-      "matchAuto.drivePower": 0.4,
-      "matchAuto.turnPower": 0.4,
       "matchAuto.flowerDepthIn": 7,
       "matchAuto.flowerGraceIn": 4,
       "tagTracking.adaptivePower": false,
