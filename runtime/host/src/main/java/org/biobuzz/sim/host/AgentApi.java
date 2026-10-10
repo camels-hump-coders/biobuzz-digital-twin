@@ -118,6 +118,9 @@ public final class AgentApi {
         e.addProperty("POST /api/match", "{\"action\": \"init\"|\"start\"|\"stop\"|\"reset\", \"opMode\": \"name\"}  Driver-Station flow; init selects the OpMode first");
         e.addProperty("POST /api/gamepad", "{\"pad\": 1, \"values\": {\"a\": true, \"ly\": -0.5}, \"holdMs\": 300}  inject gamepad fields (held until changed, or released after holdMs)");
         e.addProperty("POST /api/pose", "{\"xIn\": 0, \"zIn\": 36, \"headingDeg\": 90}  teleport our robot");
+        e.addProperty("GET /api/manifest", "the effective configuration: robot identity, physics profile, perception level and covers, twin and TeamCode revisions, every TeamCode setting with its source (packaged / manual / bound); recorded at every INIT");
+        e.addProperty("GET /api/capabilities", "schema version, perception levels, physics profiles, assertions and events the harness supports, and what is unsupported (pixel decoding, fixed-step clock)");
+        e.addProperty("POST /api/twin (physics)", "{\"physics\": \"tiles\"|\"ideal\"|{...}, \"physics.scrubMu\": 0.45, \"feed.feedMps\": 0.5, \"perception.level\": \"faults\", \"perception.faults.misreadIds\": {\"44\": 45}, \"perception.faults.latencyMs\": 500, \"tagCovers\": [38,39,40,41]}  drive physics, feeder transit, camera faults and tag covers");
         h.add("endpoints", e);
         return h;
     }

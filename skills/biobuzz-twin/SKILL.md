@@ -95,6 +95,25 @@ scenarios in the team repo, e.g. `TeamCode/twin-scenarios/*.json`, and pass thei
   value), e.g. enable a safety-gated feature for the sim.
 - `expect`: `noErrors`, `shotsFired`/`shotsHit`/`fouls` comparisons like `">=1"`, `telemetryIncludes` (regexes that
   must match some telemetry line during the run), `telemetryFinalIncludes`, `movedAtLeastIn`, `poseNear`.
+- **Physical outcomes, not visited states.** A telemetry state proves the code ran, not that the robot did the thing.
+  Assert transfers: `launches` (balls that physically reached the flywheel; feeder pulses are counted separately as
+  `feederPulses`), `collectedAtLeast` (game pieces that entered the robot), `footprintInside` (`"loading"`, or
+  `{zone, require: "overlap"|"center"|"all"}`), `stalls` / `noStall` (drive commanded without the shafts turning),
+  `outputsZeroAfterStop`, and `eventWithin` (`{after: "Match auto : AIM_SHOOT", event: "launch"|"stall"|"<regex>",
+  withinS: 5}` for bounded fallbacks). Include at least one fixture that must fail (an intake that misses, a pulse
+  too short to feed) so a passing suite is known to be able to fail.
+- **Physics and perception are scenario inputs.** `"physics": "tiles"` (default for new sessions; an estimate that
+  stalls a 14 % turn and turns at 25 %, like the robot) or `"ideal"` (kinematic, every command moves; fast route
+  checks, labelled as such in the manifest); `feed` knobs; `"perception": "ideal" | "faults" | "singles"` with
+  `faults` (`dropoutProb`, `latencyMs`, `poseNoiseIn`, `misreadIds {"44": 45}`, `duplicateIds`, `blurAboveDps`,
+  `minPixels`); `tagCovers: [38, 39, 40, 41]` (physical plates; ids stay installed); event-relative `faults`
+  (`[{at: {telemetry: "AIM_SHOOT"} | {t: 8}, durationS, perception, tagCovers, physics, feed}]`). `coverage` states
+  what the test claims; `perception: "pixels"` is UNSUPPORTED (no camera frames) and the run says so instead of
+  running ideal. `requireEffective: {"robot-profile.json": {"tagTracking.shotRangeIn": 54}}` fails setup when a
+  binding or a stale profile wins over the scenario, naming the effective value and its source.
+- **Read the verdict, not just pass.** Each check is `pass | fail | inconclusive | unsupported`; the scenario verdict
+  is printed last. `inconclusive` means infrastructure (ran under 0.8× real time, seconds of held sensor packets, a
+  page error): rerun with less load; it is not a robot result either way.
 
 ## 2b. Debugging a human's live session (agent API)
 
@@ -159,8 +178,22 @@ cause is in the code (target not in view, camera marked not ready, a frame consu
 
 ## 3. Read the report
 
-The JSON report has `start`, `final` and per-second `samples` with telemetry lines, pose (inches, degrees), shots fired
-and hit, carried game pieces, hive loads/tips, fouls, and `pageErrors`/`hostLogTail` for crashes. Typical failures:
+The JSON report has `verdict`, `checks` (each with its own verdict and detail), `manifest` (the robot at INIT: preset,
+dimensions, drivetrain, intake side, cameras, launcher, hardware map, physics profile with provenance, perception level
+and covers, twin and TeamCode revisions, and every TeamCode setting with its source `packaged` / `manual` / `bound`),
+`events` (`stall`, `feed`, `launch`, `fault`, `status`, `error` with seconds after START), `timing` (simulated/wall
+ratio, held packets), `start`, `final` and per-second `samples` with telemetry lines, pose (inches, degrees), shots
+fired and hit, carried game pieces, hive loads/tips, fouls, and `pageErrors`/`hostLogTail` for crashes. Quote the
+manifest's scope when you report a result ("route passed with the saved rear-intake robot on ideal physics and ideal
+camera; friction and decoding unvalidated"). Typical failures:
+
+- `Not moving` / a `stall` event: TeamCode commanded the drive below the surface's breakaway (the event names the
+  command, the current and the breakaway). Raise the finishing power in the code, or run with `"physics": "ideal"`
+  and say so; do not change the profile to make the test pass.
+- `launches` below `feederPulses`: the feeder pulse is too short for the throat at that power (the `feed` events say
+  how far the ball got and how long it needed); lengthen the pulse or raise the feeder power in the code.
+- `requireEffective not met … (bound)`: a twin binding overrides the scenario value. Use `ignoreBindings: true`
+  when the scenario deliberately tests a real-robot value, or change the binding.
 
 - OpMode not found: the name must match the `@TeleOp(name=...)`/`@Autonomous(name=...)` string; the error lists the names.
 - `Unable to find a hardware device with name "X"`: the sim's hardware map lacks that name. Use `hardwarePreset`

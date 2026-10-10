@@ -76,9 +76,10 @@ Not supported: raw camera frames into custom `VisionProcessor`s (accepted so cod
 
 ## Sensor model
 
-- Encoders integrate the simulated wheel speed (first-order lag, 0.12 s) at the configured ticks/rev; `setVelocity` is tracked directly.
+- Drive motors of a tank chassis go through a torque/speed model (goBILDA 5203 datasheet scaled to the free RPM) against the surface profile in the twin's *Physics & feeding* section: rolling resistance, static breakaway and skid-steer turning scrub. Below the breakaway the chassis does not move, the encoders stay still and `DcMotorEx.getCurrent()` returns the stall current for that command (about 1.5 A at 14 % on the *tiles* profile, as measured on the robot); `VoltageSensor` sags with the current. The *ideal* profile keeps the old kinematic model (first-order lag, 0.12 s). Other motors integrate the commanded speed with the same lag; `setVelocity` is tracked directly.
+- A feeder-role CR servo or servo does not launch on a rising edge: it moves a ball along a throat (twin *Physics & feeding* → Feeder transit); the ball launches when it reaches the flywheel, and the twin counts pulses, launches and scored balls separately.
 - IMU yaw is the robot heading, CCW positive, zeroed when the OpMode is initialised or on `resetYaw()`.
-- AprilTag detections come from the twin's camera analysis (in frame, facing the camera, not occluded by the hive, frame, flowers or other robots) with optional Gaussian position noise (*AprilTag noise* in the Hardware map panel, default 0.3 in).
+- AprilTag detections come from the twin's camera analysis (in frame, facing the camera, not occluded by the hive, frame, flowers, other robots or a tag cover) with optional Gaussian position noise (*AprilTag noise* in the Hardware map panel, default 0.3 in). With the perception level *faults*, the twin's camera faults (dropout, latency, pose noise, misread and duplicate ids, blur, size) are applied before the shim groups tags into SDK clusters; a latency fault backdates `frameAcquisitionNanoTime` by the true delay. The level *singles* makes the processor return `AprilTagSingleDetection`s instead of clusters (`SimHooks.forceSingles()`).
 - Gamepads arrive at 50 Hz from the browser.
 
 ## Agent API (HTTP, WebSocket port + 1)
