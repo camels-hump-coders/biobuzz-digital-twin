@@ -492,7 +492,7 @@ function buildManifest() {
     feed: { ...state.feed, transitAt20PercentS: +transitSeconds(state.feed, 0.2).toFixed(2) },
     perception: { level: state.perception.level, faults: state.perception.level === "faults" ? state.perception.faults : undefined, tagCovers: state.tagCovers, tagNoiseIn: state.tagNoiseIn, note: PERCEPTION_LEVELS.find((l) => l.id === state.perception.level)?.note, unsupported: UNSUPPORTED_PERCEPTION },
     render: ciMode ? "bare-bones (?ci=1): no stadium, shadows, overlays, hit map, camera insets or CAD chassis; physics and sensors unchanged" : `${perfMode() ? "performance" : "full"} visuals (quality ${state.quality}${autoFps !== undefined ? `, ${autoFps} fps measured` : ""}); physics and sensors unchanged`,
-    clock: { mode: "wall", note: "TeamCode timers are JVM wall clock; the twin steps physics per browser frame and sends sensors at 50 Hz. Check the run's simulated/wall ratio and packet holds before trusting a timing result." },
+    clock: { mode: "wall", note: "TeamCode timers are JVM wall clock; the twin simulates the real time that passed on every tick (up to 250 ms per tick, the rest is dropped and counted as timeDroppedS) and renders on an adaptive cadence, so a slow machine lowers the frame rate, not the world's clock. Sensors go out at 50 Hz. Check the run's simulated/wall ratio, timeDroppedS and packet holds before trusting a timing result." },
     bindings: { file: link.bindings?.path, errors: link.bound.errors, ignored: new URLSearchParams(location.search).get("nobind") === "1" },
     warnings: manifestWarnings(),
     /** persisted vs clean install, missing keys, and whether bindings supply the shot calibration (synthetic) */
@@ -820,7 +820,7 @@ link.onChange = () => {
     // START on TeamCode: the keyboard drives gamepad1 straight away, no click on the field needed first
     if (link.status === "RUNNING") workspace.focusKeyboard("TeamCode started: keyboard is gamepad1. Press Tab for gamepad2.");
     if ((link.status === "INIT" || link.status === "RUNNING") && recorder.cursor !== undefined) { recorder.cursor = undefined; panel.refreshTimeline(); } // a new run: back to live
-    if (link.status === "INIT") { resetBoard(); for (const [name, f] of feeders) { f.ballPosM = undefined; f.strokeLeftS = 0; f.reason = undefined; const dev = state.hardware.devices.find((d) => d.name === name); f.last = dev?.kind === "servo" ? (link.actuators[name]?.position ?? 0.5) : 0; } stallFor.clear(); stallActive = false; latencyQueues.clear(); frameCadences.clear(); actuatorModel.touched.clear(); flywheelPeak = 0; contactBlock = undefined; recorder.event(Date.now(), "manifest", `INIT ${link.currentOpMode}: ${manifestSummary()}`, buildManifest()); }
+    if (link.status === "INIT") { resetBoard(); for (const [name, f] of feeders) { f.ballPosM = undefined; f.strokeLeftS = 0; f.reason = undefined; const dev = state.hardware.devices.find((d) => d.name === name); f.last = dev?.kind === "servo" ? (link.actuators[name]?.position ?? 0.5) : 0; } stallFor.clear(); stallActive = false; latencyQueues.clear(); frameCadences.clear(); actuatorModel.touched.clear(); flywheelPeak = 0; contactBlock = undefined; simDroppedS = 0; simDroppedSinceNoteS = 0; recorder.event(Date.now(), "manifest", `INIT ${link.currentOpMode}: ${manifestSummary()}`, buildManifest()); }
     else if (link.status === "RUNNING") startMatch();
     else if (lastLinkStatus === "RUNNING") stopMatch();
     lastLinkStatus = link.status;
@@ -1239,15 +1239,22 @@ function flywheelPowerCmd(): number {
   return dev?.freeRpm ? state.robot.launcher.rpm / dev.freeRpm : state.robot.launcher.rpm / state.robot.launcher.maxRpm;
 }
 
-let frameInterval = 1 / 60; // EMA of the real time between frames, for the frame-rate / time-dilation readout
+let frameInterval = 1 / 60; // EMA of the real time between simulation ticks
+// Rendering is decoupled from simulation: a tick simulates the real time that passed (up to MAX_STEP_S) and renders only
+// when the adaptive render interval is due, so a slow GPU lowers the frame rate, not the world's clock. The OpMode's
+// timers are the JVM wall clock; the world must keep wall time or the robot decides against a world that lagged.
+const MAX_STEP_S = 0.25; // beyond this (a hidden tab, a multi-second stall) time is dropped and counted, not simulated in one lurch
+let renderIntervalMs = 0, lastRenderCostMs = 0, renderIntervalEma = 1 / 60, renderFps = 60;
+let simDroppedS = 0, simDroppedSinceNoteS = 0, lastDropAt = 0; // wall seconds the world could not simulate since INIT
+let secReal = 0, secSim = 0, simRate = 1, secAt = 0; // simulated / wall time over the last second
 /** Auto quality: once the robot model has settled, average the frame time over 4 s (after a 3 s warm-up for shader
  * compilation) and decide once per session; below 30 fps the page switches itself to performance visuals and says so. */
 let measureFrom: number | undefined, measureN = 0, measureSum = 0;
-function measureQuality(now: number, real: number) {
+function measureQuality(now: number, real: number, rendered: boolean) {
   if (autoQuality !== undefined || ciMode || robot.modelStatus === "loading" || document.hidden) return;
   if (measureFrom === undefined) { measureFrom = now + 3000; return; }
   if (now < measureFrom) return;
-  measureN++; measureSum += real;
+  if (rendered) measureN++; measureSum += real;
   if (now - measureFrom < 4000) return;
   autoFps = Math.round(measureN / Math.max(measureSum, 1e-3));
   autoQuality = autoFps < 30 ? "performance" : "full";
@@ -1266,12 +1273,12 @@ function frame(now: number) {
   // simulation therefore runs slower than real time; the HUD says so.
   // scrubbing the timeline freezes the live simulation (dt 0) and draws the recorded moment instead
   let replaying = recorder.cursor !== undefined;
-  // one step never covers more than 100 ms: longer steps make encoder deltas jump beyond what wheels can do in one
-  // OpMode loop (team dead-reckoning rejects them). Headless renders are lean enough (4 fps, low resolution) to fit.
-  const dt = replaying ? 0 : Math.min(0.1, real);
-  const fps = 1 / Math.max(frameInterval, 1e-3);
-  const slowdown = frameInterval > 0.1 ? 0.1 / frameInterval : 1;
-  measureQuality(now, real);
+  // simulate the real time that passed, up to MAX_STEP_S per tick; what cannot be simulated is dropped and counted
+  // (the sensor packets and the OpMode's loop see the same wall interval, so a long tick is a slow loop, not a teleport)
+  const dt = replaying ? 0 : Math.min(MAX_STEP_S, real);
+  if (!replaying && real > dt && real < 60) { simDroppedS += real - dt; simDroppedSinceNoteS += real - dt; lastDropAt = now; }
+  if (!replaying) { secReal += real; secSim += dt; if (now - secAt >= 1000) { simRate = secReal > 0 ? Math.min(1, secSim / secReal) : 1; secReal = 0; secSim = 0; secAt = now; } }
+  const fps = renderFps;
 
   // input & drive
   perf.begin();
@@ -1647,7 +1654,7 @@ function frame(now: number) {
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus],
     runtime: link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}${link.status === "INIT" ? " · press START to drive" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " (select Gamepad 1 in the control bar to switch)" : ""}` : "not connected",
-    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, qualityNotice && performance.now() < qualityNotice.untilMs ? qualityNotice.text : undefined, (refreshTwinOnly(), twinOnlyCount && !ciMode ? `⚠ PHYSICAL ROBOT WILL NOT MATCH: ${twinOnlyCount} twin-computed value${twinOnlyCount === 1 ? "" : "s"} (power table, shot calibration…) are not in the TeamCode files · Runtime → Save to TeamCode` : undefined), fps < 20 && !perfMode() ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: View & overlays → Visual quality → Performance` : undefined].filter(Boolean).join(" · ") || undefined,
+    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, qualityNotice && performance.now() < qualityNotice.untilMs ? qualityNotice.text : undefined, (refreshTwinOnly(), twinOnlyCount && !ciMode ? `⚠ PHYSICAL ROBOT WILL NOT MATCH: ${twinOnlyCount} twin-computed value${twinOnlyCount === 1 ? "" : "s"} (power table, shot calibration…) are not in the TeamCode files · Runtime → Save to TeamCode` : undefined), simDroppedSinceNoteS > 0.5 && performance.now() - lastDropAt < 5000 ? `slow machine: the world fell ${simDroppedS.toFixed(1)} s behind real time since INIT (sim at ${Math.round(simRate * 100)}% of real time; the robot's timers run on real time)${perfMode() ? "" : " · View & overlays → Visual quality → Performance"}` : undefined, fps < 20 && !perfMode() ? `${fps.toFixed(0)} fps: View & overlays → Visual quality → Performance` : undefined].filter(Boolean).join(" · ") || undefined,
     noticeBad: performance.now() < launchBlockedUntil || !!roleWarning,
   });
 
@@ -1684,9 +1691,12 @@ function frame(now: number) {
   // the main thread, and with it the 50 Hz sensor sender, for a second on a loaded machine. Render the first frames
   // (shader compilation, so it does not land inside a run), then one frame a second; scripts call __twin.renderNow()
   // before a screenshot.
-  const renderThisFrame = !ciMode || renderCount < 3 || now - lastRenderAt >= 1000 || renderRequested;
+  // adaptive cadence: a render may take up to half the wall time, the rest is for simulation ticks (a fast machine
+  // renders every tick; a Chromebook with a 100 ms render draws 5 fps while the world keeps real time)
+  const renderThisFrame = ciMode ? renderCount < 3 || now - lastRenderAt >= 1000 || renderRequested : renderRequested || renderCount < 3 || now - lastRenderAt >= renderIntervalMs;
   renderRequested = false;
-  if (renderThisFrame) { lastRenderAt = now; renderCount++; }
+  const renderStart = performance.now();
+  if (renderThisFrame) { if (lastRenderAt) renderIntervalEma = renderIntervalEma * 0.8 + ((now - lastRenderAt) / 1000) * 0.2; renderFps = 1 / Math.max(renderIntervalEma, 1e-3); lastRenderAt = now; renderCount++; }
   venueFx.group.visible = state.stadium && !perfMode() && state.view !== "top"; // the top-down view is for analysis: no truss fixtures in the way
   if (renderThisFrame && venueFx.group.visible) venueFx.update(real, now);
   if (renderThisFrame) renderer.render(scene, cam);
@@ -1717,17 +1727,21 @@ function frame(now: number) {
   });
 
   perf.mark("insets");
+  if (renderThisFrame) { lastRenderCostMs = performance.now() - renderStart; renderIntervalMs = ciMode ? 1000 : Math.min(400, 2 * lastRenderCostMs); }
+  measureQuality(now, real, renderThisFrame);
   recordSample(now);
   perf.end(state.showPerf, fps);
   if (analysisTick % 120 === 0) saveState(state);
   const frameMs = performance.now() - now;
   if (frameMs > 150 && now - lastSlowNote > 1000) { lastSlowNote = now; recorder.event(Date.now(), "note", `slow frame ${frameMs.toFixed(0)} ms (${link.status}, render ${renderThisFrame ? "yes" : "no"}, dt ${(dt * 1000).toFixed(0)} ms)`); }
-  if (ciMode) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
+  // a fast machine stays on the display's frame callback; a slow one ticks on a timer so simulation keeps wall time
+  // between the (fewer) renders; headless always ticks on the timer
+  if (ciMode || renderIntervalMs > 17 || document.hidden) setTimeout(() => frame(performance.now()), 8); else requestAnimationFrame(frame);
 }
 // debugging hook for scripts / console
 Object.defineProperty(window, "__twinRenderCount", { get: () => renderCount });
 (window as any).__twinRenderNow = () => { renderRequested = true; };
-(window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit, launches: shotsFired, feederPulses, stalls: stallCount, notMoving, feeder: feederNote, flywheelPeakPower: +flywheelPeak.toFixed(3) }), truth: worldTruth, resetPeaks: () => { flywheelPeak = 0; }, pixelRatio: () => renderer.getPixelRatio(), settingsText: () => serializeSettings(state), manifest: buildManifest, capabilities: () => capabilities(), syncTagCovers, predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
+(window as any).__twin = { state, workspace, orbitCam, controls, robot, scene, flying, link, overlays, recorder, snapshotContext, knobs: () => twinKnobs(state), actuatorModel, input, match, playerAgent, scripted, stats: () => ({ shotsFired, shotsHit, launches: shotsFired, feederPulses, stalls: stallCount, notMoving, feeder: feederNote, flywheelPeakPower: +flywheelPeak.toFixed(3), timeDroppedS: +simDroppedS.toFixed(2), simRate: +simRate.toFixed(3), renderFps: +renderFps.toFixed(1), renderCostMs: +lastRenderCostMs.toFixed(1) }), truth: worldTruth, resetPeaks: () => { flywheelPeak = 0; }, pixelRatio: () => renderer.getPixelRatio(), settingsText: () => serializeSettings(state), manifest: buildManifest, capabilities: () => capabilities(), syncTagCovers, predicted: () => actualCache.shot, ifAimed: () => shotCache.shot, dbg: () => ({ fireDir: lastFireDir, exit: lastExit }), perf, get offload() { return offload; }, hitmap: () => hitShown, hitmapOther: () => hitJobs[state.hive[state.alliance] === "audience" ? "scoring" : "audience"], hitmapDone: () => !!hitShown && hitShown.done, __pins: pins, calibration: { lastImpact: () => lastImpact, session: () => state.calibration }, score: () => ({ red: allianceScore("red"), blue: allianceScore("blue") }), scoreboard, get panel() { return panel; } };
 let lastTags: HudData["tags"] = [];
 let pendingFires = 0;
 let lastFireDir = { x: 0, z: -1 };
