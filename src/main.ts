@@ -773,11 +773,13 @@ link.onAssetWritten = (r) => {
   panel.toast(r.ok ? `${r.path.split("/").pop()} written to the repo` : `${r.path.split("/").pop()} not written: ${r.error}`, !r.ok);
 };
 /** Write an asset with the current overrides applied; resolves with the host's answer. */
-function saveAssetToRepo(path: string): Promise<{ ok: boolean; file?: string; error?: string }> {
+/** Write an asset back into the team repo with the browser's values merged in; `boundOnly` writes just the values the
+ * twin's bindings supply (its measurements), leaving any browser edits as overrides. */
+function saveAssetToRepo(path: string, opts: { boundOnly?: boolean } = {}): Promise<{ ok: boolean; file?: string; error?: string }> {
   const asset = link.assets.find((a) => a.path === path);
   if (!asset) return Promise.resolve({ ok: false, error: `unknown asset ${path}` });
   if (!link.connected) return Promise.resolve({ ok: false, error: "not connected to the host (server mode only)" });
-  const merged = applyOverrides(asset, state.assetOverrides[path], link.bound.overrides[path]);
+  const merged = applyOverrides(asset, opts.boundOnly ? {} : state.assetOverrides[path], link.bound.overrides[path]);
   return new Promise((resolve) => {
     const timer = setTimeout(() => { pendingWrites.delete(path); resolve({ ok: false, error: "host did not answer" }); }, 5000);
     pendingWrites.set(path, (r) => { clearTimeout(timer); resolve(r); });

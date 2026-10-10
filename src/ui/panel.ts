@@ -210,7 +210,7 @@ export class Panel {
   private sessionFlash?: { text: string; bad: boolean; until: number };
   flashSession(text: string, bad = false) { this.sessionFlash = { text, bad, until: Date.now() + 6000 }; const e = this.sessionFlashEl; if (e) { e.textContent = text; e.classList.toggle("bad", bad); } }
   /** server mode: write a merged asset file back into the team repo (set by main) */
-  saveAssetToRepo?: (path: string) => Promise<{ ok: boolean; file?: string; error?: string }>;
+  saveAssetToRepo?: (path: string, opts?: { boundOnly?: boolean }) => Promise<{ ok: boolean; file?: string; error?: string }>;
   private assetFlashEl?: HTMLElement;
   flashAssets(text: string, bad = false) { const e = this.assetFlashEl; if (!e) return; e.textContent = text; e.classList.toggle("bad", bad); setTimeout(() => { if (e.textContent === text) e.textContent = ""; }, 6000); }
   /** shooter calibration wizard: the shot being typed, the cached fit and the last simulated impact */
@@ -733,10 +733,20 @@ export class Panel {
       const summaryRows: (Row | AdvGroup)[] = [
         el("div", { class: `status-badge ${changed.length ? "warn" : "ok"} full` }, !changed.length ? "In sync with project files" : manualDiff.length ? `${changed.length} changed file${changed.length === 1 ? "" : "s"} to save (browser edits)` : `${changed.length} file${changed.length === 1 ? "" : "s"} differ${changed.length === 1 ? "s" : ""} from disk: bound values only`),
         el("div", { class: "note full" }, `${files.length} file${files.length === 1 ? "" : "s"} · ${total} override${total === 1 ? "" : "s"} · ${bound} bound from the twin${invalid ? ` · ${invalid} invalid` : ""}${changed.length ? ` · ${changed.length} file${changed.length > 1 ? "s" : ""} differ${changed.length > 1 ? "" : "s"} from disk` : " · matches disk"}`),
-        ...(boundDiff.length ? [el("div", { class: "note full" }, `Bound values that differ from the file (${boundDiff.length}): ${boundDiff.join(", ")}. These come from the twin's measurements, not from browser edits: Reload from disk leaves them; change the twin's knobs, or Save to write them into the repo.`)] : []),
+        ...(boundDiff.length ? [
+          el("div", { class: "note full" }, `Bound values that differ from the file (${boundDiff.length}): ${boundDiff.join(", ")}. These come from the twin's measurements, not from browser edits: Reload from disk leaves them. Write them into the file to bring the repo up to date with the twin, or change the twin's knobs.`),
+          el("div", { class: "row full", style: "gap:6px" }, el("button", { class: "primary", ...(this.saveAssetToRepo ? {} : { disabled: "" }), title: "Write only the twin-bound values into the asset files on disk (browser edits stay as overrides)", onclick: async () => {
+            const boundFiles = changed.filter((c) => c.changed.some((k) => k.source === "twin"));
+            const list = boundFiles.map((c) => `${c.path}:\n${c.changed.filter((k) => k.source === "twin").map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}`).join("\n")}`).join("\n\n");
+            if (!await this.reviewChanges("Write bound values to disk", list)) return;
+            const results = []; for (const c of boundFiles) results.push({ path: c.path, ...(await this.saveAssetToRepo!(c.path, { boundOnly: true })) });
+            const bad = results.filter((r) => !r.ok);
+            this.toast(bad.length ? `Could not write ${bad.map((r) => r.path.replace(/^.*\//, "")).join(", ")}: ${bad[0].error}` : `Wrote ${boundDiff.length} bound value${boundDiff.length === 1 ? "" : "s"} into ${results.map((r) => r.path.replace(/^.*\//, "")).join(", ")} · commit them in the team repo`);
+          } }, `Write bound values to disk (${boundDiff.length})`)),
+        ] : []),
         el("div", { class: "row full", style: "gap:6px;align-items:center" },
           el("button", { class: "primary", onclick: () => this.openAssetDialog() }, "Open settings editor"),
-          el("button", { title: "Throw away every browser change (overrides and any simulated saved profile) and read the files again from disk", onclick: () => { const had = total + Object.keys(st.persistedAssets ?? {}).length; st.assetOverrides = {}; st.persistedAssets = {}; change("assets"); link.reloadAssets(); this.toast(`Reloaded TeamCode settings from disk${had ? "" : " (no browser edits to discard)"}${boundDiff.length ? ` · ${boundDiff.length} bound value${boundDiff.length === 1 ? "" : "s"} still differ from the file (twin measurements)` : ""} · re-INIT to apply`); } }, "Reload from disk"),
+          el("button", { title: "Throw away every browser change (overrides and any simulated saved profile) and read the files again from disk", onclick: () => { const had = total + Object.keys(st.persistedAssets ?? {}).length; st.assetOverrides = {}; st.persistedAssets = {}; change("assets"); link.reloadAssets(); this.toast(`Reloaded TeamCode settings from disk${had ? "" : " (no browser edits to discard)"}${boundDiff.length ? ` · ${boundDiff.length} bound value${boundDiff.length === 1 ? "" : "s"} still differ from the file (twin measurements): use "Write bound values to disk" to update the file` : ""} · re-INIT to apply`); } }, "Reload from disk"),
           el("button", { ...(changed.length && this.saveAssetToRepo ? {} : { disabled: "" }), title: changed.length ? "Write every changed file into TeamCode/src/main/assets" : "Nothing differs from disk", onclick: async () => { const list = changed.map((c) => `${c.path}:\n${c.changed.map(k => `${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}`).join("\n")}`).join("\n\n"); if (await this.reviewChanges("Save TeamCode settings", list)) for (const c of changed) await this.saveAssetToRepo?.(c.path); } }, changed.length ? `Review & save TeamCode (${changed.length})` : "Save TeamCode settings")),
         adv(el("div", { class: "note" }, "The OpModes read these JSON files from assets. Edits are simulator-only overrides until you Save them to the repo; bound values (⇐) come from the twin's measurements; a schema sidecar gives help, dropdowns, sliders and validation.")),
         // SG-001: the robot reads the profile it SAVED on the hub, not the packaged file; a profile saved by an older build
