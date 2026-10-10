@@ -12,7 +12,7 @@ import type { CameraMount } from "./robot/robotSpec";
 import { resolveContact, type ContactBody } from "./sim/contact";
 import { PinTracker, PIN_LIMIT_S } from "./sim/pinning";
 import { startPose } from "./sim/starts";
-import { computeBindings, mergeOverrides, parseBindings, twinKnobs } from "./runtime/bindings";
+import { computeBindings, mergeOverrides, parseBindings, twinKnobs, type Binding } from "./runtime/bindings";
 import { Recorder, type Run, type Sample, type SceneSnapshot } from "./runtime/recorder";
 import type { ScriptedRobot } from "./sim/opponents";
 import { Perf } from "./ui/perf";
@@ -44,6 +44,7 @@ import { createFeederState, stepFeeder, transitSeconds, type FeederState } from 
 import { FrameCadence, LatencyQueue, PERCEPTION_LEVELS, UNSUPPORTED_PERCEPTION, applyFaults } from "./runtime/visionFaults";
 import { GOBILDA_5203_312, PHYSICS_PROFILES, SCRUB_MU_BAND, breakawayCommands, motorSpecFor } from "./sim/drivePhysics";
 import { derivePersisted, effectiveConfig } from "./runtime/effectiveConfig";
+import { applyAdoption, planAdoption } from "./runtime/adoptBindings";
 import { parseCalLines, speedForRange, type FlightModel } from "./ballistics/calibration";
 import { isSchemaFile, schemaFor, schemaPathFor, validateAll } from "./runtime/assetSchema";
 import { applyOverrides, exportChangedAssets } from "./runtime/assetExport";
@@ -828,6 +829,23 @@ link.onChange = () => {
 };
 panel = new Panel(state, onChange);
 panel.saveAssetToRepo = saveAssetToRepo;
+// reverse bindings: make the twin agree with the file instead of the file with the twin
+panel.planBoundAdoption = () => {
+  const diffs = exportChangedAssets(link.assets, {}, link.bound.overrides).flatMap((c) => c.changed.filter((k) => k.source === "twin").map((k) => ({ asset: c.path, key: k.key, fileValue: k.from })));
+  let bindings: Binding[] = [];
+  try { bindings = link.bindings?.text ? parseBindings(link.bindings.text).bindings : []; } catch { /* reported in the panel already */ }
+  return planAdoption(bindings, diffs);
+};
+panel.applyBoundAdoption = (plan) => {
+  const r = applyAdoption(state, plan);
+  if (r.adopted.length) {
+    onChange("reset"); onChange("robot"); onChange("cameras"); onChange("launcher"); onChange("hardware"); onChange("sim");
+    saveState(state);
+    recorder.event(Date.now(), "note", `adopted ${r.adopted.length} file value${r.adopted.length === 1 ? "" : "s"} into the twin: ${r.adopted.map((a) => `${a.knob} = ${JSON.stringify(a.value)}`).join(", ")}`);
+    panel.render();
+  }
+  return r;
+};
 panel.settingsFile = { save: saveSettingsToFile, load: loadSettingsFromFile, differs: settingsDiffer, unsaved: localUnsaved,
   unsavedPaths: () => settingsDiffPaths(localStorage.getItem(SYNC_KEY), serializeSettings(state)),
   filePaths: () => settingsDiffPaths(link.settings?.text, serializeSettings(state)) };

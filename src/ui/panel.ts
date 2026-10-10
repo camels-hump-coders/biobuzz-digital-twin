@@ -211,6 +211,9 @@ export class Panel {
   flashSession(text: string, bad = false) { this.sessionFlash = { text, bad, until: Date.now() + 6000 }; const e = this.sessionFlashEl; if (e) { e.textContent = text; e.classList.toggle("bad", bad); } }
   /** server mode: write a merged asset file back into the team repo (set by main) */
   saveAssetToRepo?: (path: string, opts?: { boundOnly?: boolean }) => Promise<{ ok: boolean; file?: string; error?: string }>;
+  /** reverse bindings: plan which twin knobs would take the file's values for the bound keys that differ, then apply */
+  planBoundAdoption?: () => import("../runtime/adoptBindings").AdoptPlanItem[];
+  applyBoundAdoption?: (plan: import("../runtime/adoptBindings").AdoptPlanItem[]) => { adopted: { key: string; knob: string; value: unknown }[]; skipped: { key: string; reason: string }[] };
   private assetFlashEl?: HTMLElement;
   flashAssets(text: string, bad = false) { const e = this.assetFlashEl; if (!e) return; e.textContent = text; e.classList.toggle("bad", bad); setTimeout(() => { if (e.textContent === text) e.textContent = ""; }, 6000); }
   /** shooter calibration wizard: the shot being typed, the cached fit and the last simulated impact */
@@ -742,7 +745,17 @@ export class Panel {
             const results = []; for (const c of boundFiles) results.push({ path: c.path, ...(await this.saveAssetToRepo!(c.path, { boundOnly: true })) });
             const bad = results.filter((r) => !r.ok);
             this.toast(bad.length ? `Could not write ${bad.map((r) => r.path.replace(/^.*\//, "")).join(", ")}: ${bad[0].error}` : `Wrote ${boundDiff.length} bound value${boundDiff.length === 1 ? "" : "s"} into ${results.map((r) => r.path.replace(/^.*\//, "")).join(", ")} · commit them in the team repo`);
-          } }, `Write bound values to disk (${boundDiff.length})`)),
+          } }, `Write bound values to disk (${boundDiff.length})`),
+          el("button", { ...(this.planBoundAdoption && this.applyBoundAdoption ? {} : { disabled: "" }), title: "The other direction: set the twin's knobs so the bound values equal what the file holds (only bindings that read a plain knob can be inverted; solver-derived calibration cannot)", onclick: async () => {
+            const plan = this.planBoundAdoption!();
+            const can = plan.filter((p) => !("reason" in p)) as Extract<typeof plan[number], { knob: string }>[];
+            const cannot = plan.filter((p) => "reason" in p) as Extract<typeof plan[number], { reason: string }>[];
+            const list = [can.length ? `Twin knobs that take the file's value:\n${can.map((p) => `  ${p.key}: ${p.knob} ← ${JSON.stringify(p.value)}`).join("\n")}` : "No bound value can be adopted from the file.", cannot.length ? `\nNot adoptable (stay as the twin computes them):\n${cannot.map((p) => `  ${p.key}: ${p.reason}`).join("\n")}` : ""].join("\n");
+            if (!can.length) { this.toast(`Nothing to adopt: ${cannot.length} bound value${cannot.length === 1 ? "" : "s"} are derived by the twin (see the editor for reasons)`); return; }
+            if (!await this.reviewChanges("Adopt file values into the twin", list)) return;
+            const r = this.applyBoundAdoption!(plan);
+            this.toast(`Adopted ${r.adopted.length} value${r.adopted.length === 1 ? "" : "s"} into the twin (${r.adopted.map((a) => a.knob).join(", ")})${r.skipped.length ? ` · ${r.skipped.length} stay derived` : ""} · re-INIT to apply`);
+          } }, `Adopt file values into the twin (${boundDiff.length})`)),
         ] : []),
         el("div", { class: "row full", style: "gap:6px;align-items:center" },
           el("button", { class: "primary", onclick: () => this.openAssetDialog() }, "Open settings editor"),
