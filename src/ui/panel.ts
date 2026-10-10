@@ -442,6 +442,28 @@ export class Panel {
     const pillLabel: Record<string, string> = { off: "RUNTIME OFF", disconnected: "WAITING FOR HOST", idle: "READY — pick an OpMode", init: "INITIALISED", running: "RUNNING", stopped: "STOPPED", error: "ERROR" };
     this.pillEl = el("div", { class: `rt-pill ${pillState}`, id: "rt-pill" }, el("span", { class: "dot" }), el("span", { class: "label" }, pillLabel[pillState] ?? pillState.toUpperCase()), el("span", { class: "sub" }, link?.currentOpMode ?? ""), el("span", { class: "time" }, ""));
     rtRows.push(this.pillEl);
+    // The simulator computes values the robot's profile on disk does not have (the solver's power table and its hit
+    // probabilities, the reference shot, the hood angle): the running OpMode sees them through the bindings, the physical
+    // robot never will until they are written into the asset files. Say so where INIT lives, not only in the settings.
+    if (link?.connected && link.assets.length) {
+      const twinOnly = exportChangedAssets(link.assets, {}, link.bound.overrides).flatMap((c) => c.changed.filter((k) => k.source === "twin").map((k) => ({ path: c.path, key: k.key })));
+      if (twinOnly.length) {
+        const keys = twinOnly.map((k) => k.key.replace(/^tagTracking\./, ""));
+        rtRows.push(el("div", { class: "status-badge bad full", style: "display:block;line-height:1.35" },
+          el("div", {}, el("b", {}, `Your PHYSICAL robot will not match this simulation: ${twinOnly.length} value${twinOnly.length === 1 ? "" : "s"} exist only in the twin.`)),
+          el("div", { class: "note", style: "margin:4px 0" }, `${keys.join(", ")}. The OpMode running here reads them through the twin bindings; the robot reads the files in the repo, which still hold the old values. Save them to TeamCode (${[...new Set(twinOnly.map((k) => k.path.replace(/^.*\//, "")))].join(", ")}), commit, and deploy, or the robot shoots with a different table.`),
+          el("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
+            el("button", { class: "primary", ...(this.saveAssetToRepo ? {} : { disabled: "" }), title: "Write only the twin-bound values into the asset files on disk", onclick: async () => {
+              const files = [...new Set(twinOnly.map((k) => k.path))];
+              const list = exportChangedAssets(link.assets, {}, link.bound.overrides).map((c) => `${c.path}:\n${c.changed.filter((k) => k.source === "twin").map((k) => `  ${k.key}: ${JSON.stringify(k.from)} → ${JSON.stringify(k.to)}`).join("\n")}`).join("\n\n");
+              if (!await this.reviewChanges("Save the twin's values to TeamCode", list)) return;
+              const results = []; for (const f of files) results.push({ path: f, ...(await this.saveAssetToRepo!(f, { boundOnly: true })) });
+              const bad = results.filter((r) => !r.ok);
+              this.toast(bad.length ? `Could not write ${bad.map((r) => r.path).join(", ")}: ${bad[0].error}` : `Saved ${twinOnly.length} value${twinOnly.length === 1 ? "" : "s"} to ${files.map((f) => f.replace(/^.*\//, "")).join(", ")} · commit and deploy so the robot matches`);
+            } }, `Save to TeamCode so the robot matches (${twinOnly.length})`),
+            el("button", { title: "Open the TeamCode settings section, which also lets the twin adopt the file's values instead", onclick: () => this.openAssetDialog() }, "Review in settings editor"))));
+      }
+    }
     rtRows.push(el("div", { class: "note", id: "rt-status", style: "display:none" }, `Status: ${statusTxt}`));
     if (st.runtimeEnabled && !link?.connected && new URLSearchParams(location.search).get("sim") !== "1") rtRows.push(el("div", { class: "note" }, "Start the host: pnpm sim (or ./gradlew :host:run in runtime/). This panel connects automatically."));
     if (link?.connected) {

@@ -1077,6 +1077,12 @@ function recordSample(now: number) {
   });
   maybeSendRun();
 }
+/** Count of bound values the files on disk do not hold (the physical robot would run without them); refreshed once a second. */
+let twinOnlyCount = 0, twinOnlyAt = 0;
+function refreshTwinOnly() {
+  const now = performance.now(); if (now - twinOnlyAt < 1000) return; twinOnlyAt = now;
+  twinOnlyCount = link.connected && link.assets.length ? exportChangedAssets(link.assets, {}, link.bound.overrides).reduce((n, c) => n + c.changed.filter((k) => k.source === "twin").length, 0) : 0;
+}
 /** Everything an agent needs to reproduce the moment: OpMode, presets, overrides, bound values, start pose. */
 function snapshotContext() {
   return {
@@ -1641,7 +1647,7 @@ function frame(now: number) {
     cameraName: selected?.mount.name ?? "none",
     modelStatus: { box: "procedural box", loading: "loading goBILDA CAD…", loaded: "goBILDA CAD", failed: "CAD not found → box (see README)" }[robot.modelStatus],
     runtime: link.connected ? `${link.status}${link.currentOpMode ? " · " + link.currentOpMode : ""}${link.status === "INIT" ? " · press START to drive" : ""} · keyboard = gamepad${input.keyboardPad}${input.keyboardPad === 2 ? " (select Gamepad 1 in the control bar to switch)" : ""}` : "not connected",
-    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, qualityNotice && performance.now() < qualityNotice.untilMs ? qualityNotice.text : undefined, fps < 20 && !perfMode() ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: View & overlays → Visual quality → Performance` : undefined].filter(Boolean).join(" · ") || undefined,
+    notice: [performance.now() < launchBlockedUntil ? launchBlockedMsg : undefined, roleWarning, qualityNotice && performance.now() < qualityNotice.untilMs ? qualityNotice.text : undefined, (refreshTwinOnly(), twinOnlyCount && !ciMode ? `⚠ PHYSICAL ROBOT WILL NOT MATCH: ${twinOnlyCount} twin-computed value${twinOnlyCount === 1 ? "" : "s"} (power table, shot calibration…) are not in the TeamCode files · Runtime → Save to TeamCode` : undefined), fps < 20 && !perfMode() ? `${fps.toFixed(0)} fps${slowdown < 1 ? `, sim at ${Math.round(slowdown * 100)}% of real time` : ""}: View & overlays → Visual quality → Performance` : undefined].filter(Boolean).join(" · ") || undefined,
     noticeBad: performance.now() < launchBlockedUntil || !!roleWarning,
   });
 

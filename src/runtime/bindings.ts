@@ -17,6 +17,7 @@ import { intrinsicsFor } from "../robot/robot";
 import { startPose } from "../sim/starts";
 import { aimPoint, upCellFrame } from "../field/hive";
 import { solveSpeedAdaptive } from "../ballistics/solver";
+import { frameAimDir, monteCarlo } from "../ballistics/dispersion";
 import { rpmForExitSpeed, spinRate } from "../ballistics/launcher";
 import { BALL, m as inchesToM } from "../field/fieldSpec";
 
@@ -26,13 +27,13 @@ const IN = 0.0254;
  * target cell: the reference range (72 in when the shot is legal there, otherwise the nearest legal range) and the
  * flywheel power (required RPM / the flywheel motor's free RPM) that scores there. Bound into TeamCode's
  * shotRangeIn/shotPower, a hood sweep in the twin re-anchors the team's arc model automatically. */
-export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; aimInsideIn: number; aimHeightIn: number; minRangeIn?: number; powerTable?: { rangeIn: number; power: number }[] }
+export interface SolverCalibration { rangeIn: number; power: number; rpm: number; speedMps: number; entryAngleDeg: number; legal: boolean; aimInsideIn: number; aimHeightIn: number; minRangeIn?: number; /** Monte Carlo hit probability of the anchor shot under the twin's dispersion */ hitProbability?: number; powerTable?: { rangeIn: number; power: number; hitProbability: number }[] }
 let calCache: { key: string; value: SolverCalibration | undefined } | undefined;
 export function solverCalibration(state: AppState): SolverCalibration | undefined {
   const l = state.robot.launcher;
   const fly0 = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
   // the scans below cost a few hundred shot simulations: memoise on everything they depend on
-  const key = JSON.stringify([l.elevationDeg, l.efficiency, l.exitHeightM, l.wheelDiameterM, l.maxRpm, l.spinFraction, state.alliance, state.hive, state.ballKind, state.drag, fly0?.freeRpm]);
+  const key = JSON.stringify([l.elevationDeg, l.efficiency, l.exitHeightM, l.wheelDiameterM, l.maxRpm, l.spinFraction, state.alliance, state.hive, state.ballKind, state.drag, fly0?.freeRpm, state.noise]);
   if (calCache && calCache.key === key) return calCache.value;
   const value = solverCalibrationUncached(state);
   calCache = { key, value };
@@ -44,7 +45,7 @@ let calBehindCache: { key: string; value: SolverCalibration | undefined } | unde
 export function solverCalibrationBehind(state: AppState): SolverCalibration | undefined {
   const l = state.robot.launcher;
   const fly0 = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
-  const key = JSON.stringify([l.elevationDeg, l.efficiency, l.exitHeightM, l.wheelDiameterM, l.maxRpm, l.spinFraction, state.alliance, state.hive, state.ballKind, state.drag, fly0?.freeRpm]);
+  const key = JSON.stringify([l.elevationDeg, l.efficiency, l.exitHeightM, l.wheelDiameterM, l.maxRpm, l.spinFraction, state.alliance, state.hive, state.ballKind, state.drag, fly0?.freeRpm, state.noise]);
   if (calBehindCache && calBehindCache.key === key) return calBehindCache.value;
   const value = solverCalibrationSide(state, -1);
   calBehindCache = { key, value };
@@ -60,12 +61,21 @@ function solverCalibrationSide(state: AppState, sideSign: 1 | -1): SolverCalibra
   const fly = state.hardware.devices.find((d) => d.kind === "motor" && d.role === "flywheel");
   const freeRpm = fly?.freeRpm ?? l.maxRpm;
   const maxSpeed = (Math.PI * l.wheelDiameterM * l.maxRpm) / 60 * l.efficiency;
-  const tryRange = (rangeIn: number) => {
-    const ad = solveSpeedAdaptive(ball, { x: aim.x + sideSign * nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + sideSign * nz * rangeIn * IN }, frame, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2, spinRate(l));
+  // hit probability of a row's nominal shot under the session's dispersion (speed, elevation, yaw, spin noise): what
+  // the team code gates on when a table row carries it; 30 draws per row keeps a full table under a second
+  const hitProbability = (launchPos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }, speed: number) => {
+    try {
+      const mc = monteCarlo({ ball, launchPos, target, frame, spin: spinRate(l) }, { speed, elevationRad: (l.elevationDeg * Math.PI) / 180, dirXZ: frameAimDir(frame, launchPos, target), spin: spinRate(l) }, state.noise, 30, 7);
+      return Math.round(mc.pHit * 100) / 100;
+    } catch { return undefined; }
+  };
+  const tryRange = (rangeIn: number, withHit = false) => {
+    const launchPos = { x: aim.x + sideSign * nx * rangeIn * IN, y: l.exitHeightM, z: aim.z + sideSign * nz * rangeIn * IN };
+    const ad = solveSpeedAdaptive(ball, launchPos, frame, (l.elevationDeg * Math.PI) / 180, maxSpeed * 1.2, spinRate(l));
     const sol = ad.result;
     if (!sol || !sol.hit) return undefined;
     const rpm = rpmForExitSpeed(l, sol.speed);
-    return { rangeIn, power: Math.round((rpm / freeRpm) * 1000) / 1000, rpm: Math.round(rpm), speedMps: Math.round(sol.speed * 100) / 100, entryAngleDeg: Math.round(((sol.entryAngleRad ?? 0) * 180) / Math.PI), legal: rpm <= l.maxRpm, aimInsideIn: Math.round((ad.insideM / IN) * 100) / 100, aimHeightIn: Math.round((ad.target.y / IN) * 100) / 100 };
+    return { rangeIn, power: Math.round((rpm / freeRpm) * 1000) / 1000, rpm: Math.round(rpm), speedMps: Math.round(sol.speed * 100) / 100, entryAngleDeg: Math.round(((sol.entryAngleRad ?? 0) * 180) / Math.PI), legal: rpm <= l.maxRpm, hitProbability: withHit ? hitProbability(launchPos, ad.target, sol.speed) : undefined, aimInsideIn: Math.round((ad.insideM / IN) * 100) / 100, aimHeightIn: Math.round((ad.target.y / IN) * 100) / 100 };
   };
   const legalAt = (r: number) => { const s = tryRange(r); return s && s.legal ? s : undefined; };
   // smallest legal range: coarse 6 in scan from 24 in, then walk down in 2 in steps while shots stay legal (floor 6 in)
@@ -73,16 +83,16 @@ function solverCalibrationSide(state: AppState, sideSign: 1 | -1): SolverCalibra
   for (let r = 24; r <= 144; r += 6) { if (legalAt(r)) { minRangeIn = r; break; } }
   if (minRangeIn !== undefined) while (minRangeIn - 2 >= 6 && legalAt(minRangeIn - 2)) minRangeIn -= 2;
   // power table for TeamCode's interpolation: the minimum range, then every 12 in up to 120 in, legal shots only
-  const powerTable: { rangeIn: number; power: number }[] = [];
+  const powerTable: { rangeIn: number; power: number; hitProbability: number }[] = [];
   if (minRangeIn !== undefined) {
     const rows = [minRangeIn, ...Array.from({ length: 11 }, (_, i) => i * 12 + 12).filter((r) => r > minRangeIn && r <= 120)];
-    for (const r of rows) { const s = legalAt(r); if (s) powerTable.push({ rangeIn: r, power: s.power }); }
+    for (const r of rows) { const s = tryRange(r, true); if (s && s.legal) powerTable.push({ rangeIn: r, power: s.power, hitProbability: s.hitProbability ?? NaN }); }
   }
   const preferred = 72;
-  const first = tryRange(preferred);
+  const first = tryRange(preferred, true);
   if (first && first.legal) return { ...first, minRangeIn, powerTable };
   // nearest legal range to 72 in, 6 in steps, outward both ways
-  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = legalAt(r); if (s) return { ...s, minRangeIn, powerTable }; }
+  for (let d = 6; d <= 72; d += 6) for (const r of [preferred + d, preferred - d]) { if (r < 24 || r > 144) continue; const s = tryRange(r, true); if (s && s.legal) return { ...s, minRangeIn, powerTable }; }
   return first ? { ...first, minRangeIn, powerTable } : undefined;
 }
 export type Knob = number | string | boolean;
@@ -119,7 +129,7 @@ export function twinKnobs(state: AppState): Knobs {
   // solver-derived calibration for the current hood (see solverCalibration); absent keys when nothing scores
   try {
     const cal = solverCalibration(state);
-    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; if (cal.minRangeIn !== undefined) k["launcher.calibration.minRangeIn"] = cal.minRangeIn; if (cal.powerTable?.length) k["launcher.calibration.powerTable"] = cal.powerTable; }
+    if (cal) { k["launcher.calibration.rangeIn"] = cal.rangeIn; k["launcher.calibration.power"] = cal.power; if (cal.hitProbability !== undefined) k["launcher.calibration.hitProbability"] = cal.hitProbability; k["launcher.calibration.rpm"] = cal.rpm; k["launcher.calibration.speedMps"] = cal.speedMps; k["launcher.calibration.entryAngleDeg"] = cal.entryAngleDeg; k["launcher.calibration.legal"] = cal.legal; if (cal.minRangeIn !== undefined) k["launcher.calibration.minRangeIn"] = cal.minRangeIn; if (cal.powerTable?.length) k["launcher.calibration.powerTable"] = cal.powerTable; }
   } catch { /* geometry not available (tests with partial state) */ }
   // aim height: the opening centre pushed inside by a depth that follows the entry angle at the reference range (steep
   // arcs aim at the centre, flat ones deeper); hive.openingCenterHeightIn is the fixed geometry
