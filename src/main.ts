@@ -29,7 +29,7 @@ import { Panel } from "./ui/panel";
 import { MatchScoreView } from "./ui/matchScore";
 import { Workspace } from "./ui/workspace";
 import { Hud, type HudData } from "./ui/hud";
-import { hydrateState, loadState, saveState, serializeSettings, settingsDiffPaths, type AppState } from "./state";
+import { hydrateState, loadState, saveState, serializeSettings, setPersistence, settingsDiffPaths, type AppState } from "./state";
 import { evaluateShot, evaluateVelocity, scanElevations, type ShotResult, solveSpeedAdaptive } from "./ballistics/solver";
 import { exitSpeed, rpmForExitSpeed, spinRate } from "./ballistics/launcher";
 import { ReachJob } from "./ballistics/reachability";
@@ -56,7 +56,18 @@ import { analyseTags, cameraPoseOf } from "./camera/robotCamera";
 import { IN, clamp, mToIn, rad2deg, wrapAngle } from "./util/units";
 import { clonePreset, ROBOT_PRESETS } from "./robot/presets";
 
+// ?ci=1: headless test-bed mode (pnpm twin-test), see the block below and the render loop
+const ciMode = new URLSearchParams(location.search).get("ci") === "1";
 const state: AppState = loadState();
+// ?ci=1 (pnpm twin-test): a bare-bones view for the test bed only. Everything that is a picture, not physics, goes:
+// stadium, shadows, every overlay and the hit map, camera insets, CAD chassis (the footprint, mounts and launcher come
+// from the spec either way). These are forced on this page and never saved, so the human's shared settings are untouched.
+if (ciMode) {
+  setPersistence(false);
+  state.stadium = false; state.pip = false; state.opponentsCad = false; state.showPerf = false;
+  for (const k of Object.keys(state.overlays) as (keyof AppState["overlays"])[]) state.overlays[k] = false;
+  RobotObject.forceBox = true;
+}
 // `pnpm sim` opens the page with ?runtime=1 so the twin connects to the host straight away
 if (new URLSearchParams(location.search).get("runtime") === "1") state.runtimeEnabled = true;
 const launchedHostPort = new URLSearchParams(location.search).get('hostPort');
@@ -68,9 +79,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 // ?ci=1: headless test-bed mode (pnpm twin-test). Software GL renders a frame in ~200 ms, which would starve the
 // simulation loop; render the view only every few ticks at low resolution and drive the loop with a timer so the
 // physics, sensors and the OpMode see the same cadence as on a real display.
-const ciMode = new URLSearchParams(location.search).get("ci") === "1";
 renderer.setPixelRatio(ciMode ? 0.25 : Math.min(devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = !ciMode;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setScissorTest(false);
@@ -127,7 +137,7 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0x334455, 1.1);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
 sun.position.set(4, 8, 3);
-sun.castShadow = true;
+sun.castShadow = !ciMode;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = sun.shadow.camera.bottom = -3;
 sun.shadow.camera.right = sun.shadow.camera.top = 3;
@@ -459,6 +469,7 @@ function buildManifest() {
     physics: { ...state.physics, breakaway: breakawayNow(), scrubMuBand: state.physics.kind === "tiles" ? SCRUB_MU_BAND : undefined, note: state.physics.kind === "ideal" ? "kinematic drive: no friction, no stall; a command always moves the robot" : `estimated surface model: a turn command below ${Math.round(actuatorModel.breakaway.turn * 100)} % does not move this robot`.replace(/below \d+ %/, `below ${Math.round(breakawayNow().turn * 100)} %`) },
     feed: { ...state.feed, transitAt20PercentS: +transitSeconds(state.feed, 0.2).toFixed(2) },
     perception: { level: state.perception.level, faults: state.perception.level === "faults" ? state.perception.faults : undefined, tagCovers: state.tagCovers, tagNoiseIn: state.tagNoiseIn, note: PERCEPTION_LEVELS.find((l) => l.id === state.perception.level)?.note, unsupported: UNSUPPORTED_PERCEPTION },
+    render: ciMode ? "bare-bones (?ci=1): no stadium, shadows, overlays, hit map, camera insets or CAD chassis; physics and sensors unchanged" : "full",
     clock: { mode: "wall", note: "TeamCode timers are JVM wall clock; the twin steps physics per browser frame and sends sensors at 50 Hz. Check the run's simulated/wall ratio and packet holds before trusting a timing result." },
     bindings: { file: link.bindings?.path, errors: link.bound.errors, ignored: new URLSearchParams(location.search).get("nobind") === "1" },
     warnings: manifestWarnings(),
@@ -1278,7 +1289,7 @@ function frame(now: number) {
   const prevPose = state.pose;
   if (contactHolds()) { // kinematic drive (ideal profile, keyboard): no travel into the contact either
     const f = forwardVector(state.pose.heading), into = vel.vx * f.x + vel.vz * f.z;
-    if (Math.sign(into) === contactBlock.fwdSign) vel = { ...vel, vx: vel.vx - f.x * into, vz: vel.vz - f.z * into };
+    if (Math.sign(into) === contactBlock!.fwdSign) vel = { ...vel, vx: vel.vx - f.x * into, vz: vel.vz - f.z * into };
   }
   state.pose = stepPose(state.pose, vel, dt, footprintOf(state.robot), fieldObstacles(), WALL_MU[state.robot.drivetrain]);
   robot.setPose(state.pose);

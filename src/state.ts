@@ -251,6 +251,11 @@ function migrate(s: any): AppState {
     }
   }
 }
+/** Headless test runs (?ci=1) force a bare-bones view on their own page and must never write it back: the browser
+ * profile they run in is theirs, but a human opening ?ci=1 by hand must not have their settings replaced either. */
+let persist = true;
+export function setPersistence(on: boolean) { persist = on; }
 export function saveState(s: AppState) {
+  if (!persist) return;
   localStorage.setItem(KEY, JSON.stringify(s));
 }

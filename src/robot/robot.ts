@@ -165,9 +165,11 @@ export class RobotObject {
     }
   }
 
+  /** headless test runs draw every robot as the procedural box: the CAD is a look, the footprint and mounts come from the spec */
+  static forceBox = false;
   private rebuildChassis() {
     const spec = this.spec;
-    const key = spec.model;
+    const key = RobotObject.forceBox ? "box" : spec.model;
     if (key === "box" || !MODEL_URLS[key]) {
       this.chassis.clear();
       this.modelKey = "box";
