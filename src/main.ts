@@ -19,8 +19,8 @@ import { Perf } from "./ui/perf";
 import { setupUpdates } from "./pwa";
 import { BALL, FIELD, m, ZONES } from "./field/fieldSpec";
 import { RobotObject, intrinsicsFor } from "./robot/robot";
-import { Input } from "./sim/input";
-import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, forwardVector, maxYawRate, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
+import { Input, type Actions } from "./sim/input";
+import { commandToVelocity, stepPose, robotToWorld, headingToward, fieldObstacles, forwardVector, maxYawRate, type DriveCommand, type DriveParams, type Obstacle, type Pose, WALL_MU } from "./sim/drive";
 import { defaultScriptedRobots, stepScripted } from "./sim/opponents";
 import type { Footprint } from "./sim/drive";
 import type { RobotSpec } from "./robot/robotSpec";
@@ -1265,10 +1265,25 @@ function measureQuality(now: number, real: number, rendered: boolean) {
     panel.render();
   } else recorder.event(Date.now(), "note", `auto quality: ${autoFps} fps measured, full visuals kept`);
 }
+/** Held drive command from the last real tick, reused by catch-up passes (edge actions are consumed once per real tick). */
+let lastCmd: DriveCommand = { forward: 0, left: 0, turn: 0 };
+const NO_ACTIONS = {} as unknown as Actions; // every flag undefined = not pressed; `view` undefined = unchanged
+/** One wall-clock callback. A slow render (or any stall under 10 s) leaves a backlog: simulate it first in 100 ms
+ * light passes (physics, match clock, balls; no rendering, analysis or HUD), then run the real tick that renders.
+ * The OpMode's timers kept wall time through the stall, so the world must too; only a hidden tab or a stall over
+ * 10 s is dropped (and counted). */
 function frame(now: number) {
+  const gap = (now - last) / 1000;
+  if (recorder.cursor === undefined && gap > 0.15 && gap < 10) {
+    let t = last;
+    while (now - t > 150) { t += 100; frameBody(t, true); }
+  }
+  frameBody(now, false);
+}
+function frameBody(now: number, light: boolean) {
   const real = (now - last) / 1000;
   last = now;
-  frameInterval = real > 1 ? frameInterval : frameInterval * 0.9 + real * 0.1;
+  if (!light) frameInterval = real > 1 ? frameInterval : frameInterval * 0.9 + real * 0.1;
   // simulate the real elapsed time, capped so a background tab or a hitch does not teleport things. Below 10 fps the
   // simulation therefore runs slower than real time; the HUD says so.
   // scrubbing the timeline freezes the live simulation (dt 0) and draws the recorded moment instead
@@ -1276,13 +1291,14 @@ function frame(now: number) {
   // simulate the real time that passed, up to MAX_STEP_S per tick; what cannot be simulated is dropped and counted
   // (the sensor packets and the OpMode's loop see the same wall interval, so a long tick is a slow loop, not a teleport)
   const dt = replaying ? 0 : Math.min(MAX_STEP_S, real);
-  if (!replaying && real > dt && real < 60) { simDroppedS += real - dt; simDroppedSinceNoteS += real - dt; lastDropAt = now; }
+  if (!replaying && real > dt && real < 600) { simDroppedS += real - dt; simDroppedSinceNoteS += real - dt; lastDropAt = now; }
   if (!replaying) { secReal += real; secSim += dt; if (now - secAt >= 1000) { simRate = secReal > 0 ? Math.min(1, secSim / secReal) : 1; secReal = 0; secSim = 0; secAt = now; } }
   const fps = renderFps;
 
   // input & drive
   perf.begin();
-  const { cmd, actions } = input.poll();
+  const { cmd, actions } = light ? { cmd: lastCmd, actions: NO_ACTIONS } : input.poll();
+  if (!light) lastCmd = cmd;
   const manual = !link.running && recorder.cursor === undefined;
   if (manual) {
     const l = state.robot.launcher;
@@ -1485,6 +1501,9 @@ function frame(now: number) {
   matchScoreView.update(allianceScore(state.alliance), state.alliance, state.matchPhase ?? "setup", state.matchClock ?? MATCH_SECONDS,
     scoreRobots().filter(r => r.alliance === state.alliance).length, replaying, state.infiniteAmmo, { massKg: match.cellLoad(state.alliance).massKg, thresholdKg: state.tipMassG / 1000, tipping: !!match.hives[state.alliance].tipping, autoTip: state.autoTip });
   perf.mark("match");
+  updateFlying(dt);
+  perf.mark("balls");
+  if (light) return; // catch-up pass: the world advanced; pictures, analysis, HUD and sensors wait for the real tick
 
   // shot analysis
   const tf = targetFrame();
@@ -1522,8 +1541,6 @@ function frame(now: number) {
   state.shootRequest = false;
   while (pendingFires > 0) { pendingFires--; launch(exit, fireDir); }
   perf.mark("shot");
-  updateFlying(dt);
-  perf.mark("balls");
 
   // overlays
   perf.mark("analysis");
